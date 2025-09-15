@@ -1,0 +1,159 @@
+# RockyardKV .gitignore
+# Go project template + project-specific patterns
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Go binaries and build artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Project binaries (built by Makefile)
+bin/
+dist/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coverage, linting, and profiling
+# ─────────────────────────────────────────────────────────────────────────────
+
+coverage/
+.coverage/
+coverage.*
+*.coverprofile
+profile.cov
+*.prof
+*.pprof
+cpu.out
+mem.out
+block.out
+profiles/
+modernize-report.txt
+staticcheck-report.txt
+gocyclo-report.txt
+go-critic-report.txt
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Go workspace and vendor
+# ─────────────────────────────────────────────────────────────────────────────
+
+go.work
+go.work.sum
+
+# Uncomment to ignore vendor directory
+# vendor/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fuzz testing artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Fuzz corpus generated during testing
+# Note: Do NOT ignore testdata/fuzz if you want to persist found inputs
+# testdata/fuzz/
+
+# Temporary fuzz work directories
+fuzz-*/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Database test artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Temporary database directories created during testing
+tmp/
+rockyardkv-*/
+*.db/
+*.sst
+!testdata/**/*.sst
+
+# RocksDB lock files
+LOCK
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editor/IDE configurations
+# ─────────────────────────────────────────────────────────────────────────────
+
+# JetBrains IDEs
+.idea/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OS-specific files
+# ─────────────────────────────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Environment and secrets
+# ─────────────────────────────────────────────────────────────────────────────
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker testing artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+docker/logs/
+docker/data/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Miscellaneous
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.temp
+
+# Debug output
+debug/
+*.debug
+
+# Benchmark output
+*.bench
+
+# Cursor AI rules (project-specific)
+.cursorrules

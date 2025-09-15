@@ -1,0 +1,229 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  go: "1.25"
+  skip-dirs:
+    - tmp
+
+linters:
+  default: none
+  enable:
+    # Core correctness / dead code
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+
+    # Error & resource handling (high-signal in an embedded DB)
+    - errcheck
+    - errorlint
+    - nilerr
+    - nilnil
+    - bodyclose
+
+    # API / perf hygiene
+    - unparam
+    - unconvert
+
+    # Modern Go (Go 1.22+/1.25)
+    - intrange
+    - copyloopvar
+    - modernize
+
+    # Agent-hardening / code hygiene
+    - forbidigo
+
+    # Bug + correctness footguns
+    - durationcheck
+    - makezero
+    - wastedassign
+
+    # Dependency boundaries
+    - depguard
+
+    # Context handling
+    # - contextcheck
+    # - noctx
+    # - containedctx
+    # - fatcontext
+    # - paralleltest
+    # - tparallel
+
+    # Nolintlint
+    - nolintlint
+
+  settings:
+    govet:
+      enable-all: false
+      enable:
+        - assign
+        - atomic
+        - bools
+        - buildtag
+        - copylocks
+        - httpresponse
+        - loopclosure
+        - lostcancel
+        - nilfunc
+        - printf
+        - unmarshal
+        - unreachable
+        - unusedresult
+      disable:
+        - fieldalignment
+        - shadow
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      disable-default-exclusions: false
+      exclude-functions:
+        # Testing functions that never fail in practice
+        - (*testing.T).Log
+        - (*testing.T).Logf
+        - (*testing.T).Error
+        - (*testing.T).Errorf
+        - (*testing.T).Fatal
+        - (*testing.T).Fatalf
+        - (*testing.T).Skip
+        - (*testing.T).Skipf
+        # Print functions - stdout errors are not actionable
+        - fmt.Print
+        - fmt.Println
+        - fmt.Printf
+        - fmt.Fprint
+        - fmt.Fprintln
+        - fmt.Fprintf
+        # Buffer writes to memory - cannot fail
+        - (*bytes.Buffer).Write
+        - (*bytes.Buffer).WriteByte
+        - (*bytes.Buffer).WriteString
+        # Cleanup operations - best-effort, failure is acceptable
+        - os.RemoveAll
+        - os.Remove
+
+    staticcheck:
+      checks:
+        - all
+        - -SA9003  # Empty body in if/else - sometimes intentional for clarity
+
+    copyloopvar:
+      check-alias: true
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^fmt\.Print.*$'
+          msg: "No debug prints in DB/library code."
+          # Allowed in cmd/ via exclusion
+        - pattern: '^(print|println)$'
+          msg: "No debug prints in DB/library code."
+        - pattern: '^log\.Print.*$'
+          msg: "Avoid stdlib log in DB/library code (use your logger abstraction)."
+        - pattern: '^log\.Fatal.*$'
+          msg: "Do not call log.Fatal in library code."
+        - pattern: '^panic$'
+          msg: "No panics in DB engine code; return errors instead."
+          # Allowed in cmd/ via exclusion
+
+    depguard:
+      rules:
+        deny-deprecated:
+          files:
+            - "!$test"  # Don't check test files
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: "Use stdlib errors (Go 1.13+) instead of github.com/pkg/errors."
+            - pkg: golang.org/x/net/context
+              desc: "Use context from the standard library."
+            - pkg: io/ioutil
+              desc: "io/ioutil is deprecated; use os/io packages."
+
+    modernize: {}
+
+    nolintlint:
+      require-explanation: true
+      allow-unused: false
+
+  exclusions:
+    warn-unused: true
+    generated: lax
+    paths:
+      - "^tmp/"  # Temporary/scratch directory
+    rules:
+      # Test files: relax linters - test code doesn't need strict checking
+      - path: '(.+)_test\.go$'
+        linters:
+          - errcheck
+          - forbidigo
+          - unconvert
+          - unparam
+          - unused
+
+      # CLI tools (cmd/): relax most linters
+      # CLI tools are not library code - they handle errors by printing/exiting,
+      # cleanup operations don't need error handling, and style is less strict
+      - path: '^cmd/'
+        linters:
+          - forbidigo
+          - errcheck
+          - staticcheck
+          - unconvert
+          - unparam
+          - nolintlint
+
+      # Skip SA1019 (deprecated) - external API deprecations we can't control
+      - linters:
+          - staticcheck
+        text: "SA1019:"
+
+      # Skip ST1000 (package comments) - package is already documented in main files
+      # File-level comments are being incorrectly flagged
+      - linters:
+          - staticcheck
+        text: "ST1000:"
+
+      # Skip makezero - the flagged code is intentional (append to result slices)
+      - linters:
+          - makezero
+        path: "merge_operator.go"
+
+      # Skip nilerr/nilnil in backup.go and flush.go - intentional patterns for:
+      # - backup: returning default ID when no backups exist is not an error
+      # - flush: returning nil,nil when nothing to flush is correct
+      - linters:
+          - nilerr
+          - nilnil
+        path: "db/(backup|flush).go"
+
+      # Skip nilerr in cmd/ - CLI tools use return nil for context cancellation
+      - linters:
+          - nilerr
+        path: "^cmd/"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/aalhour/rockyardkv
+
+issues:
+  max-issues-per-linter: 0   # Report all issues
+  max-same-issues: 0
+  new: false
+  fix: false
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-issued-lines: true
+      print-linter-name: true
+  show-stats: true

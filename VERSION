@@ -1,0 +1,30 @@
+# RockyardKV Version Information
+
+## Go Port Version
+rockyardkv v0.1.0-dev
+
+## Pinned RocksDB Version
+RocksDB v10.7.5
+Commit: 812b12bc7
+Tag: v10.7.5
+Date: 2024
+
+## Compatibility
+This Go implementation is bit-compatible with RocksDB v10.7.5 on-disk formats.
+All file formats (SST, WAL, MANIFEST, OPTIONS, CURRENT) produced by this
+implementation can be read by RocksDB v10.7.5 and vice versa.
+
+## Verification
+To verify compatibility:
+1. Ensure ~/Workspace/rocksdb is checked out at v10.7.5:
+   cd ~/Workspace/rocksdb && git checkout v10.7.5
+2. Run cross-compatibility tests:
+   cd ~/Workspace/rockyardkv && go test ./... -tags=golden
+
+## Features Not Included (Post v10.7.5)
+The following features were added to RocksDB AFTER v10.7.5 and are
+intentionally NOT implemented:
+- kSubcompactionProgress (resumable compaction)
+- SubcompactionProgressPerLevel struct
+- SubcompactionProgress struct
+
