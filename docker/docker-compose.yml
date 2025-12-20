@@ -1,0 +1,77 @@
+# RockyardKV Docker Compose for Local Testing
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml build
+#   docker compose -f docker/docker-compose.yml run --rm go125-test
+#   docker compose -f docker/docker-compose.yml run --rm go125-stresstest
+#
+# Or use the helper script:
+#   ./docker/run-tests.sh
+#
+# Go Version Policy: Minimum Go 1.25 required.
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # Go 1.25 Test Environments
+  # ==========================================================================
+  go125-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+      args:
+        GO_VERSION: "1.25"
+    image: rockyardkv:go1.25
+    volumes:
+      - ./logs:/logs
+      - ./data:/data
+    command: test
+
+  go125-smoketest:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+      args:
+        GO_VERSION: "1.25"
+    image: rockyardkv:go1.25
+    volumes:
+      - ./logs:/logs
+      - ./data:/data
+    command: smoketest
+
+  go125-stresstest:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+      args:
+        GO_VERSION: "1.25"
+    image: rockyardkv:go1.25
+    volumes:
+      - ./logs:/logs
+      - ./data:/data
+    environment:
+      - STRESS_WORKERS=8
+      - STRESS_DURATION=120s
+    command: stresstest
+
+  # ==========================================================================
+  # All-in-one test runner
+  # ==========================================================================
+  all-tests:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+      args:
+        GO_VERSION: "1.25"
+    image: rockyardkv:go1.25
+    volumes:
+      - ./logs:/logs
+      - ./data:/data
+    command: >
+      sh -c "
+        echo '=== Running all tests ===' &&
+        /entrypoint.sh test &&
+        /entrypoint.sh smoketest &&
+        echo '=== All tests passed ==='
+      "
