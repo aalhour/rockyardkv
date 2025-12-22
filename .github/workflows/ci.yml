@@ -1,0 +1,171 @@
+# RockyardKV CI Pipeline
+#
+# This workflow runs on every push and PR to ensure code quality and compatibility.
+# We test on multiple platforms and Go versions per our support policy.
+#
+# Go Version Policy: We support Go 1.25+ (2 latest stable versions).
+# Current baseline: Go 1.25 (for sync.WaitGroup.Go and other features).
+# Reference: https://go.dev/doc/devel/release#policy
+
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+
+jobs:
+  # ==========================================================================
+  # Lint - Static analysis and code quality
+  # ==========================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # ==========================================================================
+  # Test Matrix - Multi-platform, multi-version testing
+  # ==========================================================================
+  test:
+    name: Test (Go ${{ matrix.go }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.25']
+        # Future: Add '1.26' when released to maintain 2-version support policy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -timeout 10m ./...
+
+      - name: Run short tests (CI fast path)
+        run: go test -short -timeout 5m ./...
+
+  # ==========================================================================
+  # Build Verification - Ensure all targets build
+  # ==========================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Build all commands
+        run: |
+          go build -v ./...
+          go build -v ./cmd/smoke
+          go build -v ./cmd/stress
+          go build -v ./cmd/ldb
+          go build -v ./cmd/sst_dump
+
+      - name: Cross-compile verification
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o /dev/null ./...
+          GOOS=linux GOARCH=arm64 go build -o /dev/null ./...
+          GOOS=darwin GOARCH=amd64 go build -o /dev/null ./...
+          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
+
+  # ==========================================================================
+  # Smoke Tests - End-to-end functionality verification
+  # ==========================================================================
+  smoke:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run smoke tests
+        run: |
+          go build -o ./bin/smoke ./cmd/smoke
+          ./bin/smoke -v
+
+  # ==========================================================================
+  # Stress Tests - Concurrent workload testing (runs on PRs to main only)
+  # ==========================================================================
+  stress:
+    name: Stress Tests
+    runs-on: ubuntu-latest
+    needs: [smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Run stress tests (10 workers, 30s)
+        run: |
+          go build -o ./bin/stress ./cmd/stress
+          timeout 120 ./bin/stress -workers=10 -duration=30s -v || true
+
+  # ==========================================================================
+  # Coverage - Code coverage reporting
+  # ==========================================================================
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Generate coverage
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.out
+          fail_ci_if_error: false
+
