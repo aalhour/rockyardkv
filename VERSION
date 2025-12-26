@@ -1,7 +1,7 @@
 # RockyardKV Version Information
 
 ## Go Port Version
-rockyardkv v0.1.0-dev
+rockyardkv v0.1.0
 
 ## Pinned RocksDB Version
 RocksDB v10.7.5
