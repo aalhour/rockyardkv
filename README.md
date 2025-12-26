@@ -1,27 +1,59 @@
+<p align="center">
+  <img src="assets/rockyardkv-logo.png" alt="RockyardKV" width="400">
+</p>
 
-# RockyardKV
+<p align="center">
+  A pure Go implementation of RocksDB (v10.7.5) with bit-compatible on-disk formats.
+</p>
 
-A pure Go implementation of RocksDB v10.7.5 with bit-compatible on-disk formats and full API parity.
+---
 
 ## Overview
 
 RockyardKV lets you read and write RocksDB databases from Go without CGo or C++ dependencies.
-The implementation maintains compatibility with RocksDB v10.7.5 at both the file format and API levels.
+
+**Status:** Core functionality works with verified format compatibility.
+API coverage is at 75% and actively expanding toward full parity.
 
 This project exists in respect and alignment with [RocksDB](https://github.com/facebook/rocksdb), the foundational storage engine that inspired this work.
 
 ## Features
 
+**Storage engine**
+
 - Bit-compatible SST, WAL, and MANIFEST file formats
-- LSM-tree storage with leveled and universal compaction
+- LSM-tree with leveled, universal, and FIFO compaction
 - Column families for data partitioning
 - Snapshots and iterators with MVCC isolation
+- Bloom filters for read optimization
+- Snappy, LZ4, Zstd, and Zlib compression
+
+**Write path**
+
 - Merge operators for incremental updates
 - Range deletions with efficient tombstone handling
-- Bloom filters for read optimization
-- Snappy, LZ4, and Zstd compression
+- SST file ingestion for bulk loading
+- Write stall control (L0 slowdown and stop triggers)
+
+**Transactions**
+
+- Optimistic transactions with conflict detection
 - Pessimistic transactions with two-phase commit
-- Backup and checkpoint APIs
+- Deadlock detection
+
+**Operations**
+
+- Backup engine with incremental support
+- Checkpoint for point-in-time snapshots
+- Compaction filters for custom filtering
+- TTL database with automatic expiration
+- Rate limiter for I/O throttling
+
+**Deployment modes**
+
+- Read-only mode for safe concurrent access
+- Secondary instances for read replicas
+- Direct I/O support for reduced cache pressure
 
 ## Installation
 
@@ -29,7 +61,7 @@ This project exists in respect and alignment with [RocksDB](https://github.com/f
 go get github.com/aalhour/rockyardkv
 ```
 
-Requires Go 1.21.5 or later.
+Requires Go 1.25 or later.
 
 ## Quick start
 
