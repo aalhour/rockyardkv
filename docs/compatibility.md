@@ -1,6 +1,6 @@
 # Compatibility
 
-This document describes RockyardKV's compatibility with C++ RocksDB.
+RockyardKV is bit-compatible with C++ RocksDB v10.7.5.
 
 ## Version pinning
 
@@ -13,11 +13,11 @@ Files created by RockyardKV can be opened by C++ RocksDB, and vice versa.
 
 | Format | Status | Notes |
 | ------ | ------ | ----- |
-| SST (BlockBasedTable) | Compatible | Full support for format_version 5 |
-| WAL | Compatible | RecordIO format with CRC32c |
-| MANIFEST | Compatible | VersionEdit encoding |
+| SST (BlockBasedTable) | Compatible | format_version 0, 3, 4, 5, 6 |
+| WAL | Compatible | RecordIO format with CRC32c checksums |
+| MANIFEST | Compatible | VersionEdit encoding with unknown tag preservation |
 | CURRENT | Compatible | Plain text pointer to MANIFEST |
-| OPTIONS | Read-only | Options files are parsed but not written |
+| OPTIONS | Read-only | Parsed but not written |
 
 ## API parity
 
@@ -84,7 +84,7 @@ RockyardKV implements the core RocksDB API:
 
 ## Advanced features
 
-The following features are implemented:
+RockyardKV supports:
 
 - BlobDB (separated values for large blobs)
 - Secondary instances (read replicas via `OpenAsSecondary`)
@@ -92,10 +92,10 @@ The following features are implemented:
 - Compaction filters (custom filtering during compaction)
 - Rate limiter (I/O throttling)
 - Block cache with configurable size
-- Direct I/O support
+- Direct I/O
 - User timestamps
 
-The following advanced features are not yet implemented:
+Not yet implemented:
 
 - Remote compaction (offloading to remote workers)
 - Statistics and metrics collection
@@ -111,29 +111,29 @@ The following advanced features are not yet implemented:
 | LZ4 | Supported |
 | LZ4HC | Supported |
 | Zstd | Supported |
-| Zlib | Not supported |
+| Zlib | Supported |
 | BZip2 | Not supported |
 
-## Verifying compatibility
+## Verify compatibility
 
-The golden test suite verifies compatibility by:
-
-1. Reading SST, WAL, and MANIFEST files created by C++ RocksDB
-1. Writing files and verifying C++ RocksDB can read them
-1. Comparing checksums and parsed values
-
-Run compatibility tests:
+Run the golden test suite to verify compatibility:
 
 ```bash
 make test-e2e-golden
 ```
 
-## Reporting issues
+The tests:
+
+1. Read SST, WAL, and MANIFEST files created by C++ RocksDB.
+1. Write files and verify C++ RocksDB can read them.
+1. Compare checksums and parsed values.
+
+## Report issues
 
 If you encounter a compatibility issue, open a GitHub issue with:
 
-1. RocksDB version used
-1. File that failed to open or parse
-1. Error message
-1. Steps to reproduce
+1. RocksDB version used.
+1. File that failed to open or parse.
+1. Error message.
+1. Steps to reproduce.
 
