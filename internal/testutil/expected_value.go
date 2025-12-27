@@ -573,9 +573,28 @@ func (es *ExpectedStateV2) SaveToFile(path string) error {
 	// Data
 	for i := range es.values {
 		// Persist a conservative snapshot: pending flags represent in-flight operations.
-		// Clearing them makes the on-disk oracle represent the last known committed state.
+		// If a key has a pending operation, we DON'T KNOW if the DB operation will complete
+		// before the crash. To be safe:
+		// - If pendingWriteMask is set: save as if the write will complete (clear deleted flag)
+		// - If pendingDeleteMask is set: save as if the delete will complete (set deleted flag)
+		// This ensures consistency: if the DB op completes before crash, we match.
+		// If it doesn't, we'll have a false positive during verify, but that's safer than
+		// a false negative (missing corruption).
 		v := es.values[i].Load()
-		v &^= (pendingWriteMask | pendingDeleteMask)
+		ev := ExpectedValue(v)
+
+		if ev.PendingWrite() {
+			// Assume the pending write will complete: clear deleted flag
+			v &^= (pendingWriteMask | pendingDeleteMask | deletedMask)
+		} else if ev.PendingDelete() {
+			// Assume the pending delete will complete: set deleted flag
+			v &^= (pendingWriteMask | pendingDeleteMask)
+			v |= deletedMask
+		} else {
+			// No pending operation, just strip the flags (they should be 0 anyway)
+			v &^= (pendingWriteMask | pendingDeleteMask)
+		}
+
 		putUint32(data[offset:], v)
 		offset += 4
 	}
