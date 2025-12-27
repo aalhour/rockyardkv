@@ -9,6 +9,7 @@ package compression
 
 import (
 	"bytes"
+	"compress/flate"
 	"compress/zlib"
 	"fmt"
 	"io"
@@ -155,9 +156,17 @@ func Decompress(t Type, data []byte) ([]byte, error) {
 		return snappy.Decode(nil, data)
 
 	case ZlibCompression:
-		r, err := zlib.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return nil, fmt.Errorf("zlib reader: %w", err)
+		// RocksDB uses raw deflate format (no zlib header) with windowBits = -14.
+		// Try raw deflate first (RocksDB's default), then fall back to zlib header format.
+		result, err := decompressRawDeflate(data)
+		if err == nil {
+			return result, nil
+		}
+		// Fall back to standard zlib (with header) for compatibility
+		r, zlibErr := zlib.NewReader(bytes.NewReader(data))
+		if zlibErr != nil {
+			// Return the original raw deflate error as it's more likely
+			return nil, fmt.Errorf("zlib decompress: raw deflate failed: %w", err)
 		}
 		defer func() { _ = r.Close() }()
 		return io.ReadAll(r)
@@ -187,4 +196,12 @@ func decompressZstd(data []byte) ([]byte, error) {
 	}
 	defer decoder.Close()
 	return decoder.DecodeAll(data, nil)
+}
+
+// decompressRawDeflate decompresses data using raw DEFLATE (no zlib header).
+// This matches RocksDB's zlib compression which uses windowBits = -14.
+func decompressRawDeflate(data []byte) ([]byte, error) {
+	r := flate.NewReader(bytes.NewReader(data))
+	defer func() { _ = r.Close() }()
+	return io.ReadAll(r)
 }

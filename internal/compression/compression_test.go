@@ -74,6 +74,26 @@ func TestZlibCompression(t *testing.T) {
 	}
 }
 
+// TestZlibRawDeflateCompatibility tests that we can decompress raw deflate
+// data (no zlib header) which is what RocksDB uses with windowBits = -14.
+func TestZlibRawDeflateCompatibility(t *testing.T) {
+	// This is raw deflate compressed data (no zlib header).
+	// Generated using: echo -n "hello" | python3 -c "import sys,zlib; sys.stdout.buffer.write(zlib.compress(sys.stdin.buffer.read())[2:-4])"
+	// The [2:-4] strips the 2-byte zlib header and 4-byte adler32 checksum.
+	rawDeflate := []byte{0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00}
+	expected := []byte("hello")
+
+	// Our Decompress function should handle raw deflate
+	result, err := Decompress(ZlibCompression, rawDeflate)
+	if err != nil {
+		t.Fatalf("Failed to decompress raw deflate: %v", err)
+	}
+
+	if !bytes.Equal(result, expected) {
+		t.Errorf("Decompressed = %q, want %q", result, expected)
+	}
+}
+
 func TestCompressionTypeString(t *testing.T) {
 	tests := []struct {
 		typ      Type
