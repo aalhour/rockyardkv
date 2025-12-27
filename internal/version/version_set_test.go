@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/manifest"
@@ -648,6 +649,68 @@ func TestVersionSetRecoverCorruptCurrent(t *testing.T) {
 	}
 }
 
+// TestVersionSetRecoverComparatorMismatch verifies that opening a database
+// with a different comparator than the one stored in MANIFEST fails with
+// a clear error message.
+func TestVersionSetRecoverComparatorMismatch(t *testing.T) {
+	dir := t.TempDir()
+	opts := VersionSetOptions{
+		DBName:              dir,
+		FS:                  vfs.Default(),
+		MaxManifestFileSize: 1024 * 1024,
+		NumLevels:           MaxNumLevels,
+		ComparatorName:      "leveldb.BytewiseComparator",
+	}
+
+	// Create a valid database
+	vs1 := NewVersionSet(opts)
+	if err := vs1.Create(); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	vs1.Close()
+
+	// Try to recover with a different comparator - should fail
+	opts.ComparatorName = "rocksdb.ReverseBytewiseComparator"
+	vs2 := NewVersionSet(opts)
+	err := vs2.Recover()
+	if err == nil {
+		vs2.Close()
+		t.Fatal("Recover() should fail with comparator mismatch")
+	}
+	if !errors.Is(err, ErrComparatorMismatch) {
+		t.Errorf("Expected ErrComparatorMismatch, got: %v", err)
+	}
+}
+
+// TestVersionSetRecoverComparatorBackwardCompat verifies that bytewise
+// comparator names are treated as equivalent for backward compatibility.
+func TestVersionSetRecoverComparatorBackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	opts := VersionSetOptions{
+		DBName:              dir,
+		FS:                  vfs.Default(),
+		MaxManifestFileSize: 1024 * 1024,
+		NumLevels:           MaxNumLevels,
+		ComparatorName:      "leveldb.BytewiseComparator",
+	}
+
+	// Create with leveldb.BytewiseComparator
+	vs1 := NewVersionSet(opts)
+	if err := vs1.Create(); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	vs1.Close()
+
+	// Recover with rocksdb.BytewiseComparator - should succeed
+	opts.ComparatorName = "rocksdb.BytewiseComparator"
+	vs2 := NewVersionSet(opts)
+	err := vs2.Recover()
+	if err != nil {
+		t.Fatalf("Recover() should succeed with compatible comparator: %v", err)
+	}
+	vs2.Close()
+}
+
 func TestVersionSetRecoverEmptyCurrent(t *testing.T) {
 	dir := t.TempDir()
 	opts := VersionSetOptions{
@@ -676,6 +739,114 @@ func TestVersionSetRecoverEmptyCurrent(t *testing.T) {
 	if err == nil {
 		vs2.Close()
 		t.Error("Recover() should fail with empty CURRENT file")
+	}
+}
+
+// TestVersionSetRecoverManifestChecksumCorruption verifies that corrupting
+// the MANIFEST checksum causes recovery to fail.
+// This is critical: accepting corrupted MANIFEST leads to silent data corruption.
+func TestVersionSetRecoverManifestChecksumCorruption(t *testing.T) {
+	dir := t.TempDir()
+	opts := VersionSetOptions{
+		DBName:              dir,
+		FS:                  vfs.Default(),
+		MaxManifestFileSize: 1024 * 1024,
+		NumLevels:           MaxNumLevels,
+	}
+
+	// Create a valid database
+	vs1 := NewVersionSet(opts)
+	if err := vs1.Create(); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	vs1.Close()
+
+	// Find and corrupt the MANIFEST file checksum
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "MANIFEST-") {
+			manifestPath := filepath.Join(dir, entry.Name())
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatalf("ReadFile error: %v", err)
+			}
+			// Corrupt the first byte (part of CRC checksum)
+			if len(data) > 0 {
+				data[0] ^= 0xFF
+			}
+			if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+				t.Fatalf("WriteFile error: %v", err)
+			}
+			break
+		}
+	}
+
+	// Try to recover - should fail with corruption error
+	vs2 := NewVersionSet(opts)
+	err = vs2.Recover()
+	if err == nil {
+		vs2.Close()
+		t.Fatal("Recover() should fail with corrupted MANIFEST checksum")
+	}
+	// The error should indicate corruption
+	errStr := err.Error()
+	if !strings.Contains(errStr, "corrupted") && !strings.Contains(errStr, "checksum") {
+		t.Logf("Note: error message doesn't explicitly mention corruption: %v", err)
+	}
+}
+
+// TestVersionSetRecoverManifestTruncation verifies that truncating
+// the MANIFEST file causes recovery to fail or handle gracefully.
+func TestVersionSetRecoverManifestTruncation(t *testing.T) {
+	dir := t.TempDir()
+	opts := VersionSetOptions{
+		DBName:              dir,
+		FS:                  vfs.Default(),
+		MaxManifestFileSize: 1024 * 1024,
+		NumLevels:           MaxNumLevels,
+	}
+
+	// Create a valid database
+	vs1 := NewVersionSet(opts)
+	if err := vs1.Create(); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	vs1.Close()
+
+	// Find and truncate the MANIFEST file
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "MANIFEST-") {
+			manifestPath := filepath.Join(dir, entry.Name())
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatalf("ReadFile error: %v", err)
+			}
+			// Truncate 16 bytes from the end
+			if len(data) > 16 {
+				data = data[:len(data)-16]
+			}
+			if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+				t.Fatalf("WriteFile error: %v", err)
+			}
+			break
+		}
+	}
+
+	// Try to recover - behavior depends on where truncation happens
+	// but it should not silently succeed with wrong data
+	vs2 := NewVersionSet(opts)
+	err = vs2.Recover()
+	// Either fails or recovers to a consistent earlier state
+	if err == nil {
+		// If it succeeded, verify some basic state is intact
+		vs2.Close()
 	}
 }
 

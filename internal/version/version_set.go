@@ -47,7 +47,15 @@ type VersionSetOptions struct {
 
 	// NumLevels is the number of levels in the LSM tree.
 	NumLevels int
+
+	// ComparatorName is the name of the comparator used by the database.
+	// This is validated against the comparator stored in the MANIFEST.
+	// If empty, defaults to "leveldb.BytewiseComparator".
+	ComparatorName string
 }
+
+// ErrComparatorMismatch indicates that the database was created with a different comparator.
+var ErrComparatorMismatch = errors.New("version: comparator mismatch")
 
 // DefaultVersionSetOptions returns default options.
 func DefaultVersionSetOptions(dbname string) VersionSetOptions {
@@ -241,9 +249,11 @@ func (vs *VersionSet) Recover() error {
 		return err
 	}
 
-	// Parse MANIFEST records
+	// Parse MANIFEST records with strict checksum validation.
+	// Unlike WAL recovery which may tolerate some corruption modes,
+	// MANIFEST corruption is always fatal - we cannot trust metadata.
 	builder := NewBuilder(vs, nil)
-	reader := wal.NewReader(bytes.NewReader(manifestData), nil, false, manifestNum)
+	reader := wal.NewStrictReader(bytes.NewReader(manifestData), nil, manifestNum)
 
 	hasComparator := false
 	hasLogNumber := false
@@ -292,7 +302,16 @@ func (vs *VersionSet) Recover() error {
 		// Extract state from edit
 		if edit.HasComparator {
 			hasComparator = true
-			// TODO: verify comparator name matches
+			// Validate comparator name matches the one we're using.
+			// Allow "leveldb.BytewiseComparator" to match "rocksdb.BytewiseComparator" for backward compat.
+			expectedName := vs.opts.ComparatorName
+			if expectedName == "" {
+				expectedName = "leveldb.BytewiseComparator"
+			}
+			if !comparatorNamesMatch(edit.Comparator, expectedName) {
+				return fmt.Errorf("%w: database uses %q, but opening with %q",
+					ErrComparatorMismatch, edit.Comparator, expectedName)
+			}
 		}
 		if edit.HasLogNumber {
 			hasLogNumber = true
@@ -611,4 +630,22 @@ func (vs *VersionSet) NumLevelBytes(level int) uint64 {
 		return 0
 	}
 	return vs.current.NumLevelBytes(level)
+}
+
+// comparatorNamesMatch checks if two comparator names are compatible.
+// This handles backward compatibility between leveldb and rocksdb names.
+func comparatorNamesMatch(diskName, optName string) bool {
+	if diskName == optName {
+		return true
+	}
+	// Handle backward compatibility: leveldb.BytewiseComparator == rocksdb.BytewiseComparator
+	bytewiseNames := map[string]bool{
+		"leveldb.BytewiseComparator":        true,
+		"rocksdb.BytewiseComparator":        true,
+		"RocksDB.BytewiseComparator":        true,
+		"leveldb.ReverseBytewiseComparator": false, // Not compatible with bytewise
+	}
+	diskIsBytewise := bytewiseNames[diskName]
+	optIsBytewise := bytewiseNames[optName]
+	return diskIsBytewise && optIsBytewise
 }
