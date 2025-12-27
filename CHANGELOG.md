@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2024-12-27
+
+### Fixed
+- Zlib compression now uses raw deflate format matching RocksDB (Go→C++ compatibility)
+- Compressed blocks include varint32 size prefix for format_version≥2 (compress_format_version=2)
+- Metaindex entries sorted for Format V6+ C++ compatibility (Issue 3)
+- Legacy footer encoding buffer offset math corrected (Issue 4)
+- Background errors tracked instead of silent failures (Issue 10)
+- Live-file APIs delegated properly in read-only and secondary modes (Issue 11)
+- Flush waits for immutable memtable instead of returning error (Issue 12)
+- Crash test race condition in expected state persistence
+
+### Added
+- Format V6 context checksum infrastructure
+- Golden tests for zlib compression (`TestGoWritesCppReads_ZlibCompression`, `TestGoReadsZlibCompressedSST`)
+- Consolidated golden tests into `cmd/goldentest/` package
+
+### Changed
+- `compression.Compress()` uses `flate.NewWriter` instead of `zlib.NewWriter` for raw deflate output
+- `ExpectedStateV2.SaveToFile()` assumes pending operations will complete for crash consistency
+- CI workflow and test fixtures updated
+
 ## [0.1.1] - 2024-12-27
 
 ### Fixed
