@@ -29,6 +29,7 @@ import (
 
 	"github.com/aalhour/rockyardkv/db"
 	"github.com/aalhour/rockyardkv/internal/batch"
+	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
 // Configuration
@@ -39,6 +40,8 @@ var (
 	duration     = flag.Duration("duration", 0, "Test duration (0 = auto based on mode)")
 	keepTempDirs = flag.Bool("keep", false, "Keep temporary directories for debugging")
 	cleanup      = flag.Bool("cleanup", false, "Clean up old test directories before running")
+	runDir       = flag.String("run-dir", "", "Directory for artifact collection on failure (default: none)")
+	seed         = flag.Int64("seed", 0, "Random seed for reproducibility (0 = time-based)")
 )
 
 const adversarialTestDirPrefix = "rockyard-adversarial-"
@@ -61,6 +64,12 @@ var globalStats stats
 
 func main() {
 	flag.Parse()
+
+	// Initialize seed
+	actualSeed := *seed
+	if actualSeed == 0 {
+		actualSeed = time.Now().UnixNano()
+	}
 
 	// Clean up old test directories if requested
 	if *cleanup {
@@ -91,6 +100,24 @@ func main() {
 
 	startTime := time.Now()
 
+	// Setup artifact bundle for failure collection (if run-dir specified)
+	var artifactBundle *testutil.ArtifactBundle
+	if *runDir != "" {
+		var err error
+		artifactBundle, err = testutil.NewArtifactBundle(*runDir, "adversarialtest", actualSeed)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to create artifact bundle: %v\n", err)
+		} else {
+			artifactBundle.SetFlags(map[string]any{
+				"long":     *longMode,
+				"category": *category,
+				"threads":  numThreads,
+				"duration": testDuration.String(),
+				"seed":     actualSeed,
+			})
+		}
+	}
+
 	// Run test categories
 	categories := getCategories(*category)
 	results := make([]testResult, 0)
@@ -106,7 +133,19 @@ func main() {
 
 	// Exit code
 	if globalStats.failed.Load() > 0 {
+		if artifactBundle != nil {
+			failErr := fmt.Errorf("failed tests: %d", globalStats.failed.Load())
+			if bundleErr := artifactBundle.RecordFailure(failErr, elapsed); bundleErr != nil {
+				fmt.Printf("⚠️  Artifact collection error: %v\n", bundleErr)
+			} else {
+				fmt.Printf("📦 Artifacts collected at: %s\n", artifactBundle.RunDir)
+			}
+		}
 		os.Exit(1)
+	}
+
+	if artifactBundle != nil {
+		artifactBundle.RecordSuccess(elapsed)
 	}
 }
 

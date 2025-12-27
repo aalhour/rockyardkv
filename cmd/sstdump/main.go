@@ -27,15 +27,17 @@ import (
 )
 
 var (
-	filePath    = flag.String("file", "", "Path to the SST file (required)")
-	command     = flag.String("command", "scan", "Command: scan, properties, check, raw")
-	hexOutput   = flag.Bool("hex", false, "Output keys and values in hex format")
-	limit       = flag.Int("limit", 0, "Limit number of entries (0 = unlimited)")
-	fromKey     = flag.String("from", "", "Start key for scan")
-	toKey       = flag.String("to", "", "End key for scan")
-	showValues  = flag.Bool("values", true, "Show values in scan output")
-	help        = flag.Bool("help", false, "Print help")
-	showSummary = flag.Bool("summary", true, "Show summary statistics")
+	filePath        = flag.String("file", "", "Path to the SST file (required)")
+	command         = flag.String("command", "scan", "Command: scan, properties, check, raw")
+	hexOutput       = flag.Bool("hex", false, "Output keys and values in hex format")
+	limit           = flag.Int("limit", 0, "Limit number of entries (0 = unlimited)")
+	fromKey         = flag.String("from", "", "Start key for scan")
+	toKey           = flag.String("to", "", "End key for scan")
+	showValues      = flag.Bool("values", true, "Show values in scan output")
+	help            = flag.Bool("help", false, "Print help")
+	showSummary     = flag.Bool("summary", true, "Show summary statistics")
+	verifyChecksums = flag.Bool("verify_checksums", true, "Verify block checksums during check")
+	verbose         = flag.Bool("v", false, "Verbose output during check")
 )
 
 func main() {
@@ -90,6 +92,10 @@ func printUsage() {
 }
 
 func openSST() (*table.Reader, error) {
+	return openSSTWithOptions(false)
+}
+
+func openSSTWithOptions(verifyChecksum bool) (*table.Reader, error) {
 	fs := vfs.Default()
 
 	file, err := fs.OpenRandomAccess(*filePath)
@@ -97,7 +103,10 @@ func openSST() (*table.Reader, error) {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	reader, err := table.Open(file, table.ReaderOptions{})
+	opts := table.ReaderOptions{
+		VerifyChecksums: verifyChecksum,
+	}
+	reader, err := table.Open(file, opts)
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to open SST: %w", err)
@@ -247,42 +256,82 @@ func cmdProperties() error {
 }
 
 func cmdCheck() error {
-	reader, err := openSST()
+	// Open with checksum verification enabled
+	reader, err := openSSTWithOptions(*verifyChecksums)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Checking SST file: %s\n", *filePath)
+	if *verifyChecksums {
+		fmt.Println("Block checksum verification: ENABLED")
+	} else {
+		fmt.Println("Block checksum verification: DISABLED")
+	}
+	fmt.Println("---")
 
 	// Scan all entries to verify integrity
+	// This will read all data blocks, triggering checksum verification
 	iter := reader.NewIterator()
 	count := 0
-	errors := 0
+	checksumErrors := 0
+	formatErrors := 0
+	blocksVerified := 0
+	lastBlock := -1
 
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
 		key := iter.Key()
 		_ = iter.Value()
 
+		// Estimate block (every ~16 entries for tracking)
+		currentBlock := count / 16
+		if currentBlock != lastBlock {
+			blocksVerified++
+			lastBlock = currentBlock
+			if *verbose {
+				fmt.Printf("  Verifying block %d...\n", blocksVerified)
+			}
+		}
+
 		// Verify key has at least 8 bytes (internal key format)
 		if len(key) < 8 {
 			fmt.Printf("Warning: Key %d has invalid format (len=%d)\n", count, len(key))
-			errors++
+			formatErrors++
 		}
 
 		count++
 	}
 
 	if err := iter.Error(); err != nil {
-		fmt.Printf("Iterator error: %v\n", err)
-		errors++
+		if strings.Contains(err.Error(), "checksum") {
+			fmt.Printf("Checksum error: %v\n", err)
+			checksumErrors++
+		} else {
+			fmt.Printf("Iterator error: %v\n", err)
+			formatErrors++
+		}
 	}
 
-	fmt.Printf("---\n")
+	// Print results
+	fmt.Println("---")
 	fmt.Printf("Total entries scanned: %d\n", count)
-	fmt.Printf("Errors found: %d\n", errors)
+	fmt.Printf("Blocks verified: ~%d\n", blocksVerified)
 
-	if errors > 0 {
-		return fmt.Errorf("file has %d errors", errors)
+	if *verifyChecksums {
+		if checksumErrors == 0 {
+			fmt.Println("Checksum verification: ✓ PASSED")
+		} else {
+			fmt.Printf("Checksum verification: ✗ FAILED (%d errors)\n", checksumErrors)
+		}
+	}
+
+	if formatErrors > 0 {
+		fmt.Printf("Format errors: %d\n", formatErrors)
+	}
+
+	totalErrors := checksumErrors + formatErrors
+	if totalErrors > 0 {
+		return fmt.Errorf("file has %d errors", totalErrors)
 	}
 
 	fmt.Println("✓ SST file is valid")

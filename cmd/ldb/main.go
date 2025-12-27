@@ -22,15 +22,19 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/internal/wal"
 )
 
 var (
@@ -42,6 +46,7 @@ var (
 	toKey           = flag.String("to", "", "End key for scan")
 	help            = flag.Bool("help", false, "Print help")
 	createIfMissing = flag.Bool("create_if_missing", false, "Create database if it doesn't exist")
+	verbose         = flag.Bool("v", false, "Verbose output for manifest_dump")
 )
 
 func main() {
@@ -370,9 +375,122 @@ func cmdManifestDump() error {
 	fmt.Printf("Size: %d bytes\n", info.Size())
 	fmt.Printf("Modified: %s\n", info.ModTime())
 
-	// For a full implementation, we would parse the MANIFEST records
-	// This is a simplified version that just shows file info
-	fmt.Println("\n(Full MANIFEST parsing would show version edits)")
+	// Open and parse the MANIFEST file
+	file, err := fs.Open(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to open MANIFEST: %w", err)
+	}
+	defer file.Close()
+
+	reader := wal.NewReader(file, nil, true, 0)
+	editCount := 0
+	totalNewFiles := 0
+	totalDeletedFiles := 0
+	var lastSeqNum manifest.SequenceNumber
+	var comparatorName string
+
+	fmt.Println("\nVersion Edits:")
+	fmt.Println("---")
+
+	for {
+		record, err := reader.ReadRecord()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			// Continue reading past errors to show as much as possible
+			fmt.Printf("  [Edit %d] Error reading record: %v\n", editCount+1, err)
+			break
+		}
+
+		ve := &manifest.VersionEdit{}
+		if err := ve.DecodeFrom(record); err != nil {
+			fmt.Printf("  [Edit %d] Error decoding: %v\n", editCount+1, err)
+			continue
+		}
+
+		editCount++
+
+		if ve.HasComparator {
+			comparatorName = ve.Comparator
+		}
+		if ve.HasLastSequence {
+			lastSeqNum = ve.LastSequence
+		}
+
+		// Count files
+		newFiles := len(ve.NewFiles)
+		deletedFiles := len(ve.DeletedFiles)
+		totalNewFiles += newFiles
+		totalDeletedFiles += deletedFiles
+
+		if *verbose {
+			// Verbose output: show all details
+			fmt.Printf("  [Edit %d]\n", editCount)
+			if ve.HasComparator {
+				fmt.Printf("    Comparator: %s\n", ve.Comparator)
+			}
+			if ve.HasLogNumber {
+				fmt.Printf("    LogNumber: %d\n", ve.LogNumber)
+			}
+			if ve.HasNextFileNumber {
+				fmt.Printf("    NextFileNumber: %d\n", ve.NextFileNumber)
+			}
+			if ve.HasLastSequence {
+				fmt.Printf("    LastSequence: %d\n", ve.LastSequence)
+			}
+			if ve.HasColumnFamily {
+				fmt.Printf("    ColumnFamily: %d\n", ve.ColumnFamily)
+			}
+			if ve.ColumnFamilyName != "" {
+				fmt.Printf("    ColumnFamilyName: %s\n", ve.ColumnFamilyName)
+			}
+			if newFiles > 0 {
+				fmt.Printf("    NewFiles: %d\n", newFiles)
+				for _, nf := range ve.NewFiles {
+					fmt.Printf("      Level %d: File %d (%d bytes)\n",
+						nf.Level, nf.Meta.FD.GetNumber(), nf.Meta.FD.FileSize)
+				}
+			}
+			if deletedFiles > 0 {
+				fmt.Printf("    DeletedFiles: %d\n", deletedFiles)
+				for _, df := range ve.DeletedFiles {
+					fmt.Printf("      Level %d: File %d\n", df.Level, df.FileNumber)
+				}
+			}
+		} else {
+			// Compact output: one line per edit
+			parts := []string{fmt.Sprintf("[Edit %d]", editCount)}
+			if ve.HasLogNumber {
+				parts = append(parts, fmt.Sprintf("log=%d", ve.LogNumber))
+			}
+			if ve.HasLastSequence {
+				parts = append(parts, fmt.Sprintf("seq=%d", ve.LastSequence))
+			}
+			if newFiles > 0 {
+				parts = append(parts, fmt.Sprintf("+%d files", newFiles))
+			}
+			if deletedFiles > 0 {
+				parts = append(parts, fmt.Sprintf("-%d files", deletedFiles))
+			}
+			fmt.Println("  " + strings.Join(parts, ", "))
+		}
+
+		if *limit > 0 && editCount >= *limit {
+			break
+		}
+	}
+
+	// Summary
+	fmt.Println("\nSummary:")
+	fmt.Println("---")
+	fmt.Printf("Total Edits: %d\n", editCount)
+	fmt.Printf("Total New Files: %d\n", totalNewFiles)
+	fmt.Printf("Total Deleted Files: %d\n", totalDeletedFiles)
+	if comparatorName != "" {
+		fmt.Printf("Comparator: %s\n", comparatorName)
+	}
+	fmt.Printf("Last Sequence: %d\n", lastSeqNum)
 
 	return nil
 }
