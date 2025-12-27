@@ -583,7 +583,10 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 }
 
 func runWorker(threadID int, holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats, stop chan struct{}) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(threadID*1000)))
+	// Derive per-thread seed from the global seed for reproducibility.
+	// This ensures that when crashtest passes -seed=N, all worker threads
+	// produce deterministic behavior that can be reproduced.
+	rng := rand.New(rand.NewSource(*seed + int64(threadID*1000)))
 	totalWeight := *putWeight + *getWeight + *deleteWeight + *batchWeight + *iterWeight + *snapshotWeight +
 		*rangeDelWeight + *mergeWeight + *ingestWeight + *transactionWeight + *compactWeight + *snapshotVerifyWeight + *cfWeight
 

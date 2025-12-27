@@ -112,6 +112,9 @@ func printBanner() {
 		*duration, *crashInterval, *seed)
 	fmt.Printf("║ Kill Mode: %-8s  Threads: %-4d  Keys: %-8d                 ║\n",
 		*killMode, *stressThreads, *stressKeys)
+	fmt.Println("╠══════════════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║ Repro: -seed=%d -duration=%s -interval=%s        ║\n",
+		*seed, *duration, *crashInterval)
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 }
@@ -230,12 +233,18 @@ func calculateCrashInterval() time.Duration {
 }
 
 func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, crashAfter time.Duration, stats *Stats) error {
+	// Derive a reproducible seed for this cycle.
+	// Using the base seed + cycle number ensures each cycle is deterministic
+	// when the same base seed is provided.
+	cycleSeed := *seed + int64(stats.cycles)
+
 	// Build stress command
 	stressArgs := []string{
 		"-db", testDir,
 		"-duration", "10m", // Long duration, we'll kill it
 		"-threads", fmt.Sprintf("%d", *stressThreads),
 		"-keys", fmt.Sprintf("%d", *stressKeys),
+		"-seed", fmt.Sprintf("%d", cycleSeed), // Pass derived seed for reproducibility
 		"-reopen", "0", // Disable reopens during stress phase
 		"-flush", "2s", // Frequent flushes
 		"-expected-state", expectedStateFile, // Persistent expected state
@@ -297,12 +306,16 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 }
 
 func runVerification(ctx context.Context, testDir, expectedStateFile string, stats *Stats) error {
+	// Derive verification seed (same pattern as stress for reproducibility)
+	verifySeed := *seed + int64(stats.cycles) + 1000000 // Offset to differentiate from stress
+
 	// Run stress test in verify-only mode
 	stressArgs := []string{
 		"-db", testDir,
 		"-duration", "5s", // Short duration for verification
 		"-threads", "1", // Single thread for verification
 		"-keys", fmt.Sprintf("%d", *stressKeys),
+		"-seed", fmt.Sprintf("%d", verifySeed), // Pass derived seed for reproducibility
 		"-verify-every", "1", // Verify everything
 		"-reopen", "0",
 		"-expected-state", expectedStateFile, // Load persisted expected state

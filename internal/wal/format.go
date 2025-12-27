@@ -25,6 +25,12 @@
 // CRC is computed over Type + [LogNo] + Payload and masked using crc32c.Mask().
 package wal
 
+import (
+	"fmt"
+
+	"github.com/aalhour/rockyardkv/internal/encoding"
+)
+
 // BlockSize is the size of each block in the log file.
 // Records are written within these blocks, with padding at the end if needed.
 const BlockSize = 32768
@@ -129,7 +135,7 @@ func ToRecyclable(t RecordType) RecordType {
 }
 
 // ToLegacy converts a recyclable record type to its legacy equivalent.
-// Returns the same type if already legacy or not a fragment type.
+// Returns the same type if already legacy or not a convertible type.
 func ToLegacy(t RecordType) RecordType {
 	switch t {
 	case RecyclableFullType:
@@ -140,9 +146,67 @@ func ToLegacy(t RecordType) RecordType {
 		return MiddleType
 	case RecyclableLastType:
 		return LastType
+	case RecyclePredecessorWALInfoType:
+		return PredecessorWALInfoType
 	default:
 		return t
 	}
+}
+
+// IsPredecessorWALInfoType returns true if the record type is a predecessor WAL info type.
+func IsPredecessorWALInfoType(t RecordType) bool {
+	return t == PredecessorWALInfoType || t == RecyclePredecessorWALInfoType
+}
+
+// =============================================================================
+// PredecessorWALInfo
+// =============================================================================
+
+// PredecessorWALInfo contains information about the predecessor WAL file.
+// This is used to verify WAL sequence continuity during recovery.
+//
+// The record format is:
+//   - log_number: fixed64 (predecessor WAL file number)
+//   - size_bytes: fixed64 (size of predecessor WAL file)
+//   - last_seqno_recorded: fixed64 (last sequence number in predecessor WAL)
+//
+// Reference: RocksDB v10.7.5 db/dbformat.h class PredecessorWALInfo
+type PredecessorWALInfo struct {
+	LogNumber         uint64 // Predecessor WAL file number
+	SizeBytes         uint64 // Size of predecessor WAL in bytes
+	LastSeqnoRecorded uint64 // Last sequence number recorded in predecessor WAL
+}
+
+// PredecessorWALInfoSize is the size of an encoded PredecessorWALInfo record.
+const PredecessorWALInfoSize = 24 // 3 * 8 bytes
+
+// DecodePredecessorWALInfo decodes a PredecessorWALInfo from a byte slice.
+// Returns an error if the slice is too short.
+func DecodePredecessorWALInfo(data []byte) (*PredecessorWALInfo, error) {
+	if len(data) < PredecessorWALInfoSize {
+		return nil, fmt.Errorf("PredecessorWALInfo too short: got %d, want %d", len(data), PredecessorWALInfoSize)
+	}
+
+	info := &PredecessorWALInfo{
+		LogNumber:         encoding.DecodeFixed64(data[0:8]),
+		SizeBytes:         encoding.DecodeFixed64(data[8:16]),
+		LastSeqnoRecorded: encoding.DecodeFixed64(data[16:24]),
+	}
+	return info, nil
+}
+
+// EncodeTo encodes the PredecessorWALInfo to a byte slice.
+func (p *PredecessorWALInfo) EncodeTo(dst []byte) []byte {
+	dst = encoding.AppendFixed64(dst, p.LogNumber)
+	dst = encoding.AppendFixed64(dst, p.SizeBytes)
+	dst = encoding.AppendFixed64(dst, p.LastSeqnoRecorded)
+	return dst
+}
+
+// String returns a string representation of PredecessorWALInfo.
+func (p *PredecessorWALInfo) String() string {
+	return fmt.Sprintf("PredecessorWALInfo{LogNumber: %d, SizeBytes: %d, LastSeqno: %d}",
+		p.LogNumber, p.SizeBytes, p.LastSeqnoRecorded)
 }
 
 // String returns the string representation of a RecordType.

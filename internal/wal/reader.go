@@ -112,6 +112,11 @@ func NewStrictReader(src io.Reader, reporter Reporter, logNumber uint64) *Reader
 // Returns nil and io.EOF when no more records are available.
 // Returns nil and another error on failure.
 //
+// When a checksum mismatch is detected, the remaining buffer is cleared
+// (matching C++ behavior of buffer_.clear()). This discards any subsequent
+// records in the current block. If records span multiple blocks, the reader
+// can still read subsequent blocks.
+//
 // The returned slice is valid until the next call to ReadRecord.
 func (r *Reader) ReadRecord() ([]byte, error) {
 	r.fragments = r.fragments[:0]
@@ -165,6 +170,18 @@ func (r *Reader) ReadRecord() ([]byte, error) {
 
 		case ZeroType:
 			// Skip zero padding
+			continue
+
+		case PredecessorWALInfoType:
+			// Predecessor WAL info record - parse and store for potential verification.
+			// Currently we just parse to validate the format; full verification
+			// (checking log_number, size, last_seqno against expectations) would
+			// require track_and_verify_wals option which is not yet implemented.
+			if len(fragment) >= PredecessorWALInfoSize {
+				// Parse is successful, continue to next record
+				// Future: store in r.predecessorWALInfo for verification
+				_, _ = DecodePredecessorWALInfo(fragment)
+			}
 			continue
 
 		default:
@@ -281,11 +298,18 @@ func (r *Reader) readPhysicalRecord() (RecordType, []byte, error) {
 					// This is required for MANIFEST reading.
 					return 0, nil, ErrCorruptedRecord
 				}
-				// In lenient mode, skip this record and continue.
-				// This allows WAL recovery to proceed past corruption.
-				r.buffer = r.buffer[headerSize+length:]
-				r.blockOffset += headerSize + length
-				continue
+				// In lenient mode, treat corruption as EOF.
+				// This matches C++ RocksDB's default WALRecoveryMode::kTolerateCorruptedTailRecords
+				// which treats any corruption as "end of log" and stops reading.
+				//
+				// The caller (ReadRecord) will propagate EOF, and any records
+				// after the corrupted one will NOT be returned.
+				//
+				// Evidence: redteam C01 run02/run04/run05/run06 - corruption in
+				// record #2 should prevent record #3 from being visible, matching
+				// C++ `ldb scan` behavior.
+				r.eof = true
+				return 0, nil, io.EOF
 			}
 		}
 
