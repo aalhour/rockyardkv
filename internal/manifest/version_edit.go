@@ -87,6 +87,13 @@ type FileMetaData struct {
 
 	// Runtime state (not persisted)
 	BeingCompacted bool // True if this file is currently being compacted
+
+	// ColumnFamilyID is the column family this file belongs to.
+	// This is set at runtime from the VersionEdit context, not persisted.
+	ColumnFamilyID uint32
+
+	// Unknown custom tags preserved for forward compatibility
+	UnknownCustomTags []UnknownTag
 }
 
 // NewFileMetaData creates a new FileMetaData with default values.
@@ -169,6 +176,18 @@ type VersionEdit struct {
 	HasFullHistoryTSLow             bool
 	PersistUserDefinedTimestamps    bool
 	HasPersistUserDefinedTimestamps bool
+
+	// Unknown tags that are marked "safe to ignore" in RocksDB.
+	// We preserve these for forward compatibility: a newer RocksDB version
+	// might write tags we don't understand, and we must not lose them
+	// when we re-encode the MANIFEST.
+	UnknownTags []UnknownTag
+}
+
+// UnknownTag represents a tag/value pair that we don't recognize but must preserve.
+type UnknownTag struct {
+	Tag   uint32
+	Value []byte
 }
 
 // NewVersionEdit creates a new empty VersionEdit.
@@ -365,6 +384,14 @@ func (ve *VersionEdit) EncodeTo() []byte {
 		dst = encoding.AppendLengthPrefixedSlice(dst, []byte{val})
 	}
 
+	// Write back any unknown tags we preserved during decoding.
+	// This ensures forward compatibility: tags from newer RocksDB versions
+	// are not lost when we re-encode the MANIFEST.
+	for _, ut := range ve.UnknownTags {
+		dst = encoding.AppendVarint32(dst, ut.Tag)
+		dst = encoding.AppendLengthPrefixedSlice(dst, ut.Value)
+	}
+
 	return dst
 }
 
@@ -458,6 +485,12 @@ func (ve *VersionEdit) encodeNewFile4(dst []byte, nf NewFileEntry) []byte {
 	if !f.UserDefinedTimestampsPersisted {
 		dst = encoding.AppendVarint32(dst, uint32(NewFileTagUserDefinedTimestampsPersisted))
 		dst = encoding.AppendLengthPrefixedSlice(dst, []byte{0})
+	}
+
+	// Write back unknown custom tags for forward compatibility
+	for _, ut := range f.UnknownCustomTags {
+		dst = encoding.AppendVarint32(dst, ut.Tag)
+		dst = encoding.AppendLengthPrefixedSlice(dst, ut.Value)
 	}
 
 	// Terminating tag
@@ -644,12 +677,20 @@ func (ve *VersionEdit) DecodeFrom(data []byte) error {
 		default:
 			// Unknown tag
 			if tag.IsSafeToIgnore() {
-				// Skip length-prefixed value
+				// Read the value and PRESERVE it for re-encoding.
+				// This is critical for forward compatibility: newer RocksDB
+				// versions may write tags we don't understand.
 				val, n, err := encoding.DecodeLengthPrefixedSlice(data)
 				if err != nil {
 					return ErrUnexpectedEndOfInput
 				}
-				_ = val // Ignore
+				// Make a copy since data buffer may be reused
+				valCopy := make([]byte, len(val))
+				copy(valCopy, val)
+				ve.UnknownTags = append(ve.UnknownTags, UnknownTag{
+					Tag:   tagVal,
+					Value: valCopy,
+				})
 				data = data[n:]
 			} else {
 				return ErrUnknownRequiredTag
@@ -807,7 +848,13 @@ func (ve *VersionEdit) decodeNewFile4(data []byte) ([]byte, error) {
 			if !NewFileCustomTag(customTag).IsSafeToIgnore() {
 				return nil, ErrUnknownRequiredTag
 			}
-			// Otherwise ignore
+			// Preserve unknown custom tags for forward compatibility
+			valCopy := make([]byte, len(val))
+			copy(valCopy, val)
+			meta.UnknownCustomTags = append(meta.UnknownCustomTags, UnknownTag{
+				Tag:   customTag,
+				Value: valCopy,
+			})
 		}
 	}
 
