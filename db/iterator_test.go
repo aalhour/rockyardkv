@@ -1040,19 +1040,10 @@ func TestIteratorDeletedKeyNotVisible(t *testing.T) {
 		t.Fatalf("Seek to deleted 'b' should find 'c', got key=%q", iter.Key())
 	}
 
-	// BUG: SeekForPrev to deleted key should go to previous, but it returns the deleted key
-	// See TODO.md P0 for tracking
+	// SeekForPrev to deleted key should find previous valid key
 	iter.SeekForPrev([]byte("b"))
-	if !iter.Valid() {
-		t.Fatalf("SeekForPrev to 'b' should be valid")
-	}
-	// NOTE: This is currently buggy - it returns 'b' instead of 'a'
-	// When fixed, change this to:
-	// if !bytes.Equal(iter.Key(), []byte("a")) {
-	//     t.Fatalf("SeekForPrev to deleted 'b' should find 'a', got key=%q", iter.Key())
-	// }
-	if bytes.Equal(iter.Key(), []byte("a")) {
-		t.Log("BUG FIXED: SeekForPrev now correctly skips deleted keys!")
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("SeekForPrev to deleted 'b' should find 'a', got key=%q", iter.Key())
 	}
 }
 
@@ -1158,5 +1149,366 @@ func TestIteratorSeekToNonExistent(t *testing.T) {
 	iter.SeekForPrev([]byte("g"))
 	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("e")) {
 		t.Fatalf("SeekForPrev to 'g' should find 'e', got key=%q", iter.Key())
+	}
+}
+
+// =============================================================================
+// Additional Tests for Specific Scenarios
+// =============================================================================
+
+// TestIteratorSmallAndLargeMix tests iterator with mixed small and large values.
+// Port of: TEST_P(DBIteratorTest, IterSmallAndLargeMix)
+func TestIteratorSmallAndLargeMix(t *testing.T) {
+	opts := DefaultOptions()
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	largeB := bytes.Repeat([]byte("b"), 100000)
+	largeD := bytes.Repeat([]byte("d"), 100000)
+	largeE := bytes.Repeat([]byte("e"), 100000)
+
+	db.Put(nil, []byte("a"), []byte("va"))
+	db.Put(nil, []byte("b"), largeB)
+	db.Put(nil, []byte("c"), []byte("vc"))
+	db.Put(nil, []byte("d"), largeD)
+	db.Put(nil, []byte("e"), largeE)
+
+	iter := db.NewIterator(nil)
+	defer iter.Close()
+
+	// Forward scan
+	iter.SeekToFirst()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("SeekToFirst: expected a")
+	}
+	if !bytes.Equal(iter.Value(), []byte("va")) {
+		t.Fatalf("Value for a: expected va")
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("b")) {
+		t.Fatalf("Next: expected b")
+	}
+	if !bytes.Equal(iter.Value(), largeB) {
+		t.Fatalf("Value for b: wrong size, got %d, want 100000", len(iter.Value()))
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("c")) {
+		t.Fatalf("Next: expected c")
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("d")) {
+		t.Fatalf("Next: expected d")
+	}
+	if !bytes.Equal(iter.Value(), largeD) {
+		t.Fatalf("Value for d: wrong size")
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("e")) {
+		t.Fatalf("Next: expected e")
+	}
+
+	iter.Next()
+	if iter.Valid() {
+		t.Fatal("Expected invalid after last key")
+	}
+
+	// Backward scan
+	iter.SeekToLast()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("e")) {
+		t.Fatalf("SeekToLast: expected e")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("d")) {
+		t.Fatalf("Prev: expected d")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("c")) {
+		t.Fatalf("Prev: expected c")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("b")) {
+		t.Fatalf("Prev: expected b")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("Prev: expected a")
+	}
+
+	iter.Prev()
+	if iter.Valid() {
+		t.Fatal("Expected invalid before first key")
+	}
+
+	// Seek to middle and verify large value
+	iter.Seek([]byte("d"))
+	if !iter.Valid() || !bytes.Equal(iter.Value(), largeD) {
+		t.Fatalf("Seek to d: wrong value")
+	}
+}
+
+// TestIteratorUpperBoundWithDirectionChange tests upper bound with direction change.
+// Port of: TEST_P(DBIteratorTest, UpperBoundWithChangeDirection)
+func TestIteratorUpperBoundWithDirectionChange(t *testing.T) {
+	opts := DefaultOptions()
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	// Write keys across flush
+	db.Put(nil, []byte("a"), []byte("1"))
+	db.Put(nil, []byte("y"), []byte("1"))
+	db.Put(nil, []byte("y1"), []byte("1"))
+	db.Put(nil, []byte("y2"), []byte("1"))
+	db.Put(nil, []byte("y3"), []byte("1"))
+	db.Put(nil, []byte("z"), []byte("1"))
+	db.Flush(nil)
+
+	db.Put(nil, []byte("a"), []byte("1"))
+	db.Put(nil, []byte("z"), []byte("1"))
+	db.Put(nil, []byte("bar"), []byte("1"))
+	db.Put(nil, []byte("foo"), []byte("1"))
+
+	// Iterator with upper bound "x"
+	readOpts := DefaultReadOptions()
+	readOpts.IterateUpperBound = []byte("x")
+
+	iter := db.NewIterator(readOpts)
+	defer iter.Close()
+
+	iter.Seek([]byte("foo"))
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("foo")) {
+		t.Fatalf("Seek to foo: expected foo, got %q", iter.Key())
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("bar")) {
+		t.Fatalf("Prev from foo: expected bar, got %q", iter.Key())
+	}
+}
+
+// TestIteratorSeekForPrevCrossingFiles tests SeekForPrev crossing multiple files.
+// Port of: TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles)
+func TestIteratorSeekForPrevCrossingFiles(t *testing.T) {
+	opts := DefaultOptions()
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	db.Put(nil, []byte("a"), []byte("1"))
+	db.Put(nil, []byte("b"), []byte("2"))
+	db.Flush(nil)
+
+	db.Put(nil, []byte("c"), []byte("3"))
+	db.Put(nil, []byte("d"), []byte("4"))
+	db.Flush(nil)
+
+	db.Put(nil, []byte("e"), []byte("5"))
+	db.Put(nil, []byte("f"), []byte("6"))
+
+	iter := db.NewIterator(nil)
+	defer iter.Close()
+
+	// SeekForPrev to key in middle file
+	iter.SeekForPrev([]byte("d"))
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("d")) {
+		t.Fatalf("SeekForPrev to d: expected d, got %q", iter.Key())
+	}
+
+	// Go backward across file boundary
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("c")) {
+		t.Fatalf("Prev: expected c, got %q", iter.Key())
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("b")) {
+		t.Fatalf("Prev: expected b, got %q", iter.Key())
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("Prev: expected a, got %q", iter.Key())
+	}
+
+	// Go forward all the way
+	for iter.Valid() {
+		iter.Next()
+	}
+
+	// SeekForPrev to last key in memtable
+	iter.SeekForPrev([]byte("f"))
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("f")) {
+		t.Fatalf("SeekForPrev to f: expected f, got %q", iter.Key())
+	}
+
+	// Traverse backward through all files
+	count := 0
+	for iter.Valid() {
+		count++
+		iter.Prev()
+	}
+	if count != 6 {
+		t.Fatalf("Expected 6 keys in backward traversal, got %d", count)
+	}
+}
+
+// TestIteratorPrevKeyCrossingBlocks tests Prev across block boundaries.
+// Port of: TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocks)
+func TestIteratorPrevKeyCrossingBlocks(t *testing.T) {
+	opts := DefaultOptions()
+	// Small block size to force multiple blocks
+	opts.BlockSize = 100
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	// Insert enough keys to span multiple blocks
+	for i := range 100 {
+		key := fmt.Appendf(nil, "key%03d", i)
+		value := fmt.Appendf(nil, "value%03d", i)
+		db.Put(nil, key, value)
+	}
+	db.Flush(nil)
+
+	iter := db.NewIterator(nil)
+	defer iter.Close()
+
+	// Start from end and go backward
+	iter.SeekToLast()
+	if !iter.Valid() {
+		t.Fatal("SeekToLast should be valid")
+	}
+
+	// Count backward
+	count := 0
+	for iter.Valid() {
+		count++
+		iter.Prev()
+	}
+	if count != 100 {
+		t.Fatalf("Expected 100 keys in backward scan, got %d", count)
+	}
+
+	// Forward scan for verification
+	count = 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		count++
+	}
+	if count != 100 {
+		t.Fatalf("Expected 100 keys in forward scan, got %d", count)
+	}
+}
+
+// TestIteratorBoundMultiSeek tests multiple seeks with bounds.
+// Port of: TEST_P(DBIteratorTest, DBIteratorBoundMultiSeek)
+func TestIteratorBoundMultiSeek(t *testing.T) {
+	opts := DefaultOptions()
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	// Insert keys
+	for i := range 10 {
+		key := fmt.Appendf(nil, "key%d", i)
+		db.Put(nil, key, key)
+	}
+	db.Flush(nil)
+
+	// Iterator with bounds [key3, key7)
+	readOpts := DefaultReadOptions()
+	readOpts.IterateLowerBound = []byte("key3")
+	readOpts.IterateUpperBound = []byte("key7")
+
+	iter := db.NewIterator(readOpts)
+	defer iter.Close()
+
+	// Seek to each key within bounds
+	for i := 3; i < 7; i++ {
+		key := fmt.Appendf(nil, "key%d", i)
+		iter.Seek(key)
+		if !iter.Valid() || !bytes.Equal(iter.Key(), key) {
+			t.Fatalf("Seek to %s: expected %s, got %q", key, key, iter.Key())
+		}
+	}
+
+	// Seek before lower bound should go to lower bound
+	iter.Seek([]byte("key0"))
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("key3")) {
+		t.Fatalf("Seek before lower bound: expected key3, got %q", iter.Key())
+	}
+
+	// Seek at or after upper bound should be invalid
+	iter.Seek([]byte("key7"))
+	if iter.Valid() {
+		t.Fatalf("Seek at upper bound should be invalid, got %q", iter.Key())
+	}
+
+	iter.Seek([]byte("key9"))
+	if iter.Valid() {
+		t.Fatalf("Seek past upper bound should be invalid")
+	}
+}
+
+// TestIteratorDeleteMultiWithDelete tests iterator with interleaved deletes.
+// Port of: TEST_P(DBIteratorTest, IterMultiWithDelete)
+func TestIteratorDeleteMultiWithDelete(t *testing.T) {
+	opts := DefaultOptions()
+	db, cleanup := createTestDB(t, opts)
+	defer cleanup()
+
+	db.Put(nil, []byte("a"), []byte("va"))
+	db.Put(nil, []byte("b"), []byte("vb"))
+	db.Put(nil, []byte("c"), []byte("vc"))
+	db.Delete(nil, []byte("b"))
+	db.Put(nil, []byte("d"), []byte("vd"))
+	db.Flush(nil) // Flush to apply delete
+
+	iter := db.NewIterator(nil)
+	defer iter.Close()
+
+	// Forward should skip b
+	iter.SeekToFirst()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("SeekToFirst: expected a")
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("c")) {
+		t.Fatalf("Next should skip b: expected c, got %q", iter.Key())
+	}
+
+	iter.Next()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("d")) {
+		t.Fatalf("Next: expected d")
+	}
+
+	iter.Next()
+	if iter.Valid() {
+		t.Fatal("Expected invalid after last key")
+	}
+
+	// Backward should also skip b
+	iter.SeekToLast()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("d")) {
+		t.Fatalf("SeekToLast: expected d")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("c")) {
+		t.Fatalf("Prev: expected c")
+	}
+
+	iter.Prev()
+	if !iter.Valid() || !bytes.Equal(iter.Key(), []byte("a")) {
+		t.Fatalf("Prev should skip deleted 'b': expected a, got %q", iter.Key())
+	}
+
+	iter.Prev()
+	if iter.Valid() {
+		t.Fatal("Expected invalid before first key")
 	}
 }
