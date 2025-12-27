@@ -269,6 +269,10 @@ func (w *osFileWrapper) ReadAt(p []byte, off int64) (int, error) {
 	return w.f.ReadAt(p, off)
 }
 
+func (w *osFileWrapper) Close() error {
+	return w.f.Close()
+}
+
 func (w *osFileWrapper) Size() int64 {
 	return w.size
 }

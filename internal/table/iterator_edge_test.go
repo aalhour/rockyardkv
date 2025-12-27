@@ -362,6 +362,10 @@ func (m *edgeMemFile) ReadAt(p []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+func (m *edgeMemFile) Close() error {
+	return nil
+}
+
 func (m *edgeMemFile) Size() int64 {
 	return int64(len(m.data))
 }

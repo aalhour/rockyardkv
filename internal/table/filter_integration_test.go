@@ -221,6 +221,10 @@ func (m *MemFile) ReadAt(p []byte, off int64) (int, error) {
 	return n, nil
 }
 
+func (m *MemFile) Close() error {
+	return nil
+}
+
 func (m *MemFile) Size() int64 {
 	return int64(len(m.data))
 }

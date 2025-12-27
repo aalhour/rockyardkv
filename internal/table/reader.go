@@ -51,6 +51,8 @@ var (
 
 // ReadableFile is an interface for reading from an SST file.
 type ReadableFile interface {
+	io.Closer
+
 	// ReadAt reads len(p) bytes from the file starting at offset.
 	ReadAt(p []byte, off int64) (n int, err error)
 
@@ -668,8 +670,7 @@ func (r *Reader) NewIterator() *TableIterator {
 
 // Close releases resources associated with the reader.
 func (r *Reader) Close() error {
-	// Currently nothing to close, but interface for future use
-	return nil
+	return r.file.Close()
 }
 
 // Footer returns the parsed footer.

@@ -268,6 +268,10 @@ func (m *fuzzMemFile) ReadAt(p []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+func (m *fuzzMemFile) Close() error {
+	return nil
+}
+
 func (m *fuzzMemFile) Size() int64 {
 	return int64(len(m.data))
 }

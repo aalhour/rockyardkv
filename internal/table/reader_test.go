@@ -22,6 +22,10 @@ func (f *BytesFile) ReadAt(p []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+func (f *BytesFile) Close() error {
+	return nil
+}
+
 func (f *BytesFile) Size() int64 {
 	return int64(len(f.data))
 }

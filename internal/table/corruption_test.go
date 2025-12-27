@@ -38,6 +38,10 @@ func (m *corruptMemFile) ReadAt(p []byte, off int64) (n int, err error) {
 	return n, nil
 }
 
+func (m *corruptMemFile) Close() error {
+	return nil
+}
+
 func (m *corruptMemFile) Size() int64 {
 	return int64(len(m.data))
 }
