@@ -76,3 +76,53 @@ func ComputeChecksum(t Type, data []byte, lastByte byte) uint32 {
 		return 0
 	}
 }
+
+// ComputeBuiltinChecksum computes the checksum for a complete data buffer.
+// This matches RocksDB's ComputeBuiltinChecksum in table/format.cc.
+// Unlike ComputeChecksum, this doesn't take a separate lastByte parameter -
+// the last byte of data is used for the modification.
+//
+// Reference: RocksDB v10.7.5 table/format.cc
+func ComputeBuiltinChecksum(t Type, data []byte) uint32 {
+	switch t {
+	case TypeCRC32C:
+		return Mask(Value(data))
+	case TypeXXHash64:
+		return uint32(XXHash64(data))
+	case TypeXXH3:
+		if len(data) == 0 {
+			return 0
+		}
+		// For XXH3, compute hash of all bytes except last,
+		// then modify by last byte
+		h := XXH3_64bits(data[:len(data)-1])
+		v := uint32(h)
+		lastByte := data[len(data)-1]
+		const kRandomPrime = 0x6b9083d9
+		return v ^ (uint32(lastByte) * kRandomPrime)
+	case TypeNoChecksum:
+		return 0
+	default:
+		return 0
+	}
+}
+
+// ChecksumModifierForContext returns a context-dependent modifier for the checksum.
+// This is used to make checksums unique based on their position in the file.
+// When base_context_checksum is 0, this returns 0 (feature disabled).
+//
+// Reference: RocksDB v10.7.5 table/format.h ChecksumModifierForContext
+func ChecksumModifierForContext(baseContextChecksum uint32, offset uint64) uint32 {
+	// all_or_nothing = 0xFFFFFFFF if base != 0, else 0
+	var allOrNothing uint32
+	if baseContextChecksum != 0 {
+		allOrNothing = 0xFFFFFFFF
+	}
+
+	// Lower32 + Upper32 of offset
+	lower32 := uint32(offset)
+	upper32 := uint32(offset >> 32)
+
+	modifier := baseContextChecksum ^ (lower32 + upper32)
+	return modifier & allOrNothing
+}

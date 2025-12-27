@@ -10,6 +10,8 @@ package block
 
 import (
 	"encoding/binary"
+
+	"github.com/aalhour/rockyardkv/internal/checksum"
 )
 
 // Magic numbers for different SST file types.
@@ -287,11 +289,22 @@ func DecodeFooter(data []byte, inputOffset uint64, enforceMagicNumber uint64) (*
 }
 
 // EncodeTo encodes the footer to a buffer.
+// For format version 6+, this uses footerOffset=0 which may not be
+// correct for C++ compatibility. Use EncodeToAt for format version 6+.
 func (f *Footer) EncodeTo() []byte {
 	if f.FormatVersion == 0 {
 		return f.encodeVersion0()
 	}
-	return f.encodeNewVersion()
+	return f.encodeNewVersionAt(0)
+}
+
+// EncodeToAt encodes the footer to a buffer with the given footer offset.
+// For format version 6+, the footerOffset is used to compute the context-aware checksum.
+func (f *Footer) EncodeToAt(footerOffset uint64) []byte {
+	if f.FormatVersion == 0 {
+		return f.encodeVersion0()
+	}
+	return f.encodeNewVersionAt(footerOffset)
 }
 
 func (f *Footer) encodeVersion0() []byte {
@@ -319,7 +332,7 @@ func (f *Footer) encodeVersion0() []byte {
 	return buf
 }
 
-func (f *Footer) encodeNewVersion() []byte {
+func (f *Footer) encodeNewVersionAt(footerOffset uint64) []byte {
 	buf := make([]byte, NewVersionsEncodedLength)
 
 	// Part 1: Checksum type (1 byte)
@@ -333,7 +346,7 @@ func (f *Footer) encodeNewVersion() []byte {
 	if f.FormatVersion >= 6 {
 		// Format version 6+ Part 2 layout:
 		// - extended_magic (4 bytes)
-		// - footer_checksum (4 bytes) - will be computed later
+		// - footer_checksum (4 bytes) - computed below
 		// - base_context_checksum (4 bytes)
 		// - metaindex_size (4 bytes)
 		// - padding (24 bytes)
@@ -343,7 +356,8 @@ func (f *Footer) encodeNewVersion() []byte {
 		copy(buf[cur:], extendedMagic[:])
 		cur += 4
 
-		// Footer checksum placeholder (will be computed later if needed)
+		// Footer checksum placeholder (will be computed after all other fields are set)
+		checksumOffset := cur
 		binary.LittleEndian.PutUint32(buf[cur:], 0)
 		cur += 4
 
@@ -360,7 +374,17 @@ func (f *Footer) encodeNewVersion() []byte {
 			buf[i] = 0
 		}
 
-		// TODO: Compute and store footer checksum at buf[part2Start+4:part2Start+8]
+		// Part 3: format_version (4 bytes) + magic_number (8 bytes)
+		binary.LittleEndian.PutUint32(buf[part3Start:], f.FormatVersion)
+		binary.LittleEndian.PutUint64(buf[part3Start+4:], f.TableMagicNumber)
+
+		// Now compute the footer checksum over the entire footer
+		// with the checksum field set to zero (which it already is)
+		checksum := computeFooterChecksum(f.ChecksumType, buf)
+		// Add context modifier
+		checksum += checksumModifierForContext(f.BaseContextChecksum, footerOffset)
+		// Store the checksum
+		binary.LittleEndian.PutUint32(buf[checksumOffset:], checksum)
 	} else {
 		// Format version < 6: Encode handles as varints
 		cur := part2Start
@@ -376,13 +400,68 @@ func (f *Footer) encodeNewVersion() []byte {
 		for i := cur; i < part3Start; i++ {
 			buf[i] = 0
 		}
+
+		// Part 3: format_version (4 bytes) + magic_number (8 bytes)
+		binary.LittleEndian.PutUint32(buf[part3Start:], f.FormatVersion)
+		binary.LittleEndian.PutUint64(buf[part3Start+4:], f.TableMagicNumber)
 	}
 
-	// Part 3: format_version (4 bytes) + magic_number (8 bytes)
-	binary.LittleEndian.PutUint32(buf[part3Start:], f.FormatVersion)
-	binary.LittleEndian.PutUint64(buf[part3Start+4:], f.TableMagicNumber)
-
 	return buf
+}
+
+// computeFooterChecksum computes the checksum for the footer buffer.
+// The checksum field in the buffer must be zero when this is called.
+func computeFooterChecksum(checksumType ChecksumType, buf []byte) uint32 {
+	switch checksumType {
+	case ChecksumTypeCRC32C:
+		return maskedCRC32C(buf)
+	case ChecksumTypeXXHash64:
+		return xxhash64Lower32(buf)
+	case ChecksumTypeXXH3:
+		return xxh3Checksum(buf)
+	default:
+		return 0
+	}
+}
+
+// checksumModifierForContext returns a context-dependent modifier for the checksum.
+// This matches RocksDB's ChecksumModifierForContext in table/format.h.
+func checksumModifierForContext(baseContextChecksum uint32, offset uint64) uint32 {
+	// all_or_nothing = 0xFFFFFFFF if base != 0, else 0
+	var allOrNothing uint32
+	if baseContextChecksum != 0 {
+		allOrNothing = 0xFFFFFFFF
+	}
+
+	// Lower32 + Upper32 of offset
+	lower32 := uint32(offset)
+	upper32 := uint32(offset >> 32)
+
+	modifier := baseContextChecksum ^ (lower32 + upper32)
+	return modifier & allOrNothing
+}
+
+// maskedCRC32C computes the masked CRC32C checksum.
+func maskedCRC32C(data []byte) uint32 {
+	return checksum.Mask(checksum.Value(data))
+}
+
+// xxhash64Lower32 computes the lower 32 bits of XXHash64.
+func xxhash64Lower32(data []byte) uint32 {
+	return uint32(checksum.XXHash64(data))
+}
+
+// xxh3Checksum computes the XXH3 checksum for the footer.
+// For XXH3, we compute hash of all bytes except last, then modify by last byte.
+func xxh3Checksum(data []byte) uint32 {
+	if len(data) == 0 {
+		return 0
+	}
+	h := checksum.XXH3_64bits(data[:len(data)-1])
+	v := uint32(h)
+	lastByte := data[len(data)-1]
+	const kRandomPrime = 0x6b9083d9
+	return v ^ (uint32(lastByte) * kRandomPrime)
 }
 
 // IsSupportedFormatVersion returns true if the format version is supported.

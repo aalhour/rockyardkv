@@ -24,6 +24,7 @@ package table
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/aalhour/rockyardkv/internal/block"

@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"sort"
 
 	"github.com/aalhour/rockyardkv/internal/block"
@@ -118,6 +119,9 @@ type TableBuilder struct {
 	// State tracking
 	finished bool
 	err      error
+
+	// Base context checksum for format version 6+ (random non-zero value)
+	baseContextChecksum uint32
 }
 
 // NewTableBuilder creates a new TableBuilder that writes to w.
@@ -145,6 +149,14 @@ func NewTableBuilder(w io.Writer, opts BuilderOptions) *TableBuilder {
 		indexBlock:      block.NewBuilder(1), // Index uses restart interval of 1
 		propertiesBlock: block.NewBuilder(1),
 		rangeDelBlock:   block.NewBuilder(1), // Range deletions use restart interval of 1
+	}
+
+	// Generate base context checksum for format version 6+
+	// Must be non-zero to enable context-dependent checksums
+	if opts.FormatVersion >= 6 {
+		for tb.baseContextChecksum == 0 {
+			tb.baseContextChecksum = rand.Uint32()
+		}
 	}
 
 	// Create filter builder if enabled
@@ -326,6 +338,13 @@ func (tb *TableBuilder) writeBlockWithTrailer(blockData []byte, blockType block.
 	default:
 		cksum = 0
 	}
+
+	// For Format V6+, add context-dependent checksum modifier
+	// This makes checksums unique based on their file position
+	if tb.options.FormatVersion >= 6 && tb.baseContextChecksum != 0 {
+		cksum += checksum.ChecksumModifierForContext(tb.baseContextChecksum, handle.Offset)
+	}
+
 	binary.LittleEndian.PutUint32(trailer[1:], cksum)
 
 	n, err = tb.writer.Write(trailer)
@@ -534,15 +553,18 @@ func (tb *TableBuilder) writePropertiesBlock() (block.Handle, error) {
 // writeFooter writes the SST file footer.
 func (tb *TableBuilder) writeFooter(metaindexHandle, indexHandle block.Handle) error {
 	footer := &block.Footer{
-		TableMagicNumber: block.BlockBasedTableMagicNumber,
-		FormatVersion:    tb.options.FormatVersion,
-		ChecksumType:     block.ToChecksumType(uint8(tb.options.ChecksumType)),
-		MetaindexHandle:  metaindexHandle,
-		IndexHandle:      indexHandle,
-		BlockTrailerSize: block.BlockTrailerSize,
+		TableMagicNumber:    block.BlockBasedTableMagicNumber,
+		FormatVersion:       tb.options.FormatVersion,
+		ChecksumType:        block.ToChecksumType(uint8(tb.options.ChecksumType)),
+		MetaindexHandle:     metaindexHandle,
+		IndexHandle:         indexHandle,
+		BlockTrailerSize:    block.BlockTrailerSize,
+		BaseContextChecksum: tb.baseContextChecksum, // For format version 6+
 	}
 
-	footerData := footer.EncodeTo()
+	// Use EncodeToAt for format version 6+ to compute correct footer checksum
+	footerOffset := tb.offset
+	footerData := footer.EncodeToAt(footerOffset)
 	_, err := tb.writer.Write(footerData)
 	if err != nil {
 		return err
