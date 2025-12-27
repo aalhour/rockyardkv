@@ -586,7 +586,7 @@ func (db *DBImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([
 
 	if current != nil {
 		defer current.Unref()
-		value, err := db.getFromVersionWithMerge(current, key, dbformat.SequenceNumber(snapshot), mergeOperands)
+		value, err := db.getFromVersionWithMerge(current, key, dbformat.SequenceNumber(snapshot), mergeOperands, cfd.id)
 		if err == nil {
 			return value, nil
 		}
@@ -628,13 +628,14 @@ func (db *DBImpl) MultiGet(opts *ReadOptions, keys [][]byte) ([][]byte, []error)
 // getFromVersion searches for a key in the SST files of a version.
 // It also handles merge operands by collecting them and applying the merge operator.
 // Reserved for future use - currently getFromVersionWithMerge is used directly.
-func (db *DBImpl) getFromVersion(v *version.Version, key []byte, seq dbformat.SequenceNumber) ([]byte, error) { //nolint:unused // reserved for future use
-	return db.getFromVersionWithMerge(v, key, seq, nil)
+func (db *DBImpl) getFromVersion(v *version.Version, key []byte, seq dbformat.SequenceNumber, cfID uint32) ([]byte, error) { //nolint:unused // reserved for future use
+	return db.getFromVersionWithMerge(v, key, seq, nil, cfID)
 }
 
 // getFromVersionWithMerge searches for a key in SST files and handles merge operands.
 // mergeOperands contains any merge operands already collected from memtable.
-func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq dbformat.SequenceNumber, mergeOperands [][]byte) ([]byte, error) {
+// cfID specifies which column family to search in (for CF isolation).
+func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq dbformat.SequenceNumber, mergeOperands [][]byte, cfID uint32) ([]byte, error) {
 	// Create a range deletion aggregator to track tombstones across files.
 	// The upperBound is the snapshot sequence - tombstones with seq > upperBound are invisible.
 	rangeDelAgg := rangedel.NewRangeDelAggregator(seq)
@@ -650,6 +651,11 @@ func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq db
 	l0Files := v.Files(0)
 	for i := len(l0Files) - 1; i >= 0; i-- {
 		f := l0Files[i]
+		// Skip files that don't belong to this column family.
+		// This is critical for CF isolation: each CF's data is stored in separate files.
+		if f.ColumnFamilyID != cfID {
+			continue
+		}
 		// Check if key is in this file's range
 		if db.cmp.Compare(key, extractUserKey(f.Smallest)) < 0 {
 			continue
@@ -699,6 +705,10 @@ func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq db
 			}
 
 			f := files[idx]
+			// Skip files that don't belong to this column family.
+			if f.ColumnFamilyID != cfID {
+				continue
+			}
 			if db.cmp.Compare(key, extractUserKey(f.Smallest)) < 0 {
 				continue
 			}

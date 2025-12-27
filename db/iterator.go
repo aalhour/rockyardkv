@@ -296,10 +296,16 @@ func newDBIteratorCF(db *DBImpl, cfd *columnFamilyData, snapshot *Snapshot) *dbI
 		v.Ref()
 		iter.version = v
 
-		// Add iterators for all SST files
+		// Add iterators for all SST files belonging to this column family.
+		// This is critical for CF isolation: iterators must only see files from their CF.
+		cfID := cfd.id
 		for level := range v.NumLevels() {
 			files := v.Files(level)
 			for _, f := range files {
+				// Skip files that don't belong to this column family
+				if f.ColumnFamilyID != cfID {
+					continue
+				}
 				sstIter := iter.createSSTIterator(f)
 				if sstIter != nil {
 					iter.sstIters = append(iter.sstIters, sstIter)
@@ -661,13 +667,17 @@ outerLoop:
 
 // findPrevValidEntry finds the largest key across all iterators
 // and skips older versions and deletions.
+//
+// Unlike forward iteration where we encounter newer versions first (due to
+// internal key ordering: user_key ASC, seq DESC), backward iteration may
+// encounter older versions before newer ones within the same SST file.
+// We handle this by seeking to find the newest version when needed.
 func (it *dbIterator) findPrevValidEntry() {
 outerLoop:
 	for {
-		// Find the iterator with the largest key
+		// Find the iterator with the largest user key
 		maxIdx := -1
 		var maxKey []byte
-		var maxSeq uint64
 
 		for i, iter := range it.iterators {
 			if !iter.Valid() {
@@ -680,98 +690,138 @@ outerLoop:
 			}
 
 			userKey := iter.UserKey()
-			seq := iter.SeqNum()
-
-			// Check snapshot visibility
-			if it.snapshot != nil && seq > it.snapshot.Sequence() {
-				// Advance this iterator backward and restart the whole scan
-				iter.Prev()
-				continue outerLoop
-			}
 
 			if maxIdx == -1 {
 				maxIdx = i
 				maxKey = userKey
-				maxSeq = seq
 			} else {
 				cmp := it.compareKeys(userKey, maxKey)
 				if cmp > 0 {
-					// Larger key found
 					maxIdx = i
 					maxKey = userKey
-					maxSeq = seq
-				} else if cmp == 0 && seq > maxSeq {
-					// Same key, but higher sequence number (newer)
-					maxIdx = i
-					maxSeq = seq
 				}
 			}
 		}
 
 		if maxIdx == -1 {
-			// No more entries
 			it.valid = false
 			return
 		}
 
-		// Check if this is a point deletion
-		valueType := it.iterators[maxIdx].Type()
-		if valueType == dbformat.TypeDeletion || valueType == dbformat.TypeSingleDeletion {
-			// Make a copy of maxKey before skipping, since the underlying buffer may be reused
-			keyToSkip := make([]byte, len(maxKey))
-			copy(keyToSkip, maxKey)
+		// Make a copy of maxKey
+		keyToCheck := make([]byte, len(maxKey))
+		copy(keyToCheck, maxKey)
 
-			// Skip this key in all iterators
-			for _, iter := range it.iterators {
-				for iter.Valid() && it.keysEqual(iter.UserKey(), keyToSkip) {
-					iter.Prev()
-				}
+		// Find the newest version by seeking in the iterator where we found maxKey.
+		// This handles the case where we're at an older version within the same SST.
+		newestType, newestSeq, newestValue := it.findNewestVersionInIterator(it.iterators[maxIdx], keyToCheck)
+
+		// Also check other iterators that might have a newer version
+		for i, iter := range it.iterators {
+			if i == maxIdx {
+				continue
 			}
-			continue
+			if !iter.Valid() {
+				continue
+			}
+			// Only check if this iterator is also at the same key
+			if !it.keysEqual(iter.UserKey(), keyToCheck) {
+				continue
+			}
+			otherType, otherSeq, otherValue := it.findNewestVersionInIterator(iter, keyToCheck)
+			if otherSeq > newestSeq {
+				newestType = otherType
+				newestSeq = otherSeq
+				newestValue = otherValue
+			}
 		}
 
-		// Check if this key is covered by a range tombstone
-		if it.rangeDelAgg != nil && it.rangeDelAgg.ShouldDelete(maxKey, dbformat.SequenceNumber(maxSeq)) {
-			// Make a copy of maxKey before skipping
-			keyToSkip := make([]byte, len(maxKey))
-			copy(keyToSkip, maxKey)
-
-			// Skip this key in all iterators
-			for _, iter := range it.iterators {
-				for iter.Valid() && it.keysEqual(iter.UserKey(), keyToSkip) {
-					iter.Prev()
-				}
+		// Skip all versions of this key in all iterators
+		for _, iter := range it.iterators {
+			for iter.Valid() && it.keysEqual(iter.UserKey(), keyToCheck) {
+				iter.Prev()
 			}
-			continue
+		}
+
+		// Check if deleted
+		if newestType == dbformat.TypeDeletion || newestType == dbformat.TypeSingleDeletion {
+			continue outerLoop
+		}
+
+		// Check snapshot visibility
+		if it.snapshot != nil && newestSeq > it.snapshot.Sequence() {
+			continue outerLoop
+		}
+
+		// Check range tombstone
+		if it.rangeDelAgg != nil && it.rangeDelAgg.ShouldDelete(keyToCheck, dbformat.SequenceNumber(newestSeq)) {
+			continue outerLoop
 		}
 
 		// Check lower bound
-		if len(it.iterateLowerBound) > 0 && it.compareKeys(maxKey, it.iterateLowerBound) < 0 {
+		if len(it.iterateLowerBound) > 0 && it.compareKeys(keyToCheck, it.iterateLowerBound) < 0 {
 			it.valid = false
 			return
 		}
 
-		// Check prefix constraint for prefix seek (also applies to reverse)
+		// Check prefix constraint
 		if it.prefixSameAsStart && len(it.seekPrefix) > 0 && it.prefixExtractor != nil {
-			if it.prefixExtractor.InDomain(maxKey) {
-				keyPrefix := it.prefixExtractor.Transform(maxKey)
+			if it.prefixExtractor.InDomain(keyToCheck) {
+				keyPrefix := it.prefixExtractor.Transform(keyToCheck)
 				if !bytes.Equal(keyPrefix, it.seekPrefix) {
-					// We've left the prefix, stop iteration
 					it.valid = false
 					return
 				}
 			}
 		}
 
-		// Found a valid entry
-		it.savedKey = make([]byte, len(maxKey))
-		copy(it.savedKey, maxKey)
-		it.savedValue = make([]byte, len(it.iterators[maxIdx].Value()))
-		copy(it.savedValue, it.iterators[maxIdx].Value())
+		// Found valid entry
+		it.savedKey = keyToCheck
+		it.savedValue = make([]byte, len(newestValue))
+		copy(it.savedValue, newestValue)
 		it.currentIter = maxIdx
 		it.valid = true
 		return
 	}
+}
+
+// findNewestVersionInIterator seeks to find the newest version of userKey in the given iterator.
+// It restores the iterator position after checking.
+func (it *dbIterator) findNewestVersionInIterator(iter internalIterator, userKey []byte) (dbformat.ValueType, uint64, []byte) {
+	// Save current position
+	var savedKey []byte
+	if iter.Valid() {
+		savedKey = make([]byte, len(iter.Key()))
+		copy(savedKey, iter.Key())
+	}
+
+	// Seek to find newest version
+	seekKey := makeInternalKey(userKey, uint64(dbformat.MaxSequenceNumber), dbformat.ValueTypeForSeek)
+	iter.Seek(seekKey)
+
+	var resultType dbformat.ValueType
+	var resultSeq uint64
+	var resultValue []byte
+
+	if iter.Valid() && it.keysEqual(iter.UserKey(), userKey) {
+		resultType = iter.Type()
+		resultSeq = iter.SeqNum()
+		if resultType != dbformat.TypeDeletion && resultType != dbformat.TypeSingleDeletion {
+			resultValue = make([]byte, len(iter.Value()))
+			copy(resultValue, iter.Value())
+		}
+	}
+
+	// Restore position by seeking back
+	if savedKey != nil {
+		iter.Seek(savedKey)
+		// If we landed past the saved position, back up
+		if iter.Valid() && bytes.Compare(iter.Key(), savedKey) > 0 {
+			iter.Prev()
+		}
+	}
+
+	return resultType, resultSeq, resultValue
 }
 
 // Key returns the key at the current position.

@@ -48,6 +48,13 @@ func NewBuilder(vset *VersionSet, base *Version) *Builder {
 
 // Apply applies a VersionEdit to the builder.
 func (b *Builder) Apply(edit *manifest.VersionEdit) error {
+	// Determine the column family ID for this edit.
+	// If the edit doesn't specify a CF, it applies to the default CF (ID 0).
+	cfID := uint32(0)
+	if edit.HasColumnFamily {
+		cfID = edit.ColumnFamily
+	}
+
 	// Process deleted files
 	for _, df := range edit.DeletedFiles {
 		if df.Level >= 0 && df.Level < MaxNumLevels {
@@ -61,6 +68,10 @@ func (b *Builder) Apply(edit *manifest.VersionEdit) error {
 	for _, nf := range edit.NewFiles {
 		if nf.Level >= 0 && nf.Level < MaxNumLevels {
 			fileNum := nf.Meta.FD.GetNumber()
+			// Set the column family ID on the file metadata.
+			// This is critical for column family isolation: queries
+			// must only see files belonging to the target CF.
+			nf.Meta.ColumnFamilyID = cfID
 			// Remove from deleted files if present (file was deleted then re-added)
 			delete(b.deletedFiles[nf.Level], fileNum)
 			// Add to added files
