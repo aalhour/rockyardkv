@@ -13,6 +13,7 @@ import (
 
 	"github.com/aalhour/rockyardkv/internal/checksum"
 	"github.com/aalhour/rockyardkv/internal/encoding"
+	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
 // Writer writes records to a WAL file.
@@ -68,6 +69,9 @@ func NewWriter(dest io.Writer, logNumber uint64, recyclable bool) *Writer {
 //
 // Returns the number of bytes written (including headers) and any error.
 func (w *Writer) AddRecord(data []byte) (int, error) {
+	// Kill point: crash during WAL append (before any write)
+	testutil.MaybeKill(testutil.KPWALAppend0)
+
 	ptr := data
 	left := len(data)
 	totalWritten := 0
@@ -208,8 +212,16 @@ func (w *Writer) IsRecyclable() bool {
 
 // Sync flushes the underlying writer if it supports it.
 func (w *Writer) Sync() error {
+	// Kill point: crash before WAL sync
+	testutil.MaybeKill(testutil.KPWALSync0)
+
 	if syncer, ok := w.dest.(interface{ Sync() error }); ok {
-		return syncer.Sync()
+		if err := syncer.Sync(); err != nil {
+			return err
+		}
 	}
+
+	// Kill point: crash after WAL sync (data is durable)
+	testutil.MaybeKill(testutil.KPWALSync1)
 	return nil
 }

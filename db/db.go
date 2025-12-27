@@ -1056,8 +1056,8 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 		}
 
 		// Sync if requested
-		if opts.Sync && db.logFile != nil {
-			if err := db.logFile.Sync(); err != nil {
+		if opts.Sync && db.logWriter != nil {
+			if err := db.logWriter.Sync(); err != nil {
 				db.mu.Unlock()
 				return err
 			}
@@ -1329,15 +1329,15 @@ func (db *DBImpl) SyncWAL() error {
 		db.mu.RUnlock()
 		return ErrDBClosed
 	}
-	logFile := db.logFile
+	logWriter := db.logWriter
 	db.mu.RUnlock()
 
-	if logFile == nil {
+	if logWriter == nil {
 		return nil
 	}
 
-	// Sync the WAL file to disk
-	return logFile.Sync()
+	// Sync the WAL file to disk (uses logWriter.Sync for kill point support)
+	return logWriter.Sync()
 }
 
 // FlushWAL flushes the WAL buffer to the file system.

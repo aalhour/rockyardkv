@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 
 	"github.com/aalhour/rockyardkv/internal/manifest"
+	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
 )
@@ -433,22 +434,32 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 	}
 
 	// Write the edit
+	// Kill point: crash during MANIFEST record write
+	testutil.MaybeKill(testutil.KPManifestWrite0)
 	if _, err := vs.manifestWriter.AddRecord(encoded); err != nil {
 		return err
 	}
 
 	// Sync the manifest file BEFORE updating CURRENT
+	// Kill point: crash before MANIFEST sync
+	testutil.MaybeKill(testutil.KPManifestSync0)
 	if syncer, ok := vs.manifestFile.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
 			return err
 		}
 	}
+	// Kill point: crash after MANIFEST sync (CURRENT not yet updated)
+	testutil.MaybeKill(testutil.KPManifestSync1)
 
 	// Update CURRENT file AFTER MANIFEST is synced (avoids crash window)
 	if newManifest {
+		// Kill point: crash before CURRENT update
+		testutil.MaybeKill(testutil.KPCurrentWrite0)
 		if err := vs.setCurrentFile(vs.manifestFileNumber); err != nil {
 			return err
 		}
+		// Kill point: crash after CURRENT update (fully durable)
+		testutil.MaybeKill(testutil.KPCurrentWrite1)
 	}
 
 	// Install the new version
@@ -615,21 +626,31 @@ func (vs *VersionSet) logAndApplyLocked(edit *manifest.VersionEdit) error {
 	}
 
 	// Write the edit
+	// Kill point: crash during MANIFEST record write
+	testutil.MaybeKill(testutil.KPManifestWrite0)
 	if _, err := vs.manifestWriter.AddRecord(encoded); err != nil {
 		return err
 	}
 
 	// Sync the manifest file
+	// Kill point: crash before MANIFEST sync
+	testutil.MaybeKill(testutil.KPManifestSync0)
 	if syncer, ok := vs.manifestFile.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
 			return err
 		}
 	}
+	// Kill point: crash after MANIFEST sync
+	testutil.MaybeKill(testutil.KPManifestSync1)
 
 	// Update CURRENT file
+	// Kill point: crash before CURRENT update
+	testutil.MaybeKill(testutil.KPCurrentWrite0)
 	if err := vs.setCurrentFile(vs.manifestFileNumber); err != nil {
 		return err
 	}
+	// Kill point: crash after CURRENT update
+	testutil.MaybeKill(testutil.KPCurrentWrite1)
 
 	return nil
 }
