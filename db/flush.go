@@ -195,6 +195,10 @@ func (db *DBImpl) doFlush() error {
 	if meta == nil {
 		db.mu.Lock()
 		db.imm = nil
+		// Signal any waiters that immutable memtable is now available
+		if db.immCond != nil {
+			db.immCond.Broadcast()
+		}
 		db.mu.Unlock()
 		return nil
 	}
@@ -220,6 +224,11 @@ func (db *DBImpl) doFlush() error {
 
 	// Clear the immutable memtable
 	db.imm = nil
+
+	// Signal any waiters that immutable memtable is now available
+	if db.immCond != nil {
+		db.immCond.Broadcast()
+	}
 
 	// Recalculate write stall condition after flush
 	db.recalculateWriteStall()
