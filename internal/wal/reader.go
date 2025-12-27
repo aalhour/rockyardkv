@@ -56,6 +56,7 @@ type Reader struct {
 	src           io.Reader
 	reporter      Reporter
 	checksum      bool   // Whether to verify checksums
+	strict        bool   // Whether to return errors on corruption (vs skip)
 	logNumber     uint64 // Expected log number for recyclable format
 	backingStore  []byte // Buffer for reading blocks
 	buffer        []byte // Current unconsumed data in backingStore
@@ -69,7 +70,8 @@ type Reader struct {
 	inFragmentedRecord bool
 }
 
-// NewReader creates a new WAL reader.
+// NewReader creates a new WAL reader with lenient corruption handling.
+// Corrupted records are skipped and reported, but do not cause errors.
 //
 // Parameters:
 //   - src: The source reader (typically a file)
@@ -81,6 +83,23 @@ func NewReader(src io.Reader, reporter Reporter, verifyChecksum bool, logNumber 
 		src:          src,
 		reporter:     reporter,
 		checksum:     verifyChecksum,
+		strict:       false, // Lenient mode by default for backward compatibility
+		logNumber:    logNumber,
+		backingStore: make([]byte, BlockSize),
+		buffer:       nil,
+		eof:          false,
+	}
+}
+
+// NewStrictReader creates a new WAL reader with strict corruption handling.
+// Any checksum mismatch or corruption returns an error immediately.
+// This is required for MANIFEST reading where corruption is unrecoverable.
+func NewStrictReader(src io.Reader, reporter Reporter, logNumber uint64) *Reader {
+	return &Reader{
+		src:          src,
+		reporter:     reporter,
+		checksum:     true, // Always verify checksums in strict mode
+		strict:       true,
 		logNumber:    logNumber,
 		backingStore: make([]byte, BlockSize),
 		buffer:       nil,
@@ -257,6 +276,13 @@ func (r *Reader) readPhysicalRecord() (RecordType, []byte, error) {
 
 			if crc != crcStored {
 				r.reportCorruption(headerSize+length, ErrCorruptedRecord)
+				if r.strict {
+					// In strict mode, return error immediately.
+					// This is required for MANIFEST reading.
+					return 0, nil, ErrCorruptedRecord
+				}
+				// In lenient mode, skip this record and continue.
+				// This allows WAL recovery to proceed past corruption.
 				r.buffer = r.buffer[headerSize+length:]
 				r.blockOffset += headerSize + length
 				continue

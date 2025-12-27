@@ -795,6 +795,84 @@ func TestChecksumMismatchDroppedBytes(t *testing.T) {
 	}
 }
 
+// TestStrictReaderRejectsCorruptedChecksum verifies that NewStrictReader
+// returns an error immediately on checksum mismatch, which is required
+// for MANIFEST reading where corruption is unrecoverable.
+func TestStrictReaderRejectsCorruptedChecksum(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, 1, false)
+	w.AddRecord([]byte("valid record"))
+
+	// Corrupt the checksum (first 4 bytes)
+	data := buf.Bytes()
+	data[0] ^= 0xFF
+
+	// Strict reader must return an error, not EOF
+	r := NewStrictReader(bytes.NewReader(data), nil, 1)
+	_, err := r.ReadRecord()
+
+	if !errors.Is(err, ErrCorruptedRecord) {
+		t.Errorf("StrictReader expected ErrCorruptedRecord, got %v", err)
+	}
+}
+
+// TestStrictReaderRejectsTruncatedRecord verifies that NewStrictReader
+// properly handles truncated records.
+func TestStrictReaderRejectsTruncatedRecord(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, 1, false)
+	w.AddRecord([]byte("this is a longer record that will be truncated"))
+
+	// Truncate the record mid-way
+	data := buf.Bytes()
+	truncated := data[:len(data)-10]
+
+	r := NewStrictReader(bytes.NewReader(truncated), nil, 1)
+	_, err := r.ReadRecord()
+
+	// Should return EOF (incomplete record at end of file)
+	if !errors.Is(err, io.EOF) {
+		t.Errorf("StrictReader expected EOF for truncated record, got %v", err)
+	}
+}
+
+// TestStrictReaderMultipleRecordsWithCorruption verifies that strict reader
+// stops at the first corrupted record.
+func TestStrictReaderMultipleRecordsWithCorruption(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf, 1, false)
+	w.AddRecord([]byte("record1"))
+	w.AddRecord([]byte("record2"))
+	w.AddRecord([]byte("record3"))
+
+	data := buf.Bytes()
+
+	// Find the second record and corrupt its checksum
+	// First record is at offset 0, second starts after first record ends
+	// For a 7-byte payload "record1": header(7) + payload(7) = 14 bytes
+	// So second record starts at offset 14
+	if len(data) > 20 {
+		data[14] ^= 0xFF // Corrupt second record's checksum
+	}
+
+	r := NewStrictReader(bytes.NewReader(data), nil, 1)
+
+	// First record should be read successfully
+	rec, err := r.ReadRecord()
+	if err != nil {
+		t.Fatalf("First record should succeed: %v", err)
+	}
+	if string(rec) != "record1" {
+		t.Errorf("First record = %q, want 'record1'", rec)
+	}
+
+	// Second record should fail with corruption
+	_, err = r.ReadRecord()
+	if !errors.Is(err, ErrCorruptedRecord) {
+		t.Errorf("Second record expected ErrCorruptedRecord, got %v", err)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Bad record type tests (matching C++)
 // -----------------------------------------------------------------------------
