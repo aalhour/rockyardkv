@@ -3,6 +3,7 @@ package block
 import (
 	"encoding/binary"
 
+	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/encoding"
 )
 
@@ -461,74 +462,22 @@ func (it *Iterator) compareKey(target []byte) int {
 	return CompareInternalKeys(it.key, target)
 }
 
-// CompareInternalKeys compares two internal keys.
+// CompareInternalKeys compares two internal keys using the default bytewise comparator.
+// This is a convenience wrapper around dbformat.CompareInternalKeys.
+//
 // Internal key format: user_key + 8-byte trailer where trailer = (seq << 8) | type
 //
 // Comparison order:
 // 1. User key (ascending bytewise)
 // 2. Trailer (descending) - higher sequence numbers come first
+//
+// Reference: RocksDB v10.7.5 db/dbformat.h InternalKeyComparator::Compare
 func CompareInternalKeys(a, b []byte) int {
-	const trailerSize = 8
-
-	// Extract user keys
-	var userKeyA, userKeyB []byte
-	var trailerA, trailerB uint64
-
-	if len(a) >= trailerSize {
-		userKeyA = a[:len(a)-trailerSize]
-		trailerA = decodeTrailer(a[len(a)-trailerSize:])
-	} else {
-		userKeyA = a
-		trailerA = 0
-	}
-
-	if len(b) >= trailerSize {
-		userKeyB = b[:len(b)-trailerSize]
-		trailerB = decodeTrailer(b[len(b)-trailerSize:])
-	} else {
-		userKeyB = b
-		trailerB = 0
-	}
-
-	// Compare user keys bytewise (ascending)
-	cmp := bytesCompare(userKeyA, userKeyB)
-	if cmp != 0 {
-		return cmp
-	}
-
-	// User keys are equal, compare trailers (descending)
-	// Higher trailer (higher seq) should come FIRST (return -1 if a > b)
-	if trailerA > trailerB {
-		return -1
-	}
-	if trailerA < trailerB {
-		return 1
-	}
-	return 0
+	return dbformat.CompareInternalKeys(a, b)
 }
 
-// decodeTrailer decodes an 8-byte little-endian trailer.
-func decodeTrailer(b []byte) uint64 {
-	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
-		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
-}
-
-// bytesCompare compares two byte slices lexicographically.
-func bytesCompare(a, b []byte) int {
-	minLen := min(len(b), len(a))
-	for i := range minLen {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-	if len(a) < len(b) {
-		return -1
-	}
-	if len(a) > len(b) {
-		return 1
-	}
-	return 0
+// CompareInternalKeysWithComparator compares two internal keys using a custom comparator.
+// Use this when you need non-bytewise user key ordering (e.g., ReverseBytewiseComparator).
+func CompareInternalKeysWithComparator(a, b []byte, cmp *dbformat.InternalKeyComparator) int {
+	return cmp.Compare(a, b)
 }

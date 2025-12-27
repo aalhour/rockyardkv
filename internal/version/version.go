@@ -15,6 +15,7 @@ package version
 import (
 	"sync/atomic"
 
+	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 )
 
@@ -163,60 +164,15 @@ func (v *Version) OverlappingInputs(level int, begin, end []byte) []*manifest.Fi
 	return result
 }
 
-// compareInternalKey compares two internal keys.
+// compareInternalKey compares two internal keys using the default bytewise comparator.
 // Returns negative if a < b, positive if a > b, zero if a == b.
+//
+// Reference: RocksDB v10.7.5 db/dbformat.h InternalKeyComparator::Compare
 func compareInternalKey(a, b []byte) int {
-	// Internal key format: user_key + 8-byte trailer (seq + type)
-	// Compare user keys first, then sequence numbers (descending)
-	if len(a) < 8 || len(b) < 8 {
-		// Malformed keys, compare as bytes
-		return bytesCompare(a, b)
-	}
-
-	userKeyA := a[:len(a)-8]
-	userKeyB := b[:len(b)-8]
-
-	cmp := bytesCompare(userKeyA, userKeyB)
-	if cmp != 0 {
-		return cmp
-	}
-
-	// User keys are equal, compare by sequence number (descending)
-	// The trailer contains the sequence number in the upper 56 bits
-	// Higher sequence numbers should come first
-	trailerA := decodeFixed64(a[len(a)-8:])
-	trailerB := decodeFixed64(b[len(b)-8:])
-
-	if trailerA > trailerB {
-		return -1 // Higher sequence = earlier in sort order
-	} else if trailerA < trailerB {
-		return 1
-	}
-	return 0
+	return dbformat.CompareInternalKeys(a, b)
 }
 
 // bytesCompare compares two byte slices lexicographically.
 func bytesCompare(a, b []byte) int {
-	minLen := min(len(b), len(a))
-	for i := range minLen {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-	if len(a) < len(b) {
-		return -1
-	}
-	if len(a) > len(b) {
-		return 1
-	}
-	return 0
-}
-
-// decodeFixed64 decodes a little-endian uint64.
-func decodeFixed64(b []byte) uint64 {
-	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
-		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+	return dbformat.BytewiseCompare(a, b)
 }

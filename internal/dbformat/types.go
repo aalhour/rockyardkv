@@ -68,7 +68,10 @@ const (
 
 // ValueTypeForSeek is used when seeking to find a specific user key.
 // We seek to the key with the largest possible sequence number and value type.
-const ValueTypeForSeek = TypeBlobIndex
+// Reference: RocksDB v10.7.5 db/dbformat.cc line 28:
+//
+//	const ValueType kValueTypeForSeek = kTypeValuePreferredSeqno;
+const ValueTypeForSeek = TypeValuePreferredSeqno
 
 // ValueTypeForSeekForPrev is similar but for reverse seeking.
 const ValueTypeForSeekForPrev = TypeDeletion
@@ -245,4 +248,121 @@ func UpdateInternalKey(key *InternalKey, seq SequenceNumber, t ValueType) {
 // DebugString returns a debug string representation of the parsed internal key.
 func (p *ParsedInternalKey) DebugString() string {
 	return fmt.Sprintf("'%s' @ %d : %d", p.UserKey, p.Sequence, p.Type)
+}
+
+// =============================================================================
+// InternalKeyComparator
+// =============================================================================
+
+// UserKeyComparer is a function that compares two user keys.
+// Returns negative if a < b, positive if a > b, zero if equal.
+type UserKeyComparer func(a, b []byte) int
+
+// BytewiseCompare is the default user key comparer (lexicographic ordering).
+func BytewiseCompare(a, b []byte) int {
+	minLen := min(len(a), len(b))
+	for i := range minLen {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	return 0
+}
+
+// InternalKeyComparator compares internal keys.
+//
+// Internal key format: user_key + 8-byte trailer (sequence << 8 | type)
+//
+// Comparison order (matching C++ RocksDB):
+//  1. User key (ascending, using the wrapped user comparator)
+//  2. Sequence number (descending - higher comes first)
+//  3. Value type (descending - higher comes first)
+//
+// Since sequence and type are packed as (seq << 8 | type), comparing
+// the packed trailer in descending order handles both.
+//
+// Reference: RocksDB v10.7.5 db/dbformat.h InternalKeyComparator::Compare
+type InternalKeyComparator struct {
+	userCompare UserKeyComparer
+}
+
+// NewInternalKeyComparator creates a new InternalKeyComparator with the given
+// user key comparison function.
+func NewInternalKeyComparator(userCompare UserKeyComparer) *InternalKeyComparator {
+	if userCompare == nil {
+		userCompare = BytewiseCompare
+	}
+	return &InternalKeyComparator{userCompare: userCompare}
+}
+
+// DefaultInternalKeyComparator is the default comparator using bytewise user key ordering.
+var DefaultInternalKeyComparator = NewInternalKeyComparator(BytewiseCompare)
+
+// Compare compares two internal keys.
+// Returns negative if a < b, positive if a > b, zero if equal.
+func (c *InternalKeyComparator) Compare(a, b []byte) int {
+	// Extract user keys
+	userKeyA := ExtractUserKey(a)
+	userKeyB := ExtractUserKey(b)
+
+	// Handle nil/empty cases from ExtractUserKey when key is too short
+	if userKeyA == nil {
+		userKeyA = a
+	}
+	if userKeyB == nil {
+		userKeyB = b
+	}
+
+	// Compare user keys (ascending)
+	cmp := c.userCompare(userKeyA, userKeyB)
+	if cmp != 0 {
+		return cmp
+	}
+
+	// User keys are equal, compare trailers (descending)
+	// Higher trailer (higher seq/type) should come first
+	if len(a) >= NumInternalBytes && len(b) >= NumInternalBytes {
+		trailerA := encoding.DecodeFixed64(a[len(a)-NumInternalBytes:])
+		trailerB := encoding.DecodeFixed64(b[len(b)-NumInternalBytes:])
+		if trailerA > trailerB {
+			return -1
+		}
+		if trailerA < trailerB {
+			return 1
+		}
+	}
+	return 0
+}
+
+// CompareUserKey compares just the user key portion of two internal keys.
+func (c *InternalKeyComparator) CompareUserKey(a, b []byte) int {
+	userKeyA := ExtractUserKey(a)
+	userKeyB := ExtractUserKey(b)
+	if userKeyA == nil {
+		userKeyA = a
+	}
+	if userKeyB == nil {
+		userKeyB = b
+	}
+	return c.userCompare(userKeyA, userKeyB)
+}
+
+// UserCompare returns the user key comparison function.
+func (c *InternalKeyComparator) UserCompare() UserKeyComparer {
+	return c.userCompare
+}
+
+// CompareInternalKeys is a convenience function using the default bytewise comparator.
+// This is the most common case and maintains backward compatibility.
+func CompareInternalKeys(a, b []byte) int {
+	return DefaultInternalKeyComparator.Compare(a, b)
 }

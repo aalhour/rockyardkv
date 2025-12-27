@@ -12,6 +12,8 @@
 //   - db/compaction/compaction_iterator.cc
 package db
 
+import "github.com/aalhour/rockyardkv/internal/dbformat"
+
 // CompactionFilterDecision represents the decision made by a compaction filter.
 type CompactionFilterDecision int
 
@@ -161,22 +163,7 @@ func (f *RemoveByRangeFilter) inRange(key []byte) bool {
 	return true
 }
 
-// bytesCompare compares two byte slices.
+// bytesCompare compares two byte slices lexicographically.
 func bytesCompare(a, b []byte) int {
-	minLen := min(len(b), len(a))
-	for i := range minLen {
-		if a[i] < b[i] {
-			return -1
-		}
-		if a[i] > b[i] {
-			return 1
-		}
-	}
-	if len(a) < len(b) {
-		return -1
-	}
-	if len(a) > len(b) {
-		return 1
-	}
-	return 0
+	return dbformat.BytewiseCompare(a, b)
 }
