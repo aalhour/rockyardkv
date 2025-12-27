@@ -1,10 +1,15 @@
-package table
+// constants_golden_test.go - Tests that verify Go constants match C++ RocksDB.
+//
+// These tests ensure that magic numbers, property names, footer sizes, etc.
+// are bit-for-bit compatible with C++ RocksDB v10.7.5.
+package main
 
 import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/block"
 	"github.com/aalhour/rockyardkv/internal/checksum"
+	"github.com/aalhour/rockyardkv/internal/table"
 )
 
 // TestGoldenTablePropertiesNames tests that property name constants match RocksDB.
@@ -14,19 +19,19 @@ func TestGoldenTablePropertiesNames(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"PropDataSize", PropDataSize, "rocksdb.data.size"},
-		{"PropIndexSize", PropIndexSize, "rocksdb.index.size"},
-		{"PropFilterSize", PropFilterSize, "rocksdb.filter.size"},
-		{"PropRawKeySize", PropRawKeySize, "rocksdb.raw.key.size"},
-		{"PropRawValueSize", PropRawValueSize, "rocksdb.raw.value.size"},
-		{"PropNumDataBlocks", PropNumDataBlocks, "rocksdb.num.data.blocks"},
-		{"PropNumEntries", PropNumEntries, "rocksdb.num.entries"},
-		{"PropComparator", PropComparator, "rocksdb.comparator"},
-		{"PropCompression", PropCompression, "rocksdb.compression"},
-		{"PropColumnFamilyID", PropColumnFamilyID, "rocksdb.column.family.id"},
-		{"PropColumnFamilyName", PropColumnFamilyName, "rocksdb.column.family.name"},
-		{"PropCreationTime", PropCreationTime, "rocksdb.creation.time"},
-		{"PropFormatVersion", PropFormatVersion, "rocksdb.format.version"},
+		{"PropDataSize", table.PropDataSize, "rocksdb.data.size"},
+		{"PropIndexSize", table.PropIndexSize, "rocksdb.index.size"},
+		{"PropFilterSize", table.PropFilterSize, "rocksdb.filter.size"},
+		{"PropRawKeySize", table.PropRawKeySize, "rocksdb.raw.key.size"},
+		{"PropRawValueSize", table.PropRawValueSize, "rocksdb.raw.value.size"},
+		{"PropNumDataBlocks", table.PropNumDataBlocks, "rocksdb.num.data.blocks"},
+		{"PropNumEntries", table.PropNumEntries, "rocksdb.num.entries"},
+		{"PropComparator", table.PropComparator, "rocksdb.comparator"},
+		{"PropCompression", table.PropCompression, "rocksdb.compression"},
+		{"PropColumnFamilyID", table.PropColumnFamilyID, "rocksdb.column.family.id"},
+		{"PropColumnFamilyName", table.PropColumnFamilyName, "rocksdb.column.family.name"},
+		{"PropCreationTime", table.PropCreationTime, "rocksdb.creation.time"},
+		{"PropFormatVersion", table.PropFormatVersion, "rocksdb.format.version"},
 	}
 
 	for _, tc := range testCases {
