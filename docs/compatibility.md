@@ -19,6 +19,35 @@ Files created by RockyardKV can be opened by C++ RocksDB, and vice versa.
 | CURRENT | Compatible | Plain text pointer to MANIFEST |
 | OPTIONS | Read-only | Parsed but not written |
 
+## Durability guarantees
+
+RockyardKV matches C++ RocksDB durability semantics exactly.
+
+### With WAL enabled (default)
+
+Acknowledged writes survive crashes.
+The WAL records writes before acknowledgment.
+Recovery replays the WAL to restore committed data.
+
+### With WAL disabled
+
+**Data loss is expected after a crash.**
+
+When you set `WriteOptions.DisableWAL = true`, writes go directly to the memtable.
+If the process crashes before a flush, unflushed writes are lost.
+This matches C++ RocksDB behavior exactly.
+
+Use WAL-disabled mode only when:
+
+- You can tolerate data loss.
+- You need maximum write throughput.
+- You call `Flush()` explicitly before shutdown.
+
+### Sync writes
+
+Set `WriteOptions.Sync = true` to force an `fsync` after each write.
+This provides the strongest durability but reduces throughput.
+
 ## API parity
 
 RockyardKV implements the core RocksDB API:
