@@ -95,14 +95,19 @@ func Compress(t Type, data []byte) ([]byte, error) {
 		return snappy.Encode(nil, data), nil
 
 	case ZlibCompression:
+		// RocksDB uses raw deflate format (no zlib header) with windowBits = -14.
+		// Go's compress/flate produces raw deflate (no headers).
 		var buf bytes.Buffer
-		w := zlib.NewWriter(&buf)
-		_, err := w.Write(data)
+		// Use BestSpeed (level 1) for compatibility with RocksDB's default
+		w, err := flate.NewWriter(&buf, flate.BestSpeed)
 		if err != nil {
-			return nil, fmt.Errorf("zlib write: %w", err)
+			return nil, fmt.Errorf("raw deflate writer: %w", err)
+		}
+		if _, err := w.Write(data); err != nil {
+			return nil, fmt.Errorf("raw deflate write: %w", err)
 		}
 		if err := w.Close(); err != nil {
-			return nil, fmt.Errorf("zlib close: %w", err)
+			return nil, fmt.Errorf("raw deflate close: %w", err)
 		}
 		return buf.Bytes(), nil
 

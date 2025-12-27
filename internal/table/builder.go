@@ -307,7 +307,14 @@ func (tb *TableBuilder) writeBlockWithTrailer(blockData []byte, blockType block.
 		compressed, err := compression.Compress(tb.options.Compression, blockData)
 		if err == nil && len(compressed) < len(blockData) {
 			// Only use compression if it actually reduces size
-			compressedData = compressed
+			// For format_version >= 2, prepend varint32 decompressed size
+			// Reference: table/format.h GetCompressFormatForVersion()
+			if tb.options.FormatVersion >= 2 {
+				prefix := encoding.AppendVarint32(nil, uint32(len(blockData)))
+				compressedData = append(prefix, compressed...)
+			} else {
+				compressedData = compressed
+			}
 			compressionType = block.CompressionType(tb.options.Compression)
 		}
 	}
