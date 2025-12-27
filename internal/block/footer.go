@@ -310,18 +310,15 @@ func (f *Footer) EncodeToAt(footerOffset uint64) []byte {
 func (f *Footer) encodeVersion0() []byte {
 	buf := make([]byte, Version0EncodedLength)
 
-	// Encode handles
-	encoded := f.MetaindexHandle.EncodeTo(buf[:0])
-	n := len(encoded)
-	copy(buf, encoded)
+	// Encode metaindex handle
+	encoded := f.MetaindexHandle.EncodeTo(nil)
+	n := copy(buf, encoded)
 
-	encoded = f.IndexHandle.EncodeTo(buf[n:n])
-	n += len(encoded) - n // Actually this is wrong, fix it
+	// Encode index handle
 	encoded = f.IndexHandle.EncodeTo(nil)
-	copy(buf[n:], encoded)
-	n += len(encoded)
+	n += copy(buf[n:], encoded)
 
-	// Padding
+	// Padding (zero fill between handles and magic number)
 	for i := n; i < Version0EncodedLength-MagicNumberLengthByte; i++ {
 		buf[i] = 0
 	}
