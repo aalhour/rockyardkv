@@ -356,3 +356,148 @@ func TestOpenForReadOnlyMultiGet(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenForReadOnlyGetLiveFilesMetaData tests that GetLiveFilesMetaData works
+// in read-only mode and returns actual live SST file information.
+// This is Issue 11: Read-only DB stubs live-file APIs
+func TestOpenForReadOnlyGetLiveFilesMetaData(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create and populate a database
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	db1, err := Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open db: %v", err)
+	}
+
+	// Write enough data to create SST files
+	for i := range 100 {
+		key := []byte{byte(i)}
+		value := make([]byte, 100)
+		for j := range value {
+			value[j] = byte(i)
+		}
+		if err := db1.Put(nil, key, value); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+
+	// Flush to create SST files on disk
+	if err := db1.Flush(nil); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// Get metadata from writable DB for comparison
+	writableMetadata := db1.GetLiveFilesMetaData()
+	if len(writableMetadata) == 0 {
+		t.Fatal("Writable DB has no live SST files after flush")
+	}
+
+	db1.Close()
+
+	// Open in read-only mode
+	roDB, err := OpenForReadOnly(dir, opts, false)
+	if err != nil {
+		t.Fatalf("OpenForReadOnly failed: %v", err)
+	}
+	defer roDB.Close()
+
+	// GetLiveFilesMetaData should return actual file metadata
+	metadata := roDB.GetLiveFilesMetaData()
+
+	// Should have at least one SST file
+	if len(metadata) == 0 {
+		t.Error("GetLiveFilesMetaData returned empty in read-only mode (Issue 11)")
+	}
+
+	// Verify metadata has reasonable values
+	for _, m := range metadata {
+		if m.Name == "" {
+			t.Error("LiveFileMetaData has empty Name")
+		}
+		if m.Size == 0 {
+			t.Errorf("LiveFileMetaData %s has zero Size", m.Name)
+		}
+	}
+}
+
+// TestOpenForReadOnlyGetLiveFiles tests that GetLiveFiles works
+// in read-only mode and returns actual file list.
+func TestOpenForReadOnlyGetLiveFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create and populate a database
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	db1, err := Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open db: %v", err)
+	}
+
+	// Write data and flush to create SST files
+	for i := range 50 {
+		key := []byte{byte(i)}
+		value := []byte{byte(i * 2)}
+		if err := db1.Put(nil, key, value); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+	if err := db1.Flush(nil); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+	db1.Close()
+
+	// Open in read-only mode
+	roDB, err := OpenForReadOnly(dir, opts, false)
+	if err != nil {
+		t.Fatalf("OpenForReadOnly failed: %v", err)
+	}
+	defer roDB.Close()
+
+	// GetLiveFiles should return actual file list
+	files, manifestSize, err := roDB.GetLiveFiles(false)
+	if err != nil {
+		t.Fatalf("GetLiveFiles failed: %v", err)
+	}
+
+	// Should have at least MANIFEST and CURRENT files
+	if len(files) == 0 {
+		t.Error("GetLiveFiles returned empty file list in read-only mode")
+	}
+
+	// Manifest size should be non-zero
+	if manifestSize == 0 {
+		t.Error("GetLiveFiles returned zero manifest size")
+	}
+
+	// Check that we have expected file types
+	// Files are returned as /FILENAME format (with leading slash)
+	hasManifest := false
+	hasCurrent := false
+	hasSST := false
+	for _, f := range files {
+		// MANIFEST files can be named /MANIFEST-XXXXXX
+		if len(f) >= 9 && f[1:9] == "MANIFEST" {
+			hasManifest = true
+		}
+		if f == "/CURRENT" {
+			hasCurrent = true
+		}
+		if len(f) > 4 && f[len(f)-4:] == ".sst" {
+			hasSST = true
+		}
+	}
+
+	if !hasManifest {
+		t.Errorf("GetLiveFiles missing MANIFEST file in %v", files)
+	}
+	if !hasCurrent {
+		t.Errorf("GetLiveFiles missing CURRENT file in %v", files)
+	}
+	if !hasSST {
+		t.Errorf("GetLiveFiles missing SST files in %v", files)
+	}
+}

@@ -196,13 +196,13 @@ func (db *DBImplReadOnly) GetLatestSequenceNumber() uint64 {
 }
 
 // GetLiveFiles returns a list of all files in the database.
-// flushMemtable is ignored in read-only mode.
+// flushMemtable is ignored in read-only mode (no memtable to flush).
 func (db *DBImplReadOnly) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 	if db.closed {
 		return nil, 0, ErrDBClosed
 	}
-	// Delegate to embedded DBImpl if available, otherwise return empty
-	return nil, 0, nil
+	// Delegate to embedded DBImpl, but ignore flushMemtable since we're read-only
+	return db.DBImpl.GetLiveFiles(false)
 }
 
 // GetLiveFilesMetaData returns metadata about all live SST files.
@@ -210,7 +210,8 @@ func (db *DBImplReadOnly) GetLiveFilesMetaData() []LiveFileMetaData {
 	if db.closed {
 		return nil
 	}
-	return nil
+	// Delegate to embedded DBImpl
+	return db.DBImpl.GetLiveFilesMetaData()
 }
 
 // DisableFileDeletions is a no-op in read-only mode.

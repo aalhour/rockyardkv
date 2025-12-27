@@ -225,12 +225,13 @@ func (db *DBImplSecondary) GetLatestSequenceNumber() uint64 {
 }
 
 // GetLiveFiles returns a list of all files in the database.
-// flushMemtable is ignored in secondary mode.
+// flushMemtable is ignored in secondary mode (no memtable to flush).
 func (db *DBImplSecondary) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 	if db.closed {
 		return nil, 0, ErrDBClosed
 	}
-	return nil, 0, nil
+	// Delegate to embedded DBImpl, but ignore flushMemtable since we're secondary
+	return db.DBImpl.GetLiveFiles(false)
 }
 
 // GetLiveFilesMetaData returns metadata about all live SST files.
@@ -238,7 +239,8 @@ func (db *DBImplSecondary) GetLiveFilesMetaData() []LiveFileMetaData {
 	if db.closed {
 		return nil
 	}
-	return nil
+	// Delegate to embedded DBImpl
+	return db.DBImpl.GetLiveFilesMetaData()
 }
 
 // DisableFileDeletions is a no-op in secondary mode.
