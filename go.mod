@@ -9,4 +9,7 @@ require (
 	github.com/golang/snappy v1.0.0
 	github.com/klauspost/compress v1.18.2
 	github.com/pierrec/lz4/v4 v4.1.23
+	github.com/zeebo/xxh3 v1.0.2
 )
+
+require github.com/klauspost/cpuid/v2 v2.0.9 // indirect
