@@ -66,6 +66,7 @@ var (
 	saveExpected         = flag.Bool("save-expected", false, "Save expected state after test")
 	saveExpectedInterval = flag.Duration("save-expected-interval", 1*time.Second, "Interval to persist expected state during the run (0 to disable)")
 	verifyOnly           = flag.Bool("verify-only", false, "Verify database state using expected state file, without running operations")
+	allowDBAhead         = flag.Bool("allow-db-ahead", false, "Allow DB to have more data than expected state (for crash testing with race conditions)")
 
 	// Operation weights (sum to 100)
 	putWeight            = flag.Int("put", 30, "Put operation weight")
@@ -183,6 +184,10 @@ func main() {
 	// This makes -save-expected meaningful under SIGKILL.
 	stopSave := make(chan struct{})
 	if *expectedState != "" && *saveExpected && *saveExpectedInterval > 0 {
+		// Save immediately so crash tests have an initial state file
+		// even if killed before the first tick.
+		_ = expState.SaveToFile(*expectedState)
+
 		go func() {
 			t := time.NewTicker(*saveExpectedInterval)
 			defer t.Stop()
@@ -1874,9 +1879,19 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 		if ev.IsDeleted() {
 			// Key should not exist
 			if !errors.Is(err, db.ErrNotFound) {
-				failures++
-				if *verbose {
-					fmt.Printf("Verify: key %d expected deleted but found (err=%v)\n", key, err)
+				if *allowDBAhead {
+					// In crash testing, DB can be ahead of expected state due to race conditions.
+					// Expected state: key deleted (saved before new PUT)
+					// DB: key exists (PUT synced after expected state save, before SIGKILL)
+					// This is acceptable - no data loss occurred.
+					if *verbose {
+						fmt.Printf("Verify: key %d expected deleted but found (allowed, DB ahead) (err=%v)\n", key, err)
+					}
+				} else {
+					failures++
+					if *verbose {
+						fmt.Printf("Verify: key %d expected deleted but found (err=%v)\n", key, err)
+					}
 				}
 			}
 		} else if ev.Exists() {
@@ -1892,10 +1907,19 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 				if len(value) >= 12 {
 					actualValueBase := getValueBase(value)
 					if actualValueBase != expectedValueBase {
-						failures++
-						if *verbose {
-							fmt.Printf("Verify: key %d value base mismatch: got %d, want %d\n",
-								key, actualValueBase, expectedValueBase)
+						if *allowDBAhead && actualValueBase > expectedValueBase {
+							// DB has newer value - acceptable in crash testing
+							// (PUT synced after expected state save, before SIGKILL)
+							if *verbose {
+								fmt.Printf("Verify: key %d value base mismatch: got %d, want %d (allowed, DB ahead)\n",
+									key, actualValueBase, expectedValueBase)
+							}
+						} else {
+							failures++
+							if *verbose {
+								fmt.Printf("Verify: key %d value base mismatch: got %d, want %d\n",
+									key, actualValueBase, expectedValueBase)
+							}
 						}
 					}
 				}

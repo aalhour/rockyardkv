@@ -1,8 +1,90 @@
 # Testing
 
 This document describes how RockyardKV tests correctness and compatibility.
-It focuses on Jepsen-style failure models.
-It also explains the test harness algorithms.
+It covers the testing philosophy, test structure, and test harnesses.
+
+## Philosophy: test contracts, not bugs
+
+RockyardKV tests _contracts_, not _bugs_.
+A contract is what a component promises to do.
+If a bug violates a contract, a contract test catches it.
+
+This approach:
+
+- Survives refactoring because tests describe behavior, not implementation.
+- Prevents regressions because each contract has a test.
+- Scales because new features add new contracts, not new "regression tests."
+
+Don't name tests after bugs.
+Name tests after the behavior they verify.
+
+| Do | Don't |
+| --- | --- |
+| `TestFooter_DecodeAll_SupportedVersions` | `TestRegression_Issue3` |
+| `TestWAL_Recovery_SyncedWritesSurvive` | `TestFixForCrashBug` |
+| `TestSST_ReadZlibCompressed_FormatV6` | `TestZlibFix` |
+
+## Test structure
+
+RockyardKV organizes tests into three layers.
+
+### Layer 1: contract tests
+
+Contract tests verify each component's promises.
+They live in `internal/*/_test.go` and `db/*_test.go`.
+
+Use table-driven tests to cover version and compression matrices:
+
+```go
+func TestSST_FormatVersionMatrix(t *testing.T) {
+    versions := []uint32{0, 3, 4, 5, 6}
+    compressions := []compression.Type{
+        compression.NoCompression,
+        compression.Snappy,
+        compression.Zlib,
+    }
+    for _, v := range versions {
+        for _, c := range compressions {
+            t.Run(fmt.Sprintf("v%d/%s", v, c), func(t *testing.T) {
+                // Test SST round-trip with this version and compression.
+            })
+        }
+    }
+}
+```
+
+### Layer 2: oracle tests
+
+Oracle tests verify C++ and Go compatibility.
+They live in `cmd/goldentest/`.
+
+Fixtures are the tests.
+Each file in `testdata/cpp_generated/` is automatically tested.
+When you fix a format bug, generate a C++ fixture that exercises the bug and add it to the fixtures directory.
+
+### Layer 3: chaos tests
+
+Chaos tests find bugs through randomization.
+They live in `cmd/crashtest/`, `cmd/stresstest/`, and `cmd/adversarialtest/`.
+
+These tests don't target specific bugs.
+They test invariants:
+
+- Crash test: "Synced writes survive SIGKILL."
+- Stress test: "Concurrent operations don't corrupt data."
+- Adversarial test: "Malformed inputs don't cause panics."
+
+## Prevent regressions
+
+Use this table to determine where to add coverage when you fix a bug.
+
+| Bug type | Add coverage in |
+| --- | --- |
+| Format (zlib, footer, metaindex) | `format_matrix_test.go` + C++ fixture |
+| Recovery (WAL replay, crash) | `db/db_recovery_test.go` |
+| Concurrency (race, deadlock) | `db/db_concurrent_test.go` + stress test |
+| Parsing (malformed input) | Fuzz test + add to corpus |
+| API behavior | `db/db_basic_test.go` or `db/*_test.go` |
 
 ## Use the testing pyramid
 
@@ -53,21 +135,23 @@ make test-e2e-golden
 ## Golden tests
 
 Golden tests validate on-disk compatibility with RocksDB v10.7.5.
-They parse C++-generated fixtures.
-They also generate Go-written artifacts for cross-reading.
+They are standard Go tests that:
 
-### Test categories
+- Read C++-generated fixtures from `testdata/cpp_generated/`.
+- Write Go artifacts and verify with C++ tools (`ldb`, `sst_dump`).
+- Test format version × compression matrices.
 
-The golden test framework organizes tests by format:
+### Test files
 
-| Category | File | Tests |
-| --- | --- | --- |
-| WAL | `wal_verify.go` | Go writes WAL readable by C++ |
-| MANIFEST | `manifest_verify.go` | Read/write, unknown tags, corruption |
-| Block | `block_verify.go` | Implicit via SST |
-| SST | `sst_verify.go` | Go reads C++, C++ reads Go |
-| Compression | `compression_verify.go` | Raw deflate (zlib) compatibility |
-| Database | `db_verify.go` | Full DB open/scan, column families |
+| File | Tests |
+| --- | --- |
+| `constants_test.go` | Magic numbers, property names, footer sizes |
+| `db_test.go` | Database round-trip, C++ corpus reading |
+| `manifest_test.go` | Read/write, unknown tags, corruption |
+| `sst_test.go` | C++ fixtures, sst_dump verification |
+| `sst_format_test.go` | Format version × compression matrix |
+| `sst_contract_test.go` | Behavioral edge cases (binary keys, deletions) |
+| `wal_test.go` | WAL round-trip and C++ compatibility |
 
 ### Run golden tests
 
@@ -77,32 +161,22 @@ Run using make:
 make test-e2e-golden
 ```
 
-Or run directly with custom paths:
+Or run directly:
 
 ```bash
-go run ./cmd/goldentest \
-  -fixtures ./cmd/goldentest/testdata/cpp_generated \
-  -output ./cmd/goldentest/testdata/go_generated \
-  -ldb /path/to/rocksdb/ldb \
-  -sst-dump /path/to/rocksdb/sst_dump \
-  -v
+go test -v ./cmd/goldentest/...
 ```
 
 ### Prerequisites
 
-Build the RocksDB tools before running golden tests:
+Build the RocksDB tools before running tests that invoke C++ verification:
 
 ```bash
 cd /path/to/rocksdb
 make ldb sst_dump
 ```
 
-Generate C++ fixtures:
-
-```bash
-cd cmd/goldentest
-./generate_fixtures.sh
-```
+Set `DYLD_LIBRARY_PATH` (macOS) or `LD_LIBRARY_PATH` (Linux) if needed.
 
 ## Smoke tests
 

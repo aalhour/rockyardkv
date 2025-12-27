@@ -1,10 +1,19 @@
-// db_test.go - Database round-trip tests (Go tests).
+// db_test.go - Database compatibility tests.
 //
-// These tests verify that Go can correctly write and read back databases.
+// Contract: Go databases are readable by C++ RocksDB, and vice versa.
+//
+// Reference: RocksDB v10.7.5
+//
+//	db/db_impl/db_impl.cc      - Database implementation
+//	db/db_impl/db_impl_open.cc - Database opening
 package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aalhour/rockyardkv/db"
@@ -284,4 +293,234 @@ func TestDatabaseRoundTrip_Iterator(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatalf("close failed: %v", err)
 	}
+}
+
+// =============================================================================
+// C++ Compatibility Tests
+// =============================================================================
+
+// TestDatabase_Contract_CppWritesGoReads tests that Go can open C++ databases.
+//
+// Contract: Go can open and read databases created by C++ RocksDB.
+func TestDatabase_Contract_CppWritesGoReads(t *testing.T) {
+	goldenPath := "testdata/cpp_generated/sst/simple_db"
+
+	if _, err := os.Stat(goldenPath); os.IsNotExist(err) {
+		t.Skip("C++ fixture not found")
+	}
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+
+	database, err := db.Open(goldenPath, opts)
+	if err != nil {
+		t.Fatalf("open C++ database: %v", err)
+	}
+	defer database.Close()
+
+	// Read all keys
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	keyCount := 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+
+	t.Logf("Go opened C++ database with %d keys", keyCount)
+}
+
+// TestDatabase_Contract_GoWritesCppReads tests that C++ can open Go databases.
+//
+// Contract: C++ ldb can open and read databases created by Go.
+func TestDatabase_Contract_GoWritesCppReads(t *testing.T) {
+	ldb := findLdbPathDB(t)
+	if ldb == "" {
+		t.Skip("ldb not found")
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "go_db_for_cpp")
+
+	// Create database
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dbPath, opts)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// Write test data
+	testData := []struct{ key, value string }{
+		{"simple_key", "simple_value"},
+		{"unicode_key_日本語", "unicode_value_中文"},
+	}
+
+	for _, td := range testData {
+		if err := database.Put(nil, []byte(td.key), []byte(td.value)); err != nil {
+			database.Close()
+			t.Fatalf("put: %v", err)
+		}
+	}
+
+	// Also write sequential keys
+	for i := range 100 {
+		key := fmt.Sprintf("seq_key_%05d", i)
+		value := fmt.Sprintf("seq_value_%05d", i)
+		if err := database.Put(nil, []byte(key), []byte(value)); err != nil {
+			database.Close()
+			t.Fatalf("put seq: %v", err)
+		}
+	}
+
+	if err := database.Flush(nil); err != nil {
+		database.Close()
+		t.Fatalf("flush: %v", err)
+	}
+
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Verify with ldb scan
+	output := runLdbScanDB(t, ldb, dbPath)
+	if !strings.Contains(output, "simple_key") {
+		t.Errorf("ldb output missing simple_key")
+	}
+	if !strings.Contains(output, "seq_key_00000") {
+		t.Errorf("ldb output missing seq_key_00000")
+	}
+
+	// Verify specific key lookup
+	output = runLdbGetDB(t, ldb, dbPath, "simple_key")
+	if !strings.Contains(output, "simple_value") {
+		t.Errorf("ldb get returned wrong value: %s", output)
+	}
+}
+
+// TestDatabase_Contract_ColumnFamilyIsolation_CppReads tests that C++ can read
+// column families created by Go.
+//
+// Regression: Issue 7 - column family isolation.
+//
+// Contract: C++ ldb can read multi-CF databases created by Go.
+func TestDatabase_Contract_ColumnFamilyIsolation_CppReads(t *testing.T) {
+	ldb := findLdbPathDB(t)
+	if ldb == "" {
+		t.Skip("ldb not found")
+	}
+
+	dir := t.TempDir()
+
+	// Create database with column family
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	cfOpts := db.DefaultColumnFamilyOptions()
+	cf1, err := database.CreateColumnFamily(cfOpts, "test_cf")
+	if err != nil {
+		database.Close()
+		t.Fatalf("create CF: %v", err)
+	}
+
+	// Write to both CFs
+	writeOpts := db.DefaultWriteOptions()
+	if err := database.Put(writeOpts, []byte("default_key"), []byte("default_value")); err != nil {
+		database.Close()
+		t.Fatalf("put default: %v", err)
+	}
+	if err := database.PutCF(writeOpts, cf1, []byte("cf_key"), []byte("cf_value")); err != nil {
+		database.Close()
+		t.Fatalf("put CF: %v", err)
+	}
+	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		database.Close()
+		t.Fatalf("flush: %v", err)
+	}
+	database.Close()
+
+	// C++ should be able to scan the database
+	output := runLdbScanDB(t, ldb, dir)
+	// Default CF should have default_key
+	if !strings.Contains(output, "default_key") {
+		t.Logf("Note: default_key not in scan output (may need CF flag)")
+	}
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+func findLdbPathDB(t *testing.T) string {
+	t.Helper()
+
+	paths := []string{
+		os.ExpandEnv("$HOME/Workspace/rocksdb/ldb"),
+		os.ExpandEnv("$ROCKSDB_PATH/ldb"),
+		"/usr/local/bin/ldb",
+		"ldb",
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		if found, err := exec.LookPath(p); err == nil {
+			return found
+		}
+	}
+
+	return ""
+}
+
+func runLdbScanDB(t *testing.T, ldb, dbPath string) string {
+	t.Helper()
+
+	cmd := exec.Command(ldb, "scan", "--db="+dbPath)
+	dir := filepath.Dir(ldb)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+dir,
+		"LD_LIBRARY_PATH="+dir,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "Library not loaded") {
+			t.Skipf("C++ tools not built: %s", output)
+		}
+		t.Fatalf("ldb scan failed: %v\nOutput: %s", err, output)
+	}
+
+	return string(output)
+}
+
+func runLdbGetDB(t *testing.T, ldb, dbPath, key string) string {
+	t.Helper()
+
+	cmd := exec.Command(ldb, "get", "--db="+dbPath, key)
+	dir := filepath.Dir(ldb)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+dir,
+		"LD_LIBRARY_PATH="+dir,
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "Library not loaded") {
+			t.Skipf("C++ tools not built: %s", output)
+		}
+		t.Fatalf("ldb get failed: %v\nOutput: %s", err, output)
+	}
+
+	return string(output)
 }

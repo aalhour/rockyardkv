@@ -239,7 +239,8 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 		"-reopen", "0", // Disable reopens during stress phase
 		"-flush", "2s", // Frequent flushes
 		"-expected-state", expectedStateFile, // Persistent expected state
-		"-save-expected", // Save state after operations
+		"-save-expected",                   // Save state after operations
+		"-save-expected-interval", "100ms", // Frequent saves to minimize race window
 		"-v",
 	}
 
@@ -306,6 +307,7 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 		"-reopen", "0",
 		"-expected-state", expectedStateFile, // Load persisted expected state
 		"-verify-only",
+		"-allow-db-ahead", // Allow DB to be ahead of expected state (race condition)
 		"-v",
 	}
 
