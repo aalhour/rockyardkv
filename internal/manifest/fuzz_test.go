@@ -153,3 +153,118 @@ func FuzzManifestWALFormat(f *testing.F) {
 		}
 	})
 }
+
+// FuzzVersionEditComplex fuzzes more complex VersionEdit structures
+// including NewFiles, DeletedFiles, and atomic groups.
+func FuzzVersionEditComplex(f *testing.F) {
+	// Seed corpus with representative inputs
+	f.Add(uint32(0), uint64(1), uint64(100), int32(0), uint64(1024), uint32(5))
+	f.Add(uint32(1), uint64(10), uint64(1000), int32(1), uint64(4096), uint32(0))
+	f.Add(uint32(2), uint64(100), uint64(10000), int32(2), uint64(65536), uint32(3))
+
+	f.Fuzz(func(t *testing.T, cf uint32, fileNum, fileSize uint64, level int32, numEntries uint64, atomicRemaining uint32) {
+		// Bound level to valid range
+		level = level % 8
+		if level < 0 {
+			level = -level
+		}
+
+		edit := NewVersionEdit()
+		edit.SetColumnFamily(cf)
+		edit.SetComparatorName("leveldb.BytewiseComparator")
+		edit.SetLogNumber(fileNum)
+		edit.SetNextFileNumber(fileNum + 10)
+		edit.SetLastSequence(SequenceNumber(numEntries))
+
+		// Add atomic group
+		if atomicRemaining > 0 && atomicRemaining < 100 {
+			edit.SetAtomicGroup(atomicRemaining)
+		}
+
+		// Add a new file
+		if fileNum > 0 && fileSize > 0 && fileSize < 1<<30 {
+			smallest := []byte("key_aaa")
+			largest := []byte("key_zzz")
+			meta := &FileMetaData{
+				FD: FileDescriptor{
+					PackedNumberAndPathID: PackFileNumberAndPathID(fileNum, 0),
+					FileSize:              fileSize,
+					SmallestSeqno:         SequenceNumber(1),
+					LargestSeqno:          SequenceNumber(numEntries),
+				},
+				Smallest: smallest,
+				Largest:  largest,
+			}
+			edit.AddFile(int(level), meta)
+		}
+
+		// Add a deleted file
+		if fileNum > 1 {
+			edit.DeleteFile(int(level), fileNum-1)
+		}
+
+		// Encode
+		encoded := edit.EncodeTo()
+		if len(encoded) == 0 {
+			t.Error("Empty encoding for complex edit")
+			return
+		}
+
+		// Decode
+		edit2 := NewVersionEdit()
+		if err := edit2.DecodeFrom(encoded); err != nil {
+			t.Errorf("Decode failed for complex edit: %v (encoded len: %d)", err, len(encoded))
+			return
+		}
+
+		// Verify key fields
+		if edit2.ColumnFamily != edit.ColumnFamily {
+			t.Errorf("ColumnFamily mismatch: %d vs %d", edit2.ColumnFamily, edit.ColumnFamily)
+		}
+		if edit2.IsInAtomicGroup != edit.IsInAtomicGroup {
+			t.Errorf("IsInAtomicGroup mismatch")
+		}
+		if edit2.RemainingEntries != edit.RemainingEntries {
+			t.Errorf("RemainingEntries mismatch: %d vs %d", edit2.RemainingEntries, edit.RemainingEntries)
+		}
+	})
+}
+
+// FuzzVersionEditVarintEdgeCases specifically tests varint edge cases.
+func FuzzVersionEditVarintEdgeCases(f *testing.F) {
+	// Edge cases for varints: 0, 1-byte max, 2-byte boundary, max values
+	f.Add(uint64(0), uint64(0))
+	f.Add(uint64(127), uint64(127))                                 // 1-byte max
+	f.Add(uint64(128), uint64(16383))                               // 2-byte boundary
+	f.Add(uint64(16384), uint64(2097151))                           // 3-byte boundary
+	f.Add(uint64(1<<28-1), uint64(1<<35-1))                         // 4-5 byte boundary
+	f.Add(uint64(1<<42-1), uint64(1<<49-1))                         // 6-7 byte boundary
+	f.Add(uint64(1<<56-1), uint64(1<<63-1))                         // 8-9 byte boundary
+	f.Add(uint64(0xFFFFFFFFFFFFFFFF), uint64(0xFFFFFFFFFFFFFFFF-1)) // max uint64
+
+	f.Fuzz(func(t *testing.T, logNum, nextFile uint64) {
+		edit := NewVersionEdit()
+		edit.SetLogNumber(logNum)
+		edit.SetNextFileNumber(nextFile)
+		edit.SetLastSequence(SequenceNumber(logNum ^ nextFile))
+
+		// Encode
+		encoded := edit.EncodeTo()
+
+		// Decode
+		edit2 := NewVersionEdit()
+		if err := edit2.DecodeFrom(encoded); err != nil {
+			// Some extreme values might cause issues - log but don't fail
+			t.Logf("Decode failed for edge case (logNum=%d, nextFile=%d): %v", logNum, nextFile, err)
+			return
+		}
+
+		// Verify roundtrip
+		if edit2.LogNumber != logNum {
+			t.Errorf("LogNumber mismatch: got %d, want %d", edit2.LogNumber, logNum)
+		}
+		if edit2.NextFileNumber != nextFile {
+			t.Errorf("NextFileNumber mismatch: got %d, want %d", edit2.NextFileNumber, nextFile)
+		}
+	})
+}

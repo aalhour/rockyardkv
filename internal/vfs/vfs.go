@@ -49,6 +49,11 @@ type FS interface {
 	// Lock acquires an exclusive lock on a file.
 	// Returns a Locker that must be closed to release the lock.
 	Lock(name string) (io.Closer, error)
+
+	// SyncDir syncs a directory to ensure metadata changes are durable.
+	// This is required after file rename to ensure the rename is durable.
+	// Reference: RocksDB file/filename.cc SetCurrentFile calls FsyncWithDirOptions.
+	SyncDir(path string) error
 }
 
 // WritableFile is a file that can be written to.
@@ -164,6 +169,20 @@ func (fs *osFS) ListDir(path string) ([]string, error) {
 
 func (fs *osFS) Lock(name string) (io.Closer, error) {
 	return lockFile(name)
+}
+
+func (fs *osFS) SyncDir(path string) error {
+	// Open directory for syncing
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	syncErr := dir.Sync()
+	closeErr := dir.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
 
 // osWritableFile wraps os.File for WritableFile interface.

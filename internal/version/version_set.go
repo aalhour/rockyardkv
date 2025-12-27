@@ -405,6 +405,10 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 	encoded := edit.EncodeTo()
 
 	// Write to MANIFEST
+	// Track if we created a new MANIFEST so we can update CURRENT after sync.
+	// Reference: RocksDB db/version_set.cc ProcessManifestWrites syncs MANIFEST
+	// before calling SetCurrentFile to avoid crash window.
+	newManifest := false
 	if vs.manifestWriter == nil {
 		// Create new MANIFEST file
 		manifestNum := vs.NextFileNumber()
@@ -418,16 +422,12 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		vs.manifestFile = file
 		vs.manifestWriter = wal.NewWriter(file, manifestNum, false /* not recyclable */)
 		vs.manifestFileNumber = manifestNum
+		newManifest = true
 
 		// Write a snapshot of the current state
 		snapshotEdit := vs.writeSnapshot()
 		snapshotEncoded := snapshotEdit.EncodeTo()
 		if _, err := vs.manifestWriter.AddRecord(snapshotEncoded); err != nil {
-			return err
-		}
-
-		// Update CURRENT file
-		if err := vs.setCurrentFile(manifestNum); err != nil {
 			return err
 		}
 	}
@@ -437,9 +437,16 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		return err
 	}
 
-	// Sync the manifest file
+	// Sync the manifest file BEFORE updating CURRENT
 	if syncer, ok := vs.manifestFile.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
+			return err
+		}
+	}
+
+	// Update CURRENT file AFTER MANIFEST is synced (avoids crash window)
+	if newManifest {
+		if err := vs.setCurrentFile(vs.manifestFileNumber); err != nil {
 			return err
 		}
 	}
@@ -500,19 +507,50 @@ func (vs *VersionSet) writeSnapshot() *manifest.VersionEdit {
 }
 
 // setCurrentFile writes the CURRENT file pointing to the given manifest.
+// Uses the configured VFS and syncs both temp file and directory for durability.
+// Reference: RocksDB file/filename.cc SetCurrentFile
 func (vs *VersionSet) setCurrentFile(manifestNum uint64) error {
 	manifestName := fmt.Sprintf("MANIFEST-%06d", manifestNum)
 	tempPath := filepath.Join(vs.opts.DBName, "CURRENT.tmp")
 	currentPath := filepath.Join(vs.opts.DBName, "CURRENT")
 
-	// Write to temp file
+	// Write to temp file using VFS
 	content := manifestName + "\n"
-	if err := os.WriteFile(tempPath, []byte(content), 0644); err != nil {
-		return err
+	tempFile, err := vs.opts.FS.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("create CURRENT.tmp: %w", err)
 	}
 
-	// Atomic rename
-	return os.Rename(tempPath, currentPath)
+	if _, err := tempFile.Write([]byte(content)); err != nil {
+		_ = tempFile.Close()            // best-effort cleanup
+		_ = vs.opts.FS.Remove(tempPath) // best-effort cleanup
+		return fmt.Errorf("write CURRENT.tmp: %w", err)
+	}
+
+	// Sync temp file before rename (durability)
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()            // best-effort cleanup
+		_ = vs.opts.FS.Remove(tempPath) // best-effort cleanup
+		return fmt.Errorf("sync CURRENT.tmp: %w", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		_ = vs.opts.FS.Remove(tempPath) // best-effort cleanup
+		return fmt.Errorf("close CURRENT.tmp: %w", err)
+	}
+
+	// Atomic rename using VFS
+	if err := vs.opts.FS.Rename(tempPath, currentPath); err != nil {
+		_ = vs.opts.FS.Remove(tempPath) // best-effort cleanup
+		return fmt.Errorf("rename CURRENT: %w", err)
+	}
+
+	// Sync directory to ensure rename is durable
+	if err := vs.opts.FS.SyncDir(vs.opts.DBName); err != nil {
+		return fmt.Errorf("sync dir after CURRENT rename: %w", err)
+	}
+
+	return nil
 }
 
 // manifestFilePath returns the path to a MANIFEST file.
