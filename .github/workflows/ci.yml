@@ -39,6 +39,7 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
+          install-mode: goinstall
 
   # ==========================================================================
   # Test Matrix - Multi-platform, multi-version testing
@@ -89,10 +90,10 @@ jobs:
       - name: Build all commands
         run: |
           go build -v ./...
-          go build -v ./cmd/smoke
-          go build -v ./cmd/stress
+          go build -v ./cmd/smoketest
+          go build -v ./cmd/stresstest
           go build -v ./cmd/ldb
-          go build -v ./cmd/sst_dump
+          go build -v ./cmd/sstdump
 
       - name: Cross-compile verification
         run: |
@@ -120,7 +121,7 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          go build -o ./bin/smoke ./cmd/smoke
+          go build -o ./bin/smoke ./cmd/smoketest
           ./bin/smoke -v
 
   # ==========================================================================
@@ -142,7 +143,7 @@ jobs:
 
       - name: Run stress tests (10 workers, 30s)
         run: |
-          go build -o ./bin/stress ./cmd/stress
+          go build -o ./bin/stress ./cmd/stresstest
           timeout 120 ./bin/stress -workers=10 -duration=30s -v || true
 
   # ==========================================================================
