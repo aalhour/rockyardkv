@@ -1297,3 +1297,156 @@ func runSstDumpScanTest(t *testing.T, sstDump, sstPath string) string {
 	}
 	return string(output)
 }
+
+// TestGoWritesCppReads_ZlibCompression tests that C++ can read zlib-compressed SST files
+// written by Go with format_version >= 2 (compress_format_version=2).
+//
+// This is a regression test for Issue 0: Go was not adding the varint32 decompressed
+// size prefix required by compress_format_version=2.
+//
+// Reference: table/format.h GetCompressFormatForVersion()
+func TestGoWritesCppReads_ZlibCompression(t *testing.T) {
+	sstDump := findSstDumpTest(t)
+	if sstDump == "" {
+		t.Skip("sst_dump not found - build C++ RocksDB first")
+	}
+
+	dir := t.TempDir()
+	sstPath := filepath.Join(dir, "zlib_test.sst")
+
+	// Create SST with zlib compression and format_version >= 2
+	// This uses compress_format_version=2 which requires varint32 prefix
+	fs := vfs.Default()
+	file, err := fs.Create(sstPath)
+	if err != nil {
+		t.Fatalf("Failed to create SST file: %v", err)
+	}
+
+	opts := table.DefaultBuilderOptions()
+	opts.FormatVersion = 6 // >= 2 means compress_format_version=2
+	opts.Compression = compression.ZlibCompression
+	opts.BlockSize = 256 // Small blocks to force multiple compressed blocks
+
+	builder := table.NewTableBuilder(file, opts)
+
+	// Add enough entries to create multiple compressed blocks
+	seq := dbformat.SequenceNumber(1)
+	for i := range 50 {
+		key := fmt.Sprintf("zkey%03d", i)
+		value := fmt.Sprintf("zvalue%03d_padding_to_increase_size", i)
+		ikey := dbformat.NewInternalKey([]byte(key), seq, dbformat.TypeValue)
+		if err := builder.Add(ikey, []byte(value)); err != nil {
+			t.Fatalf("Failed to add entry: %v", err)
+		}
+		seq++
+	}
+
+	if err := builder.Finish(); err != nil {
+		t.Fatalf("Failed to finish SST: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Failed to close file: %v", err)
+	}
+
+	t.Logf("Created zlib-compressed SST: %d bytes", builder.FileSize())
+
+	// Verify C++ sst_dump can read it
+	output := runSstDumpScanTest(t, sstDump, sstPath)
+
+	// Check that all keys are present
+	for i := range 50 {
+		key := fmt.Sprintf("zkey%03d", i)
+		if !strings.Contains(output, key) {
+			t.Errorf("sst_dump output missing key %q", key)
+		}
+	}
+
+	t.Log("C++ sst_dump successfully read zlib-compressed SST with compress_format_version=2")
+}
+
+// TestGoReadsZlibCompressedSST tests that Go can read zlib-compressed SST files
+// with format_version >= 2 (compress_format_version=2).
+//
+// This is a regression test for Issue 0: Go was not stripping the varint32
+// decompressed size prefix when reading.
+func TestGoReadsZlibCompressedSST(t *testing.T) {
+	dir := t.TempDir()
+	sstPath := filepath.Join(dir, "zlib_roundtrip.sst")
+
+	// Create SST with zlib compression
+	fs := vfs.Default()
+	file, err := fs.Create(sstPath)
+	if err != nil {
+		t.Fatalf("Failed to create SST file: %v", err)
+	}
+
+	opts := table.DefaultBuilderOptions()
+	opts.FormatVersion = 6
+	opts.Compression = compression.ZlibCompression
+	opts.BlockSize = 256
+
+	builder := table.NewTableBuilder(file, opts)
+
+	// Add entries
+	expectedKVs := make(map[string]string)
+	seq := dbformat.SequenceNumber(1)
+	for i := range 30 {
+		key := fmt.Sprintf("rkey%03d", i)
+		value := fmt.Sprintf("rvalue%03d", i)
+		expectedKVs[key] = value
+		ikey := dbformat.NewInternalKey([]byte(key), seq, dbformat.TypeValue)
+		if err := builder.Add(ikey, []byte(value)); err != nil {
+			t.Fatalf("Failed to add entry: %v", err)
+		}
+		seq++
+	}
+
+	if err := builder.Finish(); err != nil {
+		t.Fatalf("Failed to finish SST: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Failed to close file: %v", err)
+	}
+
+	// Re-open and read with Go
+	readFile, err := fs.OpenRandomAccess(sstPath)
+	if err != nil {
+		t.Fatalf("Failed to open SST for reading: %v", err)
+	}
+	defer readFile.Close()
+
+	reader, err := table.Open(readFile, table.ReaderOptions{VerifyChecksums: true})
+	if err != nil {
+		t.Fatalf("Failed to create reader: %v", err)
+	}
+
+	// Iterate and verify all entries
+	iter := reader.NewIterator()
+	iter.SeekToFirst()
+
+	gotCount := 0
+	for iter.Valid() {
+		userKey := dbformat.ExtractUserKey(iter.Key())
+		value := iter.Value()
+		key := string(userKey)
+
+		expectedValue, ok := expectedKVs[key]
+		if !ok {
+			t.Errorf("Unexpected key: %q", key)
+		} else if string(value) != expectedValue {
+			t.Errorf("Key %q: got value %q, want %q", key, value, expectedValue)
+		}
+		gotCount++
+		iter.Next()
+	}
+
+	if err := iter.Error(); err != nil {
+		t.Fatalf("Iterator error: %v", err)
+	}
+
+	if gotCount != len(expectedKVs) {
+		t.Errorf("Got %d entries, want %d", gotCount, len(expectedKVs))
+	}
+
+	t.Logf("Go successfully read zlib-compressed SST with %d entries", gotCount)
+}
