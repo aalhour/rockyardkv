@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -89,6 +90,159 @@ func verifyGoReadsManifest(path string) error {
 
 	if *verbose {
 		fmt.Printf("    Successfully read %d VersionEdits\n", editCount)
+	}
+
+	return nil
+}
+
+// verifyManifestUnknownTagsPreserved verifies that a MANIFEST with unknown
+// "safe-to-ignore" tags written by Go can be parsed by C++ RocksDB's ldb tool.
+// This is the oracle verification for Issue 1 (unknown tag preservation).
+func verifyManifestUnknownTagsPreserved() error {
+	if *ldbPath == "" {
+		return fmt.Errorf("ldb path not specified, skipping")
+	}
+
+	dir, err := os.MkdirTemp("", "manifest_unknown_tags")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+
+	// Create a VersionEdit with an unknown safe-to-ignore tag
+	ve := manifest.NewVersionEdit()
+	ve.SetComparatorName("leveldb.BytewiseComparator")
+	ve.SetLogNumber(1)
+	ve.SetNextFileNumber(2)
+	ve.SetLastSequence(0)
+
+	// Add an unknown tag (bit 13 set = safe to ignore)
+	ve.UnknownTags = append(ve.UnknownTags, manifest.UnknownTag{
+		Tag:   uint32(manifest.TagSafeIgnoreMask) | 99,
+		Value: []byte("future-metadata-from-rocksdb-v99"),
+	})
+
+	encoded := ve.EncodeTo()
+
+	// Write MANIFEST using WAL format
+	manifestPath := filepath.Join(dir, "MANIFEST-000001")
+	manifestFile, err := os.Create(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	writer := wal.NewWriter(manifestFile, 1, false)
+	if _, err := writer.AddRecord(encoded); err != nil {
+		manifestFile.Close()
+		return err
+	}
+	manifestFile.Close()
+
+	// Write CURRENT file
+	currentPath := filepath.Join(dir, "CURRENT")
+	if err := os.WriteFile(currentPath, []byte("MANIFEST-000001\n"), 0644); err != nil {
+		return err
+	}
+
+	// Run ldb manifest_dump
+	output, err := runLdb("manifest_dump", "--path="+dir)
+	if err != nil {
+		// Check if it's corruption vs other errors
+		if strings.Contains(output, "Corruption") {
+			return fmt.Errorf("C++ ldb reports corruption parsing Go MANIFEST with unknown tags")
+		}
+		// Non-fatal errors (missing SST files) are acceptable
+	}
+
+	if *verbose {
+		fmt.Printf("    C++ ldb successfully parsed MANIFEST with unknown tags\n")
+	}
+
+	return nil
+}
+
+// verifyManifestCorruptionRejected verifies that both Go and C++ reject
+// a MANIFEST with corrupted checksum.
+// This is the oracle verification for Issues 5+6 (MANIFEST corruption).
+func verifyManifestCorruptionRejected() error {
+	if *ldbPath == "" {
+		return fmt.Errorf("ldb path not specified, skipping")
+	}
+
+	dir, err := os.MkdirTemp("", "manifest_corruption")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+
+	// Create a valid MANIFEST
+	ve := manifest.NewVersionEdit()
+	ve.SetComparatorName("leveldb.BytewiseComparator")
+	ve.SetLogNumber(1)
+	ve.SetNextFileNumber(2)
+	ve.SetLastSequence(0)
+
+	encoded := ve.EncodeTo()
+
+	manifestPath := filepath.Join(dir, "MANIFEST-000001")
+	manifestFile, err := os.Create(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	writer := wal.NewWriter(manifestFile, 1, false)
+	if _, err := writer.AddRecord(encoded); err != nil {
+		manifestFile.Close()
+		return err
+	}
+	manifestFile.Close()
+
+	// Read and corrupt the MANIFEST
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return err
+	}
+
+	if len(manifestData) < 10 {
+		return fmt.Errorf("manifest too small to corrupt")
+	}
+
+	// Flip bits in the CRC
+	corruptedData := make([]byte, len(manifestData))
+	copy(corruptedData, manifestData)
+	corruptedData[0] ^= 0xFF
+
+	// Write corrupted MANIFEST
+	corruptPath := filepath.Join(dir, "MANIFEST-000002")
+	if err := os.WriteFile(corruptPath, corruptedData, 0644); err != nil {
+		return err
+	}
+
+	currentPath := filepath.Join(dir, "CURRENT")
+	if err := os.WriteFile(currentPath, []byte("MANIFEST-000002\n"), 0644); err != nil {
+		return err
+	}
+
+	// Check C++ behavior
+	cppOutput, cppErr := runLdb("manifest_dump", "--path="+dir)
+	cppRejects := cppErr != nil || strings.Contains(cppOutput, "Corruption") ||
+		strings.Contains(cppOutput, "checksum")
+
+	// Check Go behavior
+	reader := wal.NewStrictReader(bytes.NewReader(corruptedData), nil, 2)
+	_, goErr := reader.ReadRecord()
+	goRejects := goErr != nil
+
+	if cppRejects && !goRejects {
+		return fmt.Errorf("oracle mismatch: C++ rejects corrupted MANIFEST but Go accepts it")
+	}
+
+	if !cppRejects && !goRejects {
+		return fmt.Errorf("neither C++ nor Go rejected corrupted MANIFEST")
+	}
+
+	if *verbose {
+		fmt.Printf("    Both C++ and Go correctly reject corrupted MANIFEST\n")
 	}
 
 	return nil

@@ -56,10 +56,52 @@ Golden tests validate on-disk compatibility with RocksDB v10.7.5.
 They parse C++-generated fixtures.
 They also generate Go-written artifacts for cross-reading.
 
-Run the golden tests:
+### Test categories
+
+The golden test framework organizes tests by format:
+
+| Category | File | Tests |
+| --- | --- | --- |
+| WAL | `wal_verify.go` | Go writes WAL readable by C++ |
+| MANIFEST | `manifest_verify.go` | Read/write, unknown tags, corruption |
+| Block | `block_verify.go` | Implicit via SST |
+| SST | `sst_verify.go` | Go reads C++, C++ reads Go |
+| Compression | `compression_verify.go` | Raw deflate (zlib) compatibility |
+| Database | `db_verify.go` | Full DB open/scan, column families |
+
+### Run golden tests
+
+Run using make:
 
 ```bash
 make test-e2e-golden
+```
+
+Or run directly with custom paths:
+
+```bash
+go run ./cmd/goldentest \
+  -fixtures ./cmd/goldentest/testdata/cpp_generated \
+  -output ./cmd/goldentest/testdata/go_generated \
+  -ldb /path/to/rocksdb/ldb \
+  -sst-dump /path/to/rocksdb/sst_dump \
+  -v
+```
+
+### Prerequisites
+
+Build the RocksDB tools before running golden tests:
+
+```bash
+cd /path/to/rocksdb
+make ldb sst_dump
+```
+
+Generate C++ fixtures:
+
+```bash
+cd cmd/goldentest
+./generate_fixtures.sh
 ```
 
 ## Smoke tests

@@ -70,6 +70,7 @@ func main() {
 		runManifestTests(),
 		runBlockTests(),
 		runSSTTests(),
+		runCompressionTests(),
 		runDatabaseTests(),
 	}
 
@@ -145,9 +146,15 @@ func runManifestTests() TestSuite {
 		return verifyGoReadsManifest(files[0])
 	}))
 
-	// Test 2: C++ opens Go-generated database (implicitly verifies MANIFEST)
-	// This is tested in the Full Database Tests section
-	// The fact that ldb can scan the Go-generated database proves MANIFEST compatibility
+	// Test 2: Unknown tags are preserved (Issue 1 fix verification)
+	suite.Results = append(suite.Results, runTest("MANIFEST unknown tags readable by C++", func() error {
+		return verifyManifestUnknownTagsPreserved()
+	}))
+
+	// Test 3: Corrupted MANIFEST rejected (Issues 5+6 fix verification)
+	suite.Results = append(suite.Results, runTest("Corrupted MANIFEST rejected by both Go and C++", func() error {
+		return verifyManifestCorruptionRejected()
+	}))
 
 	return suite
 }
@@ -185,6 +192,18 @@ func runSSTTests() TestSuite {
 	return suite
 }
 
+// runCompressionTests verifies compression format compatibility
+func runCompressionTests() TestSuite {
+	suite := TestSuite{Name: "Compression Format Tests"}
+
+	// Test 1: Raw deflate (RocksDB zlib) compatibility (Issue 8 fix verification)
+	suite.Results = append(suite.Results, runTest("Raw deflate (zlib) compatible with RocksDB", func() error {
+		return verifyRawDeflateCompatible()
+	}))
+
+	return suite
+}
+
 // runDatabaseTests verifies complete database compatibility
 func runDatabaseTests() TestSuite {
 	suite := TestSuite{Name: "Full Database Tests"}
@@ -198,6 +217,11 @@ func runDatabaseTests() TestSuite {
 	// Test 2: C++ opens Go-generated database
 	suite.Results = append(suite.Results, runTest("C++ opens Go-generated database", func() error {
 		return verifyCppOpensGoDatabase()
+	}))
+
+	// Test 3: Column family isolation (Issue 7 fix verification)
+	suite.Results = append(suite.Results, runTest("C++ reads Go column families", func() error {
+		return verifyCppReadsGoColumnFamilies()
 	}))
 
 	return suite
@@ -232,6 +256,14 @@ func runLdb(args ...string) (string, error) {
 	}
 
 	cmd := exec.Command(*ldbPath, args...)
+
+	// Set library path for dynamic linking (macOS and Linux)
+	ldbDir := filepath.Dir(*ldbPath)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+ldbDir,
+		"LD_LIBRARY_PATH="+ldbDir,
+	)
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -250,6 +282,14 @@ func runSstDump(args ...string) (string, error) {
 	}
 
 	cmd := exec.Command(*sstDumpPath, args...)
+
+	// Set library path for dynamic linking (macOS and Linux)
+	sstDumpDir := filepath.Dir(*sstDumpPath)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+sstDumpDir,
+		"LD_LIBRARY_PATH="+sstDumpDir,
+	)
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
