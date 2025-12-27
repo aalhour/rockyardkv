@@ -258,7 +258,30 @@ The verify pass loads it and checks the database state.
 
 This model is based on RocksDB’s `db_crashtest.py` workflow.
 
+### Scenario tests
+
+Scenario tests verify specific durability contracts without randomness.
+They use a subprocess model: spawn a child, perform an operation, exit, then reopen and verify.
+
+Run scenario tests:
+
+```bash
+go test -v ./cmd/crashtest/... -run TestScenario
+```
+
+These tests cover:
+
+| Test | Contract |
+| --- | --- |
+| `TestScenario_SyncedWriteSurvivesCrash` | Synced writes survive crash. |
+| `TestScenario_FlushedDataSurvivesCrash` | Flushed data survives crash. |
+| `TestScenario_SyncedDeleteSurvivesCrash` | Synced deletes survive crash. |
+| `TestScenario_WriteBatchAtomicity` | Batch writes are all-or-nothing. |
+| `TestScenario_DoubleCrashRecovery` | Recovery is stable after multiple crashes. |
+
 ### Run crash tests
+
+Run full crash test cycles:
 
 ```bash
 make test-e2e-crash
