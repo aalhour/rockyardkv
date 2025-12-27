@@ -3,8 +3,15 @@
 </p>
 
 <p align="center">
-  A pure Go implementation of RocksDB (v10.7.5) with bit-compatible on-disk formats.
+  A pure Go implementation of RocksDB with bit-compatible on-disk formats.
 </p>
+
+<div align="center">
+  
+[![Go Reference](https://pkg.go.dev/badge/github.com/aalhour/rockyardkv/v4.svg)](https://pkg.go.dev/github.com/aalhour/rockyardkv)
+[![Go Report Card](https://goreportcard.com/badge/github.com/aalhour/rockyardkv)](https://goreportcard.com/report/github.com/aalhour/rockyardkv)
+  
+</div>
 
 ---
 
