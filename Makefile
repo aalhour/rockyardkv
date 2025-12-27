@@ -35,6 +35,9 @@ SMOKE_BIN := $(BIN_DIR)/smoketest
 STRESS_BIN := $(BIN_DIR)/stresstest
 ADVERSARIAL_BIN := $(BIN_DIR)/adversarialtest
 CRASH_BIN := $(BIN_DIR)/crashtest
+TRACEANALYZER_BIN := $(BIN_DIR)/traceanalyzer
+LDB_BIN := $(BIN_DIR)/ldb
+SSTDUMP_BIN := $(BIN_DIR)/sstdump
 
 # Test settings
 TEST_TIMEOUT ?= 10m
@@ -79,7 +82,7 @@ all: build ## Build all binaries (alias for 'build')
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: build
-build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) ## Build all test binaries
+build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZER_BIN) $(LDB_BIN) $(SSTDUMP_BIN) ## Build all binaries
 	@echo "✅ Build complete"
 
 $(BIN_DIR):
@@ -100,6 +103,18 @@ $(STRESS_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 $(CRASH_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 	@echo "🔧 Building crash test binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/crashtest
+
+$(TRACEANALYZER_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+	@echo "🔧 Building trace analyzer binary..."
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/traceanalyzer
+
+$(LDB_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+	@echo "🔧 Building ldb binary..."
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/ldb
+
+$(SSTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+	@echo "🔧 Building sstdump binary..."
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/sstdump
 
 .PHONY: build-release
 build-release: ## Build release binaries for all platforms
@@ -473,12 +488,12 @@ clean-build: ## Remove all build artifacts
 	rm -f profile.cov coverage.out
 	rm -f *.test
 	rm -f *.out
-	$(GO) clean -cache -testcache
+	$(GO) clean -cache -modcache
 
 .PHONY: clean-test
 clean-test: ## Clean test cache only
 	@echo "🧹 Cleaning test cache..."
-	$(GO) clean -testcache
+	$(GO) clean -testcache -fuzzcache
 
 .PHONY: clean-fuzz
 clean-fuzz: ## Clean fuzz corpus
