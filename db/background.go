@@ -240,8 +240,9 @@ func (bg *BackgroundWork) doFlushWork() {
 	_ = testutil.SP(testutil.SPBGFlushExecute)
 	err := bg.db.Flush(nil)
 	if err != nil {
-		// Error is logged internally by Flush; no action needed here
-		_ = err
+		// Record background error for I/O failures
+		bg.db.SetBackgroundError(err)
+		bg.IncrementBackgroundErrors()
 	}
 
 	_ = testutil.SP(testutil.SPBGFlushComplete)
@@ -308,8 +309,9 @@ func (bg *BackgroundWork) doCompactionWork() {
 	_ = testutil.SP(testutil.SPBGCompactionExecute)
 	err := bg.executeCompaction(c)
 	if err != nil {
-		// TODO: Implement proper error logging abstraction
-		_ = err
+		// Record background error for I/O failures
+		bg.db.SetBackgroundError(err)
+		bg.IncrementBackgroundErrors()
 		return
 	}
 

@@ -34,6 +34,7 @@ var (
 	ErrDBNotFound          = errors.New("db: database not found")
 	ErrCorruption          = errors.New("db: corruption detected")
 	ErrInvalidOptions      = errors.New("db: invalid options")
+	ErrBackgroundError     = errors.New("db: unrecoverable background error")
 )
 
 // DB is the main interface for interacting with the database.
@@ -272,6 +273,8 @@ func Open(path string, opts *Options) (DB, error) {
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
 		writeController: NewWriteController(),
 	}
+	// Initialize condition variable for immutable memtable waiting
+	db.immCond = sync.NewCond(&db.mu)
 
 	// Initialize column family set
 	db.columnFamilies = newColumnFamilySet(db)
@@ -351,6 +354,14 @@ type DBImpl struct {
 
 	// Write controller for stalling
 	writeController *WriteController
+
+	// Background error state
+	// When a fatal I/O error occurs (e.g., EPERM, EROFS), this is set
+	// to prevent further writes while still allowing reads.
+	backgroundError error
+
+	// Condition variable for waiting on immutable memtable flush
+	immCond *sync.Cond
 
 	// Shutdown
 	closed     bool
@@ -1001,6 +1012,12 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 		db.mu.Unlock()
 		return ErrDBClosed
 	}
+	// Check for unrecoverable background error
+	if db.backgroundError != nil {
+		err := fmt.Errorf("%w: %w", ErrBackgroundError, db.backgroundError)
+		db.mu.Unlock()
+		return err
+	}
 
 	// Assign sequence numbers
 	count := wb.Count()
@@ -1221,13 +1238,28 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 		db.mu.Unlock()
 		return ErrDBClosed
 	}
-
-	// Make current memtable immutable
-	if db.imm != nil {
-		// Wait for previous immutable to be flushed
-		// TODO: Implement proper waiting with condition variable
+	// Check for unrecoverable background error
+	if db.backgroundError != nil {
+		err := fmt.Errorf("%w: %w", ErrBackgroundError, db.backgroundError)
 		db.mu.Unlock()
-		return errors.New("db: immutable memtable already exists")
+		return err
+	}
+
+	// Wait for any existing immutable memtable to be flushed
+	// This prevents "immutable memtable already exists" spam during stress tests
+	for db.imm != nil {
+		// Check for shutdown or background error while waiting
+		if db.closed {
+			db.mu.Unlock()
+			return ErrDBClosed
+		}
+		if db.backgroundError != nil {
+			err := fmt.Errorf("%w: %w", ErrBackgroundError, db.backgroundError)
+			db.mu.Unlock()
+			return err
+		}
+		// Wait for the background flush to complete
+		db.immCond.Wait()
 	}
 
 	// Skip if memtable is empty
@@ -1365,6 +1397,26 @@ func (db *DBImpl) Close() error {
 	}
 
 	return nil
+}
+
+// SetBackgroundError sets an unrecoverable background error.
+// This is called when I/O errors occur in background operations (flush, compaction).
+// Once set, new write operations will fail with this error.
+// The error is sticky - it can only be cleared by reopening the database.
+func (db *DBImpl) SetBackgroundError(err error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	// Only set if not already set (first error wins)
+	if db.backgroundError == nil && err != nil {
+		db.backgroundError = err
+	}
+}
+
+// GetBackgroundError returns the current background error, if any.
+func (db *DBImpl) GetBackgroundError() error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.backgroundError
 }
 
 // Property name constants for GetProperty.
