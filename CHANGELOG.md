@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2024-12-27
+
+### Fixed
+- MANIFEST corruption validation now rejects corrupted checksums (Issue 5+6)
+- Comparator name validation on DB open prevents silent corruption (Issue 2)
+- VersionEdit preserves unknown safe-to-ignore tags (Issue 1)
+- Column family isolation enforced for Get and iterators (Issue 7)
+- Zlib decompression supports raw deflate format (Issue 8)
+- XXH3 checksum implementation replaced with zeebo/xxh3 (Issue 9)
+
+### Added
+- Strict WAL reader for MANIFEST recovery
+- Adversarial tests for all fixed issues
+- Golden test reorganization by category
+
+### Changed
+- Added github.com/zeebo/xxh3 dependency
+
 ## [0.1.0] - 2024-12-27
 
 Initial release with core RocksDB functionality and v10.7.5 format compatibility.
