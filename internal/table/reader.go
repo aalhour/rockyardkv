@@ -443,17 +443,8 @@ func (r *Reader) readIndex() error {
 		return ErrBlockNotFound
 	}
 
-	// Read the raw index block data
-	trailerSize := int(r.footer.BlockTrailerSize)
-	totalSize := int(handle.Size) + trailerSize
-
-	buf := make([]byte, totalSize)
-	if _, err := r.file.ReadAt(buf, int64(handle.Offset)); err != nil {
-		return err
-	}
-
-	// Parse as block to get restarts info
-	indexBlock, err := block.NewBlock(buf[:handle.Size])
+	// Use readBlock to properly handle checksums
+	indexBlock, err := r.readBlock(handle)
 	if err != nil {
 		return err
 	}
@@ -507,6 +498,10 @@ func (r *Reader) detectValueDeltaEncoding() bool {
 	}
 
 	// Validate the handle makes sense
+	// A valid data block must have size > 0 (empty blocks are not written)
+	if size == 0 {
+		return false // Invalid: blocks must have non-zero size
+	}
 	if uint64(offset)+uint64(size) > uint64(r.size) {
 		return false // Handle points beyond file
 	}

@@ -18,50 +18,50 @@ import (
 // This helps reduce the space requirement significantly. Furthermore,
 // once every K keys, we do not apply the prefix compression and store
 // the entire key. We call this a "restart point".
+//
+// Format (single entry):
+//
+//	shared_bytes:    varint32
+//	unshared_bytes:  varint32
+//	value_length:    varint32
+//	key_delta:       char[unshared_bytes]
+//	value:           char[value_length]
+//
+// Format (overall block):
+//
+//	[entry 1]
+//	[entry 2]
+//	...
+//	[entry N]
+//	[restart point 1: uint32]
+//	...
+//	[restart point M: uint32]
+//	[footer: uint32]  // PackIndexTypeAndNumRestarts(type, M)
 type Builder struct {
-	// block_restart_interval determines how often we create restart points
-	restartInterval int
-
-	// Whether to use delta encoding for keys
-	useDeltaEncoding bool
-
-	// Buffer for building the block
-	buffer []byte
-
-	// Restart point offsets
-	restarts []uint32
-
-	// Counter since last restart
-	counter int
-
-	// Last key added
-	lastKey []byte
-
-	// Whether Finish() has been called
-	finished bool
+	buffer           []byte   // Serialized block data
+	restarts         []uint32 // Restart points (offsets into buffer)
+	counter          int      // Entries since last restart
+	restartInterval  int      // Restart interval
+	lastKey          []byte   // Last key added
+	useDeltaEncoding bool     // Whether to use delta encoding for keys
+	finished         bool     // Whether Finish() has been called
 }
 
 // NewBuilder creates a new block builder.
-// restartInterval is how often to create restart points (typically 16).
+// restartInterval controls how often restart points are created.
+// A restart point is created every restartInterval entries.
+// Set to 1 for no compression, 16 is a typical value.
 func NewBuilder(restartInterval int) *Builder {
-	if restartInterval < 1 {
-		restartInterval = 1
-	}
-	return &Builder{
-		restartInterval:  restartInterval,
-		useDeltaEncoding: true,
-		restarts:         []uint32{0}, // First restart point is at offset 0
-		counter:          0,
-		finished:         false,
-	}
+	return NewBuilderWithOptions(restartInterval, true)
 }
 
-// NewBuilderWithOptions creates a new block builder with options.
+// NewBuilderWithOptions creates a new block builder with configurable delta encoding.
 func NewBuilderWithOptions(restartInterval int, useDeltaEncoding bool) *Builder {
 	if restartInterval < 1 {
 		restartInterval = 1
 	}
 	return &Builder{
+		buffer:           make([]byte, 0, 4096),
 		restartInterval:  restartInterval,
 		useDeltaEncoding: useDeltaEncoding,
 		restarts:         []uint32{0},
@@ -167,7 +167,7 @@ func (b *Builder) Finish() []byte {
 
 // sharedPrefixLength returns the length of the shared prefix between a and b.
 func sharedPrefixLength(a, b []byte) int {
-	n := min(len(b), len(a))
+	n := min(len(a), len(b))
 	for i := range n {
 		if a[i] != b[i] {
 			return i
