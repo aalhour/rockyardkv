@@ -69,6 +69,7 @@ fuzz-*/
 
 # Temporary database directories created during testing
 tmp/
+docs/review/
 rockyardkv-*/
 *.db/
 *.sst
