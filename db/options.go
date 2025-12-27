@@ -4,12 +4,36 @@
 package db
 
 import (
+	"log"
+	"os"
 	"time"
 
 	"github.com/aalhour/rockyardkv/internal/checksum"
 	"github.com/aalhour/rockyardkv/internal/compression"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
+
+// Logger defines the interface for database logging.
+// If nil, a default logger writing to stderr is used.
+type Logger interface {
+	// Warn logs a warning message.
+	Warn(msg string)
+}
+
+// defaultLogger is the default logger that writes to stderr.
+type defaultLogger struct {
+	logger *log.Logger
+}
+
+func newDefaultLogger() *defaultLogger {
+	return &defaultLogger{
+		logger: log.New(os.Stderr, "[rockyardkv] ", log.LstdFlags),
+	}
+}
+
+func (l *defaultLogger) Warn(msg string) {
+	l.logger.Println("WARN:", msg)
+}
 
 // CompressionType is an alias for the compression type.
 type CompressionType = compression.Type
@@ -251,6 +275,10 @@ type Options struct {
 	// Reference: RocksDB v10.7.5 include/rocksdb/options.h line 1026-1028
 	// Default: false
 	UseDirectIOForFlushAndCompaction bool
+
+	// Logger is the logger for database operations.
+	// If nil, a default logger writing to stderr is used.
+	Logger Logger
 }
 
 // DefaultOptions returns a new Options with default values.
@@ -278,6 +306,7 @@ func DefaultOptions() *Options {
 		MaxSubcompactions:                1,     // Default: no parallel subcompaction
 		UseDirectReads:                   false, // Direct I/O disabled by default
 		UseDirectIOForFlushAndCompaction: false,
+		Logger:                           nil, // Will use defaultLogger
 	}
 }
 
@@ -344,11 +373,18 @@ func DefaultReadOptions() *ReadOptions {
 
 // WriteOptions contains options for write operations.
 type WriteOptions struct {
-	// Sync causes writes to be flushed to the WAL before returning.
+	// Sync causes writes to be flushed to the WAL and fsynced before returning.
+	// This provides the strongest durability guarantee but reduces throughput.
 	Sync bool
 
 	// DisableWAL disables the write-ahead log for this write.
-	// If the machine crashes, data may be lost.
+	//
+	// WARNING: With DisableWAL=true, writes go directly to the memtable.
+	// If the process crashes before Flush() is called, data will be lost.
+	// This matches C++ RocksDB behavior exactly.
+	//
+	// Use only when you can tolerate data loss in exchange for higher throughput.
+	// Call Flush() explicitly before shutdown to persist unflushed data.
 	DisableWAL bool
 }
 

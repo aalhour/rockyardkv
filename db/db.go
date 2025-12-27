@@ -262,6 +262,12 @@ func Open(path string, opts *Options) (DB, error) {
 		}
 	}
 
+	// Use default logger if not specified
+	logger := opts.Logger
+	if logger == nil {
+		logger = newDefaultLogger()
+	}
+
 	// Create the DB implementation
 	db := &DBImpl{
 		name:            path,
@@ -272,6 +278,7 @@ func Open(path string, opts *Options) (DB, error) {
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
 		writeController: NewWriteController(),
+		logger:          logger,
 	}
 	// Initialize condition variable for immutable memtable waiting
 	db.immCond = sync.NewCond(&db.mu)
@@ -362,6 +369,12 @@ type DBImpl struct {
 
 	// Condition variable for waiting on immutable memtable flush
 	immCond *sync.Cond
+
+	// Logger for warnings and info
+	logger Logger
+
+	// Track if WAL-disabled warning has been logged (to avoid spam)
+	walDisabledWarned bool
 
 	// Shutdown
 	closed     bool
@@ -1026,7 +1039,15 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	db.seq += uint64(count)
 
 	// Write to WAL (unless disabled)
-	if !opts.DisableWAL && db.logWriter != nil {
+	if opts.DisableWAL {
+		// Warn once about data loss risk
+		if !db.walDisabledWarned {
+			db.walDisabledWarned = true
+			if db.logger != nil {
+				db.logger.Warn("DisableWAL=true: writes will be lost if process crashes before Flush()")
+			}
+		}
+	} else if db.logWriter != nil {
 		_ = testutil.SP(testutil.SPDBWriteWAL)
 		data := wb.Data()
 		if _, err := db.logWriter.AddRecord(data); err != nil {
