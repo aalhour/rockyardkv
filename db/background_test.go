@@ -174,3 +174,192 @@ func TestCompactionPickerIntegration(t *testing.T) {
 		}
 	}
 }
+
+// TestBackgroundWorkPauseResume tests pausing and resuming background work.
+func TestBackgroundWorkPauseResume(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := Open(tmpDir, opts)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	dbImpl, ok := database.(*DBImpl)
+	if !ok {
+		t.Skip("Cannot access DBImpl")
+	}
+
+	// Initially not paused
+	if dbImpl.bgWork.IsPaused() {
+		t.Error("Background work should not be paused initially")
+	}
+
+	// Pause background work
+	dbImpl.bgWork.Pause()
+	if !dbImpl.bgWork.IsPaused() {
+		t.Error("Background work should be paused after Pause()")
+	}
+
+	// Write data while paused
+	for i := range 20 {
+		key := []byte{byte(i)}
+		if err := database.Put(nil, key, []byte("value")); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+
+	// Resume background work
+	dbImpl.bgWork.Continue()
+	if dbImpl.bgWork.IsPaused() {
+		t.Error("Background work should not be paused after Continue()")
+	}
+
+	// Give background worker a chance to process
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify data is still readable
+	for i := range 20 {
+		key := []byte{byte(i)}
+		_, err := database.Get(nil, key)
+		if err != nil {
+			t.Errorf("Get key %d failed: %v", i, err)
+		}
+	}
+}
+
+// TestBackgroundWorkStats tests background work statistics methods.
+func TestBackgroundWorkStats(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := Open(tmpDir, opts)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	dbImpl, ok := database.(*DBImpl)
+	if !ok {
+		t.Skip("Cannot access DBImpl")
+	}
+
+	// Initially no flushes or compactions running
+	numFlushes := dbImpl.bgWork.NumRunningFlushes()
+	if numFlushes != 0 {
+		t.Logf("NumRunningFlushes = %d (may be non-zero if background work started)", numFlushes)
+	}
+
+	numCompactions := dbImpl.bgWork.NumRunningCompactions()
+	if numCompactions != 0 {
+		t.Logf("NumRunningCompactions = %d (may be non-zero if compaction started)", numCompactions)
+	}
+
+	// Test error counting
+	initialErrors := dbImpl.bgWork.NumBackgroundErrors()
+	dbImpl.bgWork.IncrementBackgroundErrors()
+	if dbImpl.bgWork.NumBackgroundErrors() != initialErrors+1 {
+		t.Error("NumBackgroundErrors should increment by 1")
+	}
+}
+
+// TestIsCompactionPending tests the IsCompactionPending method.
+func TestIsCompactionPending(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := Open(tmpDir, opts)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	dbImpl, ok := database.(*DBImpl)
+	if !ok {
+		t.Skip("Cannot access DBImpl")
+	}
+
+	// Initially, check if compaction is pending (depends on initial state)
+	pending := dbImpl.bgWork.IsCompactionPending()
+	t.Logf("IsCompactionPending: pending=%v", pending)
+
+	// Write data to potentially trigger compaction
+	for i := range 50 {
+		key := []byte{byte(i)}
+		value := make([]byte, 1024)
+		if err := database.Put(nil, key, value); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+
+	// Flush to create SST files
+	if err := database.Flush(nil); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	// Check again
+	pending = dbImpl.bgWork.IsCompactionPending()
+	t.Logf("After flush: pending=%v", pending)
+}
+
+// TestMaybeScheduleFlush tests the MaybeScheduleFlush method.
+func TestMaybeScheduleFlush(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := Open(tmpDir, opts)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	dbImpl, ok := database.(*DBImpl)
+	if !ok {
+		t.Skip("Cannot access DBImpl")
+	}
+
+	// Schedule a flush
+	dbImpl.bgWork.MaybeScheduleFlush()
+
+	// Give background worker a chance to process
+	time.Sleep(50 * time.Millisecond)
+
+	// This should not cause any errors even if there's nothing to flush
+}
+
+// TestBackgroundWorkScheduling tests background work scheduling.
+func TestBackgroundWorkScheduling(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := Open(tmpDir, opts)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	dbImpl, ok := database.(*DBImpl)
+	if !ok {
+		t.Skip("Cannot access DBImpl")
+	}
+
+	// Test scheduling compaction and flush
+	dbImpl.bgWork.MaybeScheduleCompaction()
+	dbImpl.bgWork.MaybeScheduleFlush()
+
+	// Give the scheduler time to check
+	time.Sleep(50 * time.Millisecond)
+
+	// These calls should not cause any errors
+}
