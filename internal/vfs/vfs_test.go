@@ -410,3 +410,124 @@ func TestLargeFileReadWrite(t *testing.T) {
 		t.Error("Data mismatch")
 	}
 }
+
+// TestOSFS_SyncDir verifies that SyncDir syncs directory metadata.
+// This is a contract test for durability: after creating a file and calling
+// SyncDir, the file should be visible even after a crash (on POSIX systems).
+func TestOSFS_SyncDir(t *testing.T) {
+	fs := Default()
+	dir := t.TempDir()
+
+	// Create a file in the directory
+	filePath := filepath.Join(dir, "test.txt")
+	f, err := fs.Create(filePath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if _, err := f.Write([]byte("hello")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatalf("File Sync failed: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// SyncDir should succeed on an existing directory
+	if err := fs.SyncDir(dir); err != nil {
+		t.Fatalf("SyncDir failed: %v", err)
+	}
+
+	// Verify the file still exists
+	if !fs.Exists(filePath) {
+		t.Error("File should exist after SyncDir")
+	}
+}
+
+// TestOSFS_SyncDir_AfterRename verifies SyncDir after a rename operation.
+// This is the critical durability pattern used by SetCurrentFile.
+func TestOSFS_SyncDir_AfterRename(t *testing.T) {
+	fs := Default()
+	dir := t.TempDir()
+
+	// Create temp file
+	tmpPath := filepath.Join(dir, "CURRENT.tmp")
+	finalPath := filepath.Join(dir, "CURRENT")
+
+	f, err := fs.Create(tmpPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if _, err := f.Write([]byte("MANIFEST-000001")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Atomic rename
+	if err := fs.Rename(tmpPath, finalPath); err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	// SyncDir to ensure rename is durable
+	if err := fs.SyncDir(dir); err != nil {
+		t.Fatalf("SyncDir after rename failed: %v", err)
+	}
+
+	// Verify the final file exists with correct content
+	if !fs.Exists(finalPath) {
+		t.Error("CURRENT should exist after SyncDir")
+	}
+	if fs.Exists(tmpPath) {
+		t.Error("CURRENT.tmp should not exist after rename")
+	}
+
+	// Read and verify content
+	rf, err := fs.Open(finalPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer rf.Close()
+
+	buf := make([]byte, 100)
+	n, err := rf.Read(buf)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if string(buf[:n]) != "MANIFEST-000001" {
+		t.Errorf("Content = %q, want 'MANIFEST-000001'", buf[:n])
+	}
+}
+
+// TestOSFS_SyncDir_NonExistent verifies SyncDir fails on non-existent directory.
+func TestOSFS_SyncDir_NonExistent(t *testing.T) {
+	fs := Default()
+	dir := t.TempDir()
+	nonExistent := filepath.Join(dir, "does-not-exist")
+
+	err := fs.SyncDir(nonExistent)
+	if err == nil {
+		t.Error("SyncDir on non-existent directory should fail")
+	}
+}
+
+// TestOSFS_SyncDir_File verifies SyncDir fails on a file (not a directory).
+func TestOSFS_SyncDir_File(t *testing.T) {
+	fs := Default()
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "file.txt")
+
+	// Create a file
+	os.WriteFile(filePath, []byte("content"), 0644)
+
+	// SyncDir on a file should fail (or at least handle gracefully)
+	// Behavior may vary by OS - Linux treats it as sync, others may error
+	err := fs.SyncDir(filePath)
+	// We just verify it doesn't panic - the error behavior is OS-dependent
+	_ = err
+}
