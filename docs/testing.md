@@ -245,6 +245,9 @@ Crash tests simulate process death under load.
 They use SIGKILL to approximate process-level power loss boundaries.
 They reuse the stress test and expected-state oracle.
 
+For deterministic crash testing at specific code points, refer to [Whitebox crash testing](#whitebox-crash-testing).
+For durability testing under filesystem anomalies, refer to [Fault injection](#fault-injection).
+
 ### Crash algorithm
 
 The crash harness runs in cycles.
@@ -305,7 +308,10 @@ Use these flags to make crashes reproducible and debuggable.
 - `-sync`: run stress and verification with synced writes.
 - `-disable-wal`: run stress and verification without WAL.
 
-### Keep crash artifacts in a workspace directory
+### Collect crash artifacts
+
+Use the `-run-dir` flag to collect structured artifacts on failure.
+For details, refer to [Evidence and reproducibility](#evidence-and-reproducibility).
 
 Crash tests can produce many small files.
 Keep them under `rockyardkv/tmp/`.
@@ -348,8 +354,222 @@ Run the full test suite with the race detector:
 make test
 ```
 
+## Whitebox crash testing
+
+Whitebox crash tests exit at specific code points to verify recovery boundaries.
+They use _kill points_, which are named locations in the code where the process can exit deterministically.
+
+### Kill point infrastructure
+
+Kill points require the `crashtest` build tag.
+Without this tag, kill point calls compile to no-ops.
+
+Available kill points:
+
+| Kill point | Location | Tests |
+| --- | --- | --- |
+| `WAL.Append:0` | Before WAL record write | Partial write recovery |
+| `WAL.Sync:0` | Before WAL sync | Unsynced data loss |
+| `WAL.Sync:1` | After WAL sync | Synced data durability |
+| `Manifest.Sync:0` | Before MANIFEST sync | Partial MANIFEST recovery |
+| `Manifest.Sync:1` | After MANIFEST sync | MANIFEST durability |
+| `Current.Write:0` | Before CURRENT update | Previous MANIFEST recovery |
+| `Current.Write:1` | After CURRENT update | New MANIFEST active |
+
+### Run whitebox tests
+
+Run whitebox scenario tests:
+
+```bash
+go test -tags crashtest ./cmd/crashtest/... -run TestScenarioWhitebox
+```
+
+Run kill point unit tests:
+
+```bash
+go test -tags crashtest ./internal/testutil/... -run TestKillPoint
+```
+
+### Add a new kill point
+
+1. Import the `testutil` package.
+1. Add `testutil.MaybeKill("Component.Action:N")` at the target location.
+1. Write a whitebox scenario test that sets the kill point and verifies recovery.
+
+The kill point name follows the format `Component.Action:N`, where `N` is 0 for "before" and 1 for "after."
+
+## Fault injection
+
+Fault injection tests verify durability under filesystem anomalies.
+They use `FaultInjectionFS`, a virtual filesystem wrapper that simulates:
+
+- _Fsync lies_: Data appears synced but isn't.
+  On crash, unsynced data is lost.
+- _Directory sync anomalies_: File renames are not durable until the parent directory is synced.
+  On crash, unsynced files disappear.
+
+### Fault injection flags
+
+Pass these flags to `crashtest` or `stresstest`:
+
+| Flag | Effect |
+| --- | --- |
+| `-faultfs` | Enable FaultInjectionFS |
+| `-faultfs-drop-unsynced` | Simulate fsync lies (drop unsynced data) |
+| `-faultfs-delete-unsynced` | Simulate directory sync anomalies (delete unsynced files) |
+
+### Run durability scenarios
+
+Run durability scenario tests:
+
+```bash
+go test ./cmd/crashtest/... -run 'TestScenario_Fsync|TestScenario_DirSync|TestScenario_Multiple'
+```
+
+Run crashtest with fault injection:
+
+```bash
+./bin/crashtest -faultfs -faultfs-drop-unsynced -cycles 5 -duration 2m
+```
+
+### Durability scenario tests
+
+These tests verify specific durability contracts:
+
+| Test | Contract |
+| --- | --- |
+| `TestScenario_FsyncLies_SyncedWritesSurvive` | Synced writes survive when unsynced data is dropped. |
+| `TestScenario_FsyncLies_FlushMakesDurable` | Flushed data survives when unsynced data is dropped. |
+| `TestScenario_DirSync_CURRENTFileDurable` | CURRENT file update is durable after proper sync sequence. |
+| `TestScenario_DirSync_RecoveryAfterUnsyncedDataLoss` | Recovery is consistent after unsynced files disappear. |
+| `TestScenario_MultipleFlushCycles_DurabilityCheckpoints` | Each flush cycle creates a durable checkpoint. |
+
+## Evidence and reproducibility
+
+Test failures require evidence.
+Use artifact collection and trace emission to capture enough context for reproduction.
+
+### Artifact collection
+
+Use the `-run-dir` flag to collect artifacts on failure.
+On failure, the test writes:
+
+- `run.json`: Test configuration, flags, seeds, git commit, timestamps.
+- `db/`: Copy of the database directory.
+- `expected_state.bin`: Expected-state oracle file (if available).
+- `stdout.log`, `stderr.log`: Captured output.
+
+Collect artifacts with crashtest:
+
+```bash
+./bin/crashtest -run-dir ./artifacts -cycles 10
+```
+
+Collect artifacts with stresstest:
+
+```bash
+./bin/stresstest -run-dir ./artifacts -duration 5m
+```
+
+Collect artifacts with adversarialtest:
+
+```bash
+./bin/adversarialtest -run-dir ./artifacts
+```
+
+### Trace emission
+
+Use the `-trace-out` flag to record operations during a stress test.
+The trace file includes a JSON header with configuration and a binary trace body.
+
+Record a trace:
+
+```bash
+./bin/stresstest -trace-out ./trace.log -duration 1m
+```
+
+### Trace replay
+
+Replay a trace against a fresh database:
+
+```bash
+./bin/traceanalyzer replay -db /tmp/replay_db ./trace.log
+```
+
+Use `-dry-run` to count operations without applying them:
+
+```bash
+./bin/traceanalyzer replay -dry-run -db /tmp/replay_db ./trace.log
+```
+
+Use `-preserve-timing` to replay at the original pace:
+
+```bash
+./bin/traceanalyzer replay -preserve-timing -db /tmp/replay_db ./trace.log
+```
+
+### Trace analysis
+
+View trace statistics:
+
+```bash
+./bin/traceanalyzer stats ./trace.log
+```
+
+Dump trace records:
+
+```bash
+./bin/traceanalyzer dump -limit 100 ./trace.log
+```
+
+## Inspect databases and files
+
+Use the command-line tools to inspect database state after a test failure.
+
+### Inspect MANIFEST files
+
+Dump MANIFEST version edits:
+
+```bash
+./bin/ldb --db=/path/to/db manifest_dump
+```
+
+Use `-v` for verbose output showing file-level details:
+
+```bash
+./bin/ldb --db=/path/to/db manifest_dump -v
+```
+
+### Verify SST file integrity
+
+Check an SST file with block checksum verification:
+
+```bash
+./bin/sstdump --file=/path/to/file.sst --command=check --verify_checksums
+```
+
+Use `-v` for verbose block-level progress:
+
+```bash
+./bin/sstdump --file=/path/to/file.sst --command=check --verify_checksums -v
+```
+
+### Scan database contents
+
+Scan all key-value pairs:
+
+```bash
+./bin/ldb --db=/path/to/db scan
+```
+
+Get a specific key:
+
+```bash
+./bin/ldb --db=/path/to/db get mykey
+```
+
 ## Contribute new tests
 
 Prefer tests that fail on real bugs.
-Avoid tests that only assert “no error”.
+Avoid tests that only assert "no error".
 Write tests that explain which invariant they protect.
