@@ -36,16 +36,20 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/testutil"
+	"github.com/aalhour/rockyardkv/internal/trace"
+	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
 var (
@@ -103,7 +107,30 @@ var (
 
 	// Randomization flags
 	randomizeParams = flag.Bool("randomize", false, "Randomize database parameters")
+
+	// Fault injection flags
+	// These flags enable FaultInjectionFS for testing durability edge cases.
+	// Reference: RocksDB utilities/fault_injection_fs.h
+	faultFS                 = flag.Bool("faultfs", false, "Enable FaultInjectionFS for durability testing")
+	faultDropUnsynced       = flag.Bool("faultfs-drop-unsynced", false, "Drop unsynced data on simulated crash (requires -faultfs)")
+	faultDelUnsynced        = flag.Bool("faultfs-delete-unsynced", false, "Delete unsynced files on simulated crash (requires -faultfs)")
+	faultSimulateCrashOnSig = flag.Bool("faultfs-simulate-crash-on-signal", false, "Simulate crash (drop/delete unsynced) when SIGTERM is received (requires -faultfs)")
+
+	// Artifact collection
+	runDir = flag.String("run-dir", "", "Directory for artifact collection on failure (default: none)")
+
+	// Trace emission
+	traceOut = flag.String("trace-out", "", "Path to write operation trace file for replay")
 )
+
+// globalFaultFS holds the FaultInjectionFS instance when fault injection is enabled.
+// This allows crash/stress tests to simulate failures like fsync lies and dir sync anomalies.
+var globalFaultFS *vfs.FaultInjectionFS
+
+// globalTraceWriter is the trace writer for operation recording.
+// When enabled via -trace-out, all operations are recorded for replay.
+var globalTraceWriter *trace.Writer
+var traceFile *os.File
 
 // errStopped is returned when an operation is cancelled due to stop signal.
 var errStopped = fmt.Errorf("stopped")
@@ -140,11 +167,27 @@ var stressWriteOpts *db.WriteOptions
 func main() {
 	flag.Parse()
 
+	startTime = time.Now()
+
 	if *seed == 0 {
 		*seed = time.Now().UnixNano()
 	}
 
 	rand.Seed(*seed)
+
+	// Setup fault injection signal handler
+	// When SIGTERM is received and -faultfs-simulate-crash-on-signal is set,
+	// simulate a crash by dropping unsynced data / deleting unsynced files before exiting.
+	if *faultSimulateCrashOnSig && *faultFS {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGTERM)
+		go func() {
+			<-sigChan
+			fmt.Println("\n🔥 SIGTERM received — simulating crash with FaultInjectionFS")
+			SimulateFaultFSCrash()
+			os.Exit(0)
+		}()
+	}
 
 	// Apply randomization if requested
 	if *randomizeParams {
@@ -161,6 +204,40 @@ func main() {
 
 	// Setup database path
 	testDir := setupDBPath()
+
+	// Setup artifact bundle for failure collection (if run-dir specified)
+	if *runDir != "" {
+		var err error
+		artifactBundle, err = testutil.NewArtifactBundle(*runDir, "stresstest", *seed)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to create artifact bundle: %v\n", err)
+		} else {
+			artifactBundle.SetDBPath(testDir)
+			if *expectedState != "" {
+				artifactBundle.SetExpectedStatePath(*expectedState)
+			}
+			artifactBundle.SetFlags(map[string]any{
+				"duration":    duration.String(),
+				"keys":        *numKeys,
+				"threads":     *numThreads,
+				"value-size":  *valueSize,
+				"sync":        *syncWrites,
+				"disable-wal": *disableWAL,
+			})
+		}
+	}
+
+	// Setup trace emission (if trace-out specified)
+	if *traceOut != "" {
+		if err := setupTraceWriter(*traceOut); err != nil {
+			fmt.Printf("⚠️  Failed to create trace file: %v\n", err)
+		} else {
+			defer closeTraceWriter()
+			if *verbose {
+				fmt.Printf("📝 Trace output: %s\n", *traceOut)
+			}
+		}
+	}
 
 	// Create or load expected state oracle with per-key locking
 	var expState *testutil.ExpectedStateV2
@@ -208,26 +285,26 @@ func main() {
 	if *verifyOnly {
 		if *expectedState == "" {
 			fmt.Println("\n❌ STRESS TEST FAILED: -verify-only requires -expected-state")
-			os.Exit(1)
+			exitWithFailure(fmt.Errorf("verify-only requires expected-state"), testDir)
 		}
 		database, _, err := openDB(testDir)
 		if err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: open failed: %v\n", err)
-			os.Exit(1)
+			exitWithFailure(err, testDir)
 		}
 		defer database.Close()
 
 		fmt.Println("\n🔍 Running final verification...")
 		if err := verifyAll(database, expState, stats); err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: final verification failed: %v\n", err)
-			os.Exit(1)
+			exitWithFailure(err, testDir)
 		}
 		fmt.Println("✅ VERIFICATION PASSED")
 		return
 	}
 	if err := runStressTest(testDir, expState, stats); err != nil {
 		fmt.Printf("\n❌ STRESS TEST FAILED: %v\n", err)
-		os.Exit(1)
+		exitWithFailure(err, testDir)
 	}
 
 	// Save expected state if requested
@@ -245,14 +322,14 @@ func main() {
 	// Check for failures
 	if stats.errors.Load() > 0 {
 		fmt.Println("❌ STRESS TEST FAILED")
-		os.Exit(1)
+		exitWithFailure(fmt.Errorf("errors: %d", stats.errors.Load()), testDir)
 	}
 
 	// Verification failures should now be rare with per-key locking
 	if stats.verifyFail.Load() > 0 {
 		fmt.Printf("⚠️  %d verification failures\n", stats.verifyFail.Load())
 		fmt.Println("❌ STRESS TEST FAILED")
-		os.Exit(1)
+		exitWithFailure(fmt.Errorf("verification failures: %d", stats.verifyFail.Load()), testDir)
 	}
 
 	fmt.Println("✅ STRESS TEST PASSED")
@@ -545,6 +622,20 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 	opts.WriteBufferSize = 4 * 1024 * 1024 // 4MB
 	// Add a merge operator for stress testing
 	opts.MergeOperator = &db.StringAppendOperator{Delimiter: ","}
+
+	// Enable FaultInjectionFS if requested for durability testing.
+	// This allows simulating fsync lies, missing dir sync, and other
+	// filesystem anomalies to test recovery robustness.
+	if *faultFS {
+		if globalFaultFS == nil {
+			globalFaultFS = vfs.NewFaultInjectionFS(vfs.Default())
+			if *verbose {
+				fmt.Println("📦 FaultInjectionFS enabled")
+			}
+		}
+		opts.FS = globalFaultFS
+	}
+
 	database, err := db.Open(filepath.Join(path, "db"), opts)
 	if err != nil {
 		return nil, nil, err
@@ -734,6 +825,9 @@ func doPut(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng
 		return fmt.Errorf("put failed: %w", err)
 	}
 
+	// Trace the operation (if tracing enabled)
+	traceOp(trace.TypeWrite, tracePutPayload(keyBytes, valueBytes))
+
 	// Commit the expected state update
 	pendingValue.Commit()
 	stats.puts.Add(1)
@@ -860,6 +954,9 @@ func doGet(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng
 	// Perform database operation
 	value, err := database.Get(nil, keyBytes)
 
+	// Trace the operation (if tracing enabled)
+	traceOp(trace.TypeGet, traceGetPayload(keyBytes))
+
 	// Capture post-read expected value
 	postReadExpected := expected.Get(0, key)
 
@@ -939,6 +1036,9 @@ func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, 
 		pendingValue.Rollback()
 		return fmt.Errorf("delete failed: %w", err)
 	}
+
+	// Trace the operation (if tracing enabled)
+	traceOp(trace.TypeWrite, traceGetPayload(keyBytes)) // Delete is a write with just key
 
 	// Commit the expected state update
 	pendingValue.Commit()
@@ -1986,7 +2086,122 @@ func verifyValue(key int64, expectedValueBase uint32, value []byte) bool { //nol
 	return storedKey == uint64(key) && storedBase == expectedValueBase
 }
 
+// artifactBundle is the global artifact bundle for collecting evidence on failure.
+var artifactBundle *testutil.ArtifactBundle
+
+// startTime tracks when the test started for elapsed time calculation.
+var startTime time.Time
+
 func fatal(format string, args ...any) {
 	fmt.Printf("FATAL: "+format+"\n", args...)
 	os.Exit(1)
+}
+
+// exitWithFailure collects artifacts and exits with code 1.
+func exitWithFailure(err error, testDir string) {
+	if artifactBundle != nil && *runDir != "" {
+		elapsed := time.Since(startTime)
+		if bundleErr := artifactBundle.RecordFailure(err, elapsed); bundleErr != nil {
+			fmt.Printf("⚠️  Artifact collection error: %v\n", bundleErr)
+		} else {
+			fmt.Printf("📦 Artifacts collected at: %s\n", artifactBundle.RunDir)
+		}
+	}
+	os.Exit(1)
+}
+
+// SimulateFaultFSCrash simulates a crash using the FaultInjectionFS.
+// This drops unsynced data and/or deletes unsynced files based on flags.
+// Called by crashtest before killing the process.
+func SimulateFaultFSCrash() {
+	if globalFaultFS == nil {
+		return
+	}
+
+	if *faultDropUnsynced {
+		if err := globalFaultFS.DropUnsyncedData(); err != nil {
+			if *verbose {
+				fmt.Printf("FaultFS: DropUnsyncedData error: %v\n", err)
+			}
+		} else if *verbose {
+			fmt.Println("FaultFS: Dropped unsynced data")
+		}
+	}
+
+	if *faultDelUnsynced {
+		if err := globalFaultFS.DeleteUnsyncedFiles(); err != nil {
+			if *verbose {
+				fmt.Printf("FaultFS: DeleteUnsyncedFiles error: %v\n", err)
+			}
+		} else if *verbose {
+			fmt.Println("FaultFS: Deleted unsynced files")
+		}
+	}
+}
+
+// GetFaultFS returns the global FaultInjectionFS instance if enabled.
+// This allows external code (e.g., crashtest) to inject faults.
+func GetFaultFS() *vfs.FaultInjectionFS {
+	return globalFaultFS
+}
+
+// setupTraceWriter initializes the trace writer.
+// The trace file uses a standard binary format (see internal/trace/trace.go).
+func setupTraceWriter(path string) error {
+	var err error
+	traceFile, err = os.Create(path)
+	if err != nil {
+		return err
+	}
+
+	// Create trace writer with standard binary header.
+	// Configuration metadata (seed, keys, etc.) is not included in the trace file.
+	// Use -v flag output or artifact bundle run.json for this information.
+	globalTraceWriter, err = trace.NewWriter(traceFile)
+	if err != nil {
+		traceFile.Close()
+		return err
+	}
+
+	return nil
+}
+
+// closeTraceWriter closes the trace writer and file.
+func closeTraceWriter() {
+	if globalTraceWriter != nil {
+		_ = globalTraceWriter.Close()
+		if *verbose {
+			fmt.Printf("📝 Trace records written: %d\n", globalTraceWriter.Count())
+		}
+	}
+	if traceFile != nil {
+		_ = traceFile.Close()
+	}
+}
+
+// traceOp records an operation to the trace file if tracing is enabled.
+func traceOp(opType trace.RecordType, payload []byte) {
+	if globalTraceWriter != nil {
+		_ = globalTraceWriter.Write(opType, payload)
+	}
+}
+
+// tracePutPayload creates a trace payload for a Put operation.
+// Format: [key_len:4][key][value_len:4][value]
+func tracePutPayload(key, value []byte) []byte {
+	buf := make([]byte, 4+len(key)+4+len(value))
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key)))
+	copy(buf[4:4+len(key)], key)
+	binary.LittleEndian.PutUint32(buf[4+len(key):8+len(key)], uint32(len(value)))
+	copy(buf[8+len(key):], value)
+	return buf
+}
+
+// traceGetPayload creates a trace payload for a Get operation.
+// Format: [key_len:4][key]
+func traceGetPayload(key []byte) []byte {
+	buf := make([]byte, 4+len(key))
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key)))
+	copy(buf[4:], key)
+	return buf
 }

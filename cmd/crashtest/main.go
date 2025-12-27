@@ -21,6 +21,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
 var (
@@ -39,6 +41,14 @@ var (
 	verifyTimeout    = flag.Duration("verify-timeout", 2*time.Minute, "Verification timeout")
 	killMode         = flag.String("kill-mode", "random", "Kill mode: random, sigkill, sigterm")
 	minInterval      = flag.Duration("min-interval", 5*time.Second, "Minimum time before crash")
+
+	// Fault injection flags (propagated to stresstest)
+	faultFS           = flag.Bool("faultfs", false, "Enable FaultInjectionFS for durability testing")
+	faultDropUnsynced = flag.Bool("faultfs-drop-unsynced", false, "Drop unsynced data on simulated crash (requires -faultfs)")
+	faultDelUnsynced  = flag.Bool("faultfs-delete-unsynced", false, "Delete unsynced files on simulated crash (requires -faultfs)")
+
+	// Artifact collection
+	runDir = flag.String("run-dir", "", "Directory for artifact collection on failure (default: auto-generated)")
 )
 
 // TestMode represents the test execution mode
@@ -74,6 +84,30 @@ func main() {
 	testDir := setupDBPath()
 	defer cleanupDBPath(testDir)
 
+	expectedStateFile := filepath.Join(testDir, "expected_state.bin")
+
+	// Setup artifact bundle for failure collection
+	artifactBundle, err := testutil.NewArtifactBundle(*runDir, "crashtest", *seed)
+	if err != nil {
+		fatal("Failed to create artifact bundle: %v", err)
+	}
+	artifactBundle.SetDBPath(testDir)
+	artifactBundle.SetExpectedStatePath(expectedStateFile)
+	artifactBundle.SetFlags(map[string]any{
+		"duration":              duration.String(),
+		"interval":              crashInterval.String(),
+		"cycles":                *numCycles,
+		"db":                    testDir,
+		"threads":               *stressThreads,
+		"keys":                  *stressKeys,
+		"sync":                  *stressSync,
+		"disable-wal":           *stressDisableWAL,
+		"kill-mode":             *killMode,
+		"faultfs":               *faultFS,
+		"faultfs-drop-unsynced": *faultDropUnsynced,
+		"faultfs-del-unsynced":  *faultDelUnsynced,
+	})
+
 	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	sigCh := make(chan os.Signal, 1)
@@ -86,21 +120,35 @@ func main() {
 
 	// Run crash test cycles
 	stats := &Stats{startTime: time.Now()}
-	err := runCrashTestCycles(ctx, testDir, stats)
+	testErr := runCrashTestCycles(ctx, testDir, stats)
 
 	// Print final stats
 	printStats(stats)
 
-	if err != nil {
-		fmt.Printf("\n❌ CRASH TEST FAILED: %v\n", err)
+	// Determine final result
+	elapsed := time.Since(stats.startTime)
+	failed := testErr != nil || stats.failedVerify > 0
+
+	if failed {
+		var failErr error
+		if testErr != nil {
+			failErr = testErr
+		} else {
+			failErr = fmt.Errorf("verification failures: %d", stats.failedVerify)
+		}
+
+		// Collect artifacts on failure
+		if bundleErr := artifactBundle.RecordFailure(failErr, elapsed); bundleErr != nil {
+			fmt.Printf("⚠️  Artifact collection error: %v\n", bundleErr)
+		} else {
+			fmt.Printf("📦 Artifacts collected at: %s\n", artifactBundle.RunDir)
+		}
+
+		fmt.Printf("\n❌ CRASH TEST FAILED: %v\n", failErr)
 		os.Exit(1)
 	}
 
-	if stats.failedVerify > 0 {
-		fmt.Println("❌ CRASH TEST FAILED: Verification failures detected")
-		os.Exit(1)
-	}
-
+	artifactBundle.RecordSuccess(elapsed)
 	fmt.Println("✅ CRASH TEST PASSED")
 }
 
@@ -260,6 +308,22 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 		stressArgs = append(stressArgs, "-disable-wal")
 	}
 
+	// Propagate fault injection flags to stresstest for durability testing.
+	// This enables simulating fsync lies and missing dir sync anomalies.
+	if *faultFS {
+		stressArgs = append(stressArgs, "-faultfs")
+		// Enable crash simulation on SIGTERM so the stresstest can apply
+		// FaultInjectionFS effects (drop unsynced data, delete unsynced files)
+		// before exiting when we send SIGTERM.
+		stressArgs = append(stressArgs, "-faultfs-simulate-crash-on-signal")
+	}
+	if *faultDropUnsynced {
+		stressArgs = append(stressArgs, "-faultfs-drop-unsynced")
+	}
+	if *faultDelUnsynced {
+		stressArgs = append(stressArgs, "-faultfs-delete-unsynced")
+	}
+
 	// Create command with context for timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, crashAfter+5*time.Second)
 	defer cancel()
@@ -331,6 +395,13 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 		stressArgs = append(stressArgs, "-disable-wal")
 	}
 
+	// Propagate fault injection flags for verification as well.
+	// Note: During verification, we typically don't drop/delete unsynced data
+	// because we want to see if the DB can recover from what actually persisted.
+	if *faultFS {
+		stressArgs = append(stressArgs, "-faultfs")
+	}
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, *verifyTimeout)
 	defer cancel()
 
@@ -360,18 +431,29 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 
 func killProcess(proc *os.Process) error {
 	var sig syscall.Signal
-	switch *killMode {
-	case "sigterm":
+
+	// When FaultInjectionFS is enabled, we MUST use SIGTERM (not SIGKILL) so
+	// the stresstest can apply the fault injection effects (drop unsynced data,
+	// delete unsynced files) before exiting. SIGKILL prevents this.
+	if *faultFS {
 		sig = syscall.SIGTERM
-	case "sigkill", "random":
-		// Random mode chooses between SIGKILL and SIGTERM
-		if *killMode == "random" && rand.Intn(2) == 0 {
+		if *verbose {
+			fmt.Printf("   Using SIGTERM (faultfs mode) to allow crash simulation\n")
+		}
+	} else {
+		switch *killMode {
+		case "sigterm":
 			sig = syscall.SIGTERM
-		} else {
+		case "sigkill", "random":
+			// Random mode chooses between SIGKILL and SIGTERM
+			if *killMode == "random" && rand.Intn(2) == 0 {
+				sig = syscall.SIGTERM
+			} else {
+				sig = syscall.SIGKILL
+			}
+		default:
 			sig = syscall.SIGKILL
 		}
-	default:
-		sig = syscall.SIGKILL
 	}
 
 	if *verbose {
