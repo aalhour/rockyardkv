@@ -281,3 +281,150 @@ func TestWriterAfterClose(t *testing.T) {
 		t.Errorf("Expected ErrClosedPipe, got %v", err)
 	}
 }
+
+func TestReaderHeader(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	writer.WriteGet(0, []byte("key"))
+	writer.Close()
+
+	reader, err := NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	header := reader.Header()
+	if header.Magic != MagicNumber {
+		t.Errorf("Magic mismatch: got %x, want %x", header.Magic, MagicNumber)
+	}
+	if header.Version != CurrentVersion {
+		t.Errorf("Version mismatch: got %d, want %d", header.Version, CurrentVersion)
+	}
+}
+
+func TestReaderCount(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	for range 7 {
+		writer.WriteGet(0, []byte("key"))
+	}
+	writer.Close()
+
+	reader, err := NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	// Count() returns records read so far, starts at 0
+	if reader.Count() != 0 {
+		t.Errorf("Initial count should be 0, got %d", reader.Count())
+	}
+
+	// Read 3 records
+	for range 3 {
+		_, err := reader.Read()
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+	}
+	if reader.Count() != 3 {
+		t.Errorf("After 3 reads, count should be 3, got %d", reader.Count())
+	}
+
+	// Read remaining records
+	_, err = reader.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if reader.Count() != 7 {
+		t.Errorf("After ReadAll, count should be 7, got %d", reader.Count())
+	}
+}
+
+func TestRecordTypeStringAllTypes(t *testing.T) {
+	tests := []struct {
+		typ  RecordType
+		want string
+	}{
+		{TypeGet, "Get"},
+		{TypeWrite, "Write"},
+		{TypeFlush, "Flush"},
+		{TypeCompaction, "Compaction"},
+		{TypeIterSeek, "IterSeek"},
+		{RecordType(99), "Unknown"},
+	}
+	for _, tt := range tests {
+		got := tt.typ.String()
+		if got != tt.want {
+			t.Errorf("RecordType(%d).String() = %s, want %s", tt.typ, got, tt.want)
+		}
+	}
+}
+
+func TestDecodePayloadErrors(t *testing.T) {
+	// WritePayload too short
+	_, err := DecodeWritePayload([]byte{1, 2, 3})
+	if err == nil {
+		t.Error("DecodeWritePayload should fail on short input")
+	}
+
+	// GetPayload too short
+	_, err = DecodeGetPayload([]byte{1, 2, 3})
+	if err == nil {
+		t.Error("DecodeGetPayload should fail on short input")
+	}
+
+	// Empty payload
+	_, err = DecodeWritePayload(nil)
+	if err == nil {
+		t.Error("DecodeWritePayload should fail on nil input")
+	}
+
+	_, err = DecodeGetPayload(nil)
+	if err == nil {
+		t.Error("DecodeGetPayload should fail on nil input")
+	}
+}
+
+func TestIterateEarlyExit(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+	for range 10 {
+		writer.WriteGet(0, []byte("key"))
+	}
+	writer.Close()
+
+	reader, err := NewReader(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader failed: %v", err)
+	}
+
+	// Early exit after 3 records
+	count := 0
+	customErr := errors.New("stop iteration")
+	err = reader.Iterate(func(r *Record) error {
+		count++
+		if count >= 3 {
+			return customErr
+		}
+		return nil
+	})
+	if !errors.Is(err, customErr) {
+		t.Errorf("Expected custom error, got %v", err)
+	}
+	if count != 3 {
+		t.Errorf("Expected 3 iterations, got %d", count)
+	}
+}
