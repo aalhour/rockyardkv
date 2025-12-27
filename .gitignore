@@ -48,6 +48,8 @@ go-critic-report.txt
 
 go.work
 go.work.sum
+.gocache/
+.gomodcache/
 
 # Uncomment to ignore vendor directory
 # vendor/
