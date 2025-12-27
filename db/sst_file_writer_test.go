@@ -680,6 +680,10 @@ func (w *osFileWrapperForTest) Size() int64 {
 	return w.size
 }
 
+func (w *osFileWrapperForTest) Close() error {
+	return w.f.Close()
+}
+
 func extractUserKeyForTest(internalKey []byte) []byte {
 	if len(internalKey) < 8 {
 		return internalKey

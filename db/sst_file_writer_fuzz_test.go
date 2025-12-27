@@ -153,6 +153,10 @@ func (w *fuzzFileWrapper) Size() int64 {
 	return w.size
 }
 
+func (w *fuzzFileWrapper) Close() error {
+	return w.f.Close()
+}
+
 func extractUserKeyForFuzz(internalKey []byte) []byte {
 	if len(internalKey) < 8 {
 		return internalKey

@@ -380,6 +380,10 @@ func (w *compatFileWrapper) Size() int64 {
 	return w.size
 }
 
+func (w *compatFileWrapper) Close() error {
+	return w.f.Close()
+}
+
 func extractUserKeyCompat(internalKey []byte) []byte {
 	if len(internalKey) < 8 {
 		return internalKey
