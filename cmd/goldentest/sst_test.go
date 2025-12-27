@@ -966,6 +966,64 @@ func TestGoWritesCppReads_FormatV5(t *testing.T) {
 	}
 }
 
+// TestGoWritesCppReads_FormatV6 tests Format Version 6 SST files.
+// This verifies Issue 3: SST footer checksum for Format V6+.
+//
+// Format V6 includes:
+// - Context-aware checksums (base_context_checksum in footer)
+// - Index handle stored in metaindex block instead of footer
+// - Footer checksum covering the footer itself
+func TestGoWritesCppReads_FormatV6(t *testing.T) {
+
+	sstDump := findSstDumpTest(t)
+	if sstDump == "" {
+		t.Skip("sst_dump not found")
+	}
+
+	dir := t.TempDir()
+	sstPath := filepath.Join(dir, "v6.sst")
+
+	fs := vfs.Default()
+	file, err := fs.Create(sstPath)
+	if err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	opts := table.DefaultBuilderOptions()
+	opts.FormatVersion = 6 // Explicitly test Format V6 with footer checksum
+
+	builder := table.NewTableBuilder(file, opts)
+
+	for i := range 10 {
+		key := dbformat.NewInternalKey(
+			fmt.Appendf(nil, "v6_key_%04d", i),
+			dbformat.SequenceNumber(i+1),
+			dbformat.TypeValue,
+		)
+		value := fmt.Appendf(nil, "v6_value_%04d", i)
+		if err := builder.Add(key, value); err != nil {
+			file.Close()
+			t.Fatalf("Add failed: %v", err)
+		}
+	}
+
+	if err := builder.Finish(); err != nil {
+		file.Close()
+		t.Fatalf("Finish failed: %v", err)
+	}
+	file.Close()
+
+	// Verify with C++ sst_dump - this will fail if footer checksum is wrong
+	output := runSstDumpScanTest(t, sstDump, sstPath)
+	if !strings.Contains(output, "v6_key_0000") {
+		t.Errorf("Missing first key. Output:\n%s", output)
+	}
+	if !strings.Contains(output, "v6_key_0009") {
+		t.Errorf("Missing last key. Output:\n%s", output)
+	}
+	t.Logf("Format V6 SST with footer checksum verified by C++ sst_dump")
+}
+
 // =============================================================================
 // SST Round-trip Tests (Go writes, Go reads back)
 // =============================================================================
@@ -1038,10 +1096,9 @@ func TestSSTRoundTrip_Simple(t *testing.T) {
 }
 
 // TestSSTRoundTrip_FormatVersions tests round-trip with different format versions.
-// Note: Format versions >= 4 have issues with context checksums (known bug).
 func TestSSTRoundTrip_FormatVersions(t *testing.T) {
-	// Only test V3 for now - V4+ have context checksum issues being investigated
-	versions := []uint32{3}
+	// Test V3 and V6
+	versions := []uint32{3, 6}
 
 	for _, version := range versions {
 		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
@@ -1071,8 +1128,7 @@ func TestSSTRoundTrip_FormatVersions(t *testing.T) {
 			data := buf.Bytes()
 			memFile := &memRandomAccessFile{data: data}
 
-			// Skip checksum verification for format versions >= 4 (known issue with context checksums)
-			reader, err := table.Open(memFile, table.ReaderOptions{VerifyChecksums: version < 4})
+			reader, err := table.Open(memFile, table.ReaderOptions{VerifyChecksums: true})
 			if err != nil {
 				t.Fatalf("open failed: %v", err)
 			}
@@ -1202,6 +1258,12 @@ func runSstDumpTest(t *testing.T, sstDump, sstPath string) string {
 	t.Helper()
 
 	cmd := exec.Command(sstDump, "--file="+sstPath)
+	// Set library path for dynamic linking (macOS and Linux)
+	sstDumpDir := filepath.Dir(sstDump)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+sstDumpDir,
+		"LD_LIBRARY_PATH="+sstDumpDir,
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check if it's a library loading error (C++ tools not properly built)
@@ -1218,6 +1280,12 @@ func runSstDumpScanTest(t *testing.T, sstDump, sstPath string) string {
 	t.Helper()
 
 	cmd := exec.Command(sstDump, "--file="+sstPath, "--command=scan")
+	// Set library path for dynamic linking (macOS and Linux)
+	sstDumpDir := filepath.Dir(sstDump)
+	cmd.Env = append(os.Environ(),
+		"DYLD_LIBRARY_PATH="+sstDumpDir,
+		"LD_LIBRARY_PATH="+sstDumpDir,
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check if it's a library loading error (C++ tools not properly built)

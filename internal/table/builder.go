@@ -379,8 +379,13 @@ func (tb *TableBuilder) Finish() error {
 		tb.pendingIndexEntry = false
 	}
 
-	// Build metaindex block
-	metaindexBuilder := block.NewBuilder(1)
+	// Collect metaindex entries - will be sorted before writing
+	// C++ uses std::map which maintains sorted order; we must do the same.
+	type metaEntry struct {
+		key   string
+		value []byte
+	}
+	var metaEntries []metaEntry
 
 	// Write filter block if enabled
 	if tb.filterBuilder != nil && tb.filterBuilder.NumKeys() > 0 {
@@ -391,7 +396,7 @@ func (tb *TableBuilder) Finish() error {
 		}
 		// Use fullfilter.<policy_name> as the key (RocksDB convention)
 		filterKey := "fullfilter." + tb.options.FilterPolicy
-		metaindexBuilder.Add([]byte(filterKey), filterHandle.EncodeToSlice())
+		metaEntries = append(metaEntries, metaEntry{filterKey, filterHandle.EncodeToSlice()})
 	}
 
 	// Write range deletion block if we have range tombstones
@@ -401,7 +406,7 @@ func (tb *TableBuilder) Finish() error {
 			tb.err = err
 			return err
 		}
-		metaindexBuilder.Add([]byte("rocksdb.range_del"), rangeDelHandle.EncodeToSlice())
+		metaEntries = append(metaEntries, metaEntry{"rocksdb.range_del", rangeDelHandle.EncodeToSlice()})
 	}
 
 	// Write properties block
@@ -410,7 +415,7 @@ func (tb *TableBuilder) Finish() error {
 		tb.err = err
 		return err
 	}
-	metaindexBuilder.Add([]byte("rocksdb.properties"), propertiesHandle.EncodeToSlice())
+	metaEntries = append(metaEntries, metaEntry{"rocksdb.properties", propertiesHandle.EncodeToSlice()})
 
 	// Write index block
 	indexContents := tb.indexBlock.Finish()
@@ -423,7 +428,18 @@ func (tb *TableBuilder) Finish() error {
 
 	// For format_version >= 6, index handle goes in metaindex
 	if !block.FormatVersionUsesIndexHandleInFooter(tb.options.FormatVersion) {
-		metaindexBuilder.Add([]byte("rocksdb.index"), indexHandle.EncodeToSlice())
+		metaEntries = append(metaEntries, metaEntry{"rocksdb.index", indexHandle.EncodeToSlice()})
+	}
+
+	// Sort metaindex entries by key (C++ uses std::map which maintains sorted order)
+	sort.Slice(metaEntries, func(i, j int) bool {
+		return metaEntries[i].key < metaEntries[j].key
+	})
+
+	// Build metaindex block with entries in sorted order
+	metaindexBuilder := block.NewBuilder(1)
+	for _, entry := range metaEntries {
+		metaindexBuilder.Add([]byte(entry.key), entry.value)
 	}
 
 	// Write metaindex block
