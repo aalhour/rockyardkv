@@ -1,3 +1,5 @@
+//go:build synctest
+
 // Package testutil provides test utilities for stress testing and verification.
 //
 // SyncPoint provides synchronization points for testing concurrent code.
