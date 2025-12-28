@@ -481,6 +481,32 @@ func (es *ExpectedStateV2) Exists(cf int, key int64) bool {
 	return es.Get(cf, key).Exists()
 }
 
+// SyncPut directly sets a key's value base without pending state.
+// Used during trace replay to apply known-committed operations.
+func (es *ExpectedStateV2) SyncPut(cf int, key int64, valueBase uint32) {
+	idx := es.getIndex(cf, key)
+	if idx < 0 {
+		return
+	}
+
+	ev := ExpectedValue(es.values[idx].Load())
+	ev.SyncPut(valueBase)
+	es.values[idx].Store(ev.Raw())
+}
+
+// SyncDelete directly marks a key as deleted without pending state.
+// Used during trace replay to apply known-committed operations.
+func (es *ExpectedStateV2) SyncDelete(cf int, key int64) {
+	idx := es.getIndex(cf, key)
+	if idx < 0 {
+		return
+	}
+
+	ev := ExpectedValue(es.values[idx].Load())
+	ev.SyncDelete()
+	es.values[idx].Store(ev.Raw())
+}
+
 // GetValueBase returns the current value base for a key.
 func (es *ExpectedStateV2) GetValueBase(cf int, key int64) uint32 {
 	return es.Get(cf, key).GetValueBase()

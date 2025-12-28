@@ -122,6 +122,9 @@ var (
 
 	// Trace emission
 	traceOut = flag.String("trace-out", "", "Path to write operation trace file for replay")
+
+	// Trace-based crash recovery (Option C - seqno-based replay)
+	traceRecovery = flag.String("trace-recovery", "", "Base path for trace-based crash recovery (e.g. /path/to/state)")
 )
 
 // globalFaultFS holds the FaultInjectionFS instance when fault injection is enabled.
@@ -132,6 +135,17 @@ var globalFaultFS *vfs.FaultInjectionFS
 // When enabled via -trace-out, all operations are recorded for replay.
 var globalTraceWriter *trace.Writer
 var traceFile *os.File
+
+// globalRecovery is the trace-based recovery orchestrator for crash testing.
+// When enabled via -trace-recovery, operations are recorded with sequence numbers
+// to enable precise recovery verification after crash simulation.
+var globalRecovery *testutil.ExpectedStateRecovery
+var globalRecoveryTrace *testutil.TraceWriter
+var globalRecoveryMu sync.Mutex
+
+// Note: Trace recovery uses the DB's actual sequence numbers (from GetLatestSequenceNumber()),
+// not an internal counter. This ensures the trace seqnos are in the same domain as the
+// DB's recovered seqno, making replay cutoff meaningful.
 
 // globalExpectedState and globalExpectedStatePath are used by the SIGTERM handler
 // to save expected state before exiting for clean crash test shutdown.
@@ -243,6 +257,10 @@ func main() {
 				}
 			}
 
+			// Stop recovery trace BEFORE crash simulation
+			// This ensures the trace is complete before files are deleted
+			stopRecoveryTrace()
+
 			// Simulate fault injection crash if enabled
 			if *faultSimulateCrashOnSig && *faultFS {
 				fmt.Println("🔥 Simulating crash with FaultInjectionFS")
@@ -305,8 +323,30 @@ func main() {
 
 	// Create or load expected state oracle with per-key locking
 	var expState *testutil.ExpectedStateV2
-	if *expectedState != "" {
-		// Try to load from file
+	//
+	// IMPORTANT: DisableWAL mode changes what "expected state" means across crashes.
+	//
+	// In DisableWAL=true crash testing, the process can exit without replayable WAL.
+	// Persisting and re-loading the full expected state across cycles will inevitably
+	// drift ahead of what is actually durable on disk. Instead, when a durable-state
+	// file is configured, we treat that file as the ONLY cross-cycle baseline.
+	//
+	// - During a cycle: expState tracks the logical state as ops succeed.
+	// - On each successful Flush barrier: we persist durable state (expected snapshot).
+	// - Across cycles: we re-load from durable state (or empty if it doesn't exist).
+	if !*verifyOnly && *disableWAL && *durableState != "" {
+		// Prefer durable baseline if present; otherwise start from empty (nothing durable yet).
+		loaded, err := testutil.LoadExpectedStateV2FromFile(*durableState)
+		if err == nil {
+			expState = loaded
+			if *verbose {
+				fmt.Printf("📂 Loaded durable baseline from %s (seqno: %d)\n", *durableState, expState.GetPersistedSeqno())
+			}
+		} else if *verbose {
+			fmt.Printf("📂 No durable baseline found at %s (starting from empty): %v\n", *durableState, err)
+		}
+	} else if *expectedState != "" {
+		// Normal mode (or verify-only): try to load expected state from file.
 		loaded, err := testutil.LoadExpectedStateV2FromFile(*expectedState)
 		if err == nil {
 			expState = loaded
@@ -324,6 +364,30 @@ func main() {
 	// Set global expected state for SIGTERM handler
 	globalExpectedState = expState
 	globalExpectedStatePath = *expectedState
+
+	// Initialize trace-based recovery if enabled (Option C: seqno-based replay)
+	// This provides precise crash recovery verification by:
+	// 1. Saving a snapshot of expected state before stress operations
+	// 2. Recording all operations with sequence numbers to a trace file
+	// 3. After crash recovery, replaying the trace up to the DB's recovered seqno
+	if *traceRecovery != "" && !*verifyOnly {
+		globalRecovery = testutil.NewExpectedStateRecovery(*traceRecovery, 1, *numKeys)
+
+		// Get initial sequence number from expected state (or 0 if empty)
+		startSeqno := expState.GetPersistedSeqno()
+
+		// SaveAtAndAfter: snapshot current state and start recording
+		tw, err := globalRecovery.SaveAtAndAfter(expState, startSeqno)
+		if err != nil {
+			fmt.Printf("⚠️  Failed to initialize trace recovery: %v\n", err)
+		} else {
+			globalRecoveryTrace = tw
+			if *verbose {
+				fmt.Printf("📼 Trace recovery initialized at seqno %d (%s.snapshot, %s.trace)\n",
+					startSeqno, *traceRecovery, *traceRecovery)
+			}
+		}
+	}
 
 	// Periodically persist expected state for crash testing.
 	// This makes -save-expected meaningful under SIGKILL.
@@ -363,11 +427,65 @@ func main() {
 		}
 		defer database.Close()
 
-		// When DisableWAL was used, we should verify against durable state (flush barriers)
-		// instead of the full expected state. This is because unflushed writes are not
-		// guaranteed to survive a crash with DisableWAL=true.
+		// Determine the expected state to verify against
 		verifyState := expState
-		if *durableState != "" {
+
+		// Option C: Trace-based recovery (seqno-based replay)
+		// If trace recovery files exist, use them to reconstruct expected state
+		// that matches exactly what the DB recovered.
+		if *traceRecovery != "" {
+			recovery := testutil.NewExpectedStateRecovery(*traceRecovery, 1, *numKeys)
+			if recovery.HasRecoveryFiles() {
+				// For DisableWAL mode, we must use the snapshot's seqno (which represents
+				// what was actually durable at the last flush), NOT the DB's seqno.
+				//
+				// Why: The DB's GetLatestSequenceNumber() returns the seqno from MANIFEST,
+				// which can be higher than what's actually durable (MANIFEST is synced
+				// even when memtable data isn't). Using it would cause over-replay.
+				//
+				// The snapshot's persisted seqno is updated only after successful flush,
+				// so it correctly represents the "durable seqno boundary".
+				var recoveredSeqno uint64
+				if *disableWAL {
+					// For DisableWAL: use snapshot's seqno (= durable seqno at last flush)
+					snapshotState, err := testutil.LoadExpectedStateV2FromFile(recovery.SnapshotPath())
+					if err != nil {
+						fmt.Printf("⚠️  Failed to load snapshot for seqno: %v\n", err)
+						recoveredSeqno = 0
+					} else {
+						recoveredSeqno = snapshotState.GetPersistedSeqno()
+					}
+				} else {
+					// For WAL-enabled: use DB's seqno (WAL replay makes it accurate)
+					recoveredSeqno = database.GetLatestSequenceNumber()
+				}
+
+				// Restore: load snapshot + replay trace up to recovered seqno
+				recoveredState, applied, err := recovery.Restore(recoveredSeqno)
+				if err != nil {
+					fmt.Printf("⚠️  Trace recovery failed: %v (falling back to expected state)\n", err)
+				} else {
+					// Count keys that exist in recovered state
+					recoveredCount := 0
+					for key := range int64(*numKeys) {
+						if recoveredState.Get(0, key).Exists() {
+							recoveredCount++
+						}
+					}
+					if *verbose {
+						fmt.Printf("📼 Trace recovery: seqno=%d, applied=%d ops, %d keys exist\n",
+							recoveredSeqno, applied, recoveredCount)
+					}
+					verifyState = recoveredState
+				}
+			} else if *verbose {
+				fmt.Printf("📼 No trace recovery files found at %s (using expected state)\n", *traceRecovery)
+			}
+		} else if *durableState != "" {
+			// Fallback: durable state (flush barriers)
+			// When DisableWAL was used, we should verify against durable state
+			// instead of the full expected state. This is because unflushed writes are not
+			// guaranteed to survive a crash with DisableWAL=true.
 			durState, err := testutil.LoadExpectedStateV2FromFile(*durableState)
 			if err == nil {
 				// Count keys that exist in durable state
@@ -874,14 +992,21 @@ func runWorker(threadID int, holder *dbHolder, expected *testutil.ExpectedStateV
 		// Track operations for compaction
 		opCount := holder.opCount.Add(1)
 		if *compactEvery > 0 && opCount-holder.lastCompact.Load() >= uint64(*compactEvery) && !isStopped() {
-			holder.mu.RLock()
-			if holder.db != nil {
-				// Trigger compaction by flushing
-				_ = holder.db.Flush(nil)
-				stats.compactions.Add(1)
-				holder.lastCompact.Store(opCount)
+			// NOTE: In DisableWAL mode, we do NOT trigger flushes from workers.
+			// All flushes must go through runFlusher which holds an exclusive lock
+			// and correctly saves the durable state after flush. If workers flush
+			// with only RLock, concurrent writes can happen during the flush and
+			// pollute the durable state with unflushed values (C02 harness bug).
+			if !*disableWAL {
+				holder.mu.RLock()
+				if holder.db != nil {
+					// Trigger compaction by flushing
+					_ = holder.db.Flush(nil)
+					stats.compactions.Add(1)
+					holder.lastCompact.Store(opCount)
+				}
+				holder.mu.RUnlock()
 			}
-			holder.mu.RUnlock()
 		}
 	}
 }
@@ -927,8 +1052,15 @@ func doPut(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng
 		return fmt.Errorf("put failed: %w", err)
 	}
 
+	// Get DB's actual sequence number AFTER the operation
+	// This is critical for trace recovery - seqno must be in DB's domain
+	dbSeqno := database.GetLatestSequenceNumber()
+
 	// Trace the operation (if tracing enabled)
 	traceOp(trace.TypeWrite, tracePutPayload(keyBytes, valueBytes))
+
+	// Record to recovery trace if enabled (for trace-based crash recovery)
+	recordRecoveryPut(0, key, valueBase, dbSeqno)
 
 	// Commit the expected state update
 	pendingValue.Commit()
@@ -1139,8 +1271,15 @@ func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, 
 		return fmt.Errorf("delete failed: %w", err)
 	}
 
+	// Get DB's actual sequence number AFTER the operation
+	// This is critical for trace recovery - seqno must be in DB's domain
+	dbSeqno := database.GetLatestSequenceNumber()
+
 	// Trace the operation (if tracing enabled)
 	traceOp(trace.TypeWrite, traceGetPayload(keyBytes)) // Delete is a write with just key
+
+	// Record to recovery trace if enabled (for trace-based crash recovery)
+	recordRecoveryDelete(0, key, dbSeqno)
 
 	// Commit the expected state update
 	pendingValue.Commit()
@@ -1233,6 +1372,11 @@ func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, r
 	// Perform batch write
 	err := database.Write(stressWriteOpts, wb)
 
+	// Get DB's actual sequence number AFTER the batch write
+	// All entries in a batch share the same seqno range ending at this value
+	// This is critical for trace recovery - seqno must be in DB's domain
+	dbSeqno := database.GetLatestSequenceNumber()
+
 	// Commit or rollback all pending values and release locks
 	for _, op := range ops {
 		if err != nil {
@@ -1245,6 +1389,21 @@ func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, r
 
 	if err != nil {
 		return fmt.Errorf("batch write failed: %w", err)
+	}
+
+	// Trace the batch as individual logical writes for post-mortem analysis.
+	// This keeps trace analysis simple (key/value-base visibility) without
+	// requiring a write-batch decoder in the trace tools.
+	// Note: All ops in a batch are recorded with the same seqno (the batch's final seqno).
+	// This is slightly imprecise but ensures replay includes all-or-nothing for the batch.
+	for _, op := range ops {
+		if op.isDel {
+			traceOp(trace.TypeWrite, traceGetPayload(makeKey(op.key)))
+			recordRecoveryDelete(0, op.key, dbSeqno) // Recovery trace with DB seqno
+			continue
+		}
+		traceOp(trace.TypeWrite, tracePutPayload(makeKey(op.key), makeValue(op.key, op.valueBase)))
+		recordRecoveryPut(0, op.key, op.valueBase, dbSeqno) // Recovery trace with DB seqno
 	}
 
 	stats.batches.Add(1)
@@ -1787,16 +1946,22 @@ func doTransaction(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *
 // doCompactAndVerify triggers a compaction and verifies a sample of keys afterward.
 // This helps catch data corruption during compaction.
 func doCompactAndVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
-	// Flush first to ensure data is in SST files
-	// Note: "immutable memtable already exists" is a transient condition under concurrent load
-	if err := database.Flush(nil); err != nil {
-		if strings.Contains(err.Error(), "immutable memtable already exists") {
-			// Transient condition - flush is in progress, skip and continue
-			if *verbose {
-				fmt.Printf("Flush skipped (memtable busy)\n")
+	// In DisableWAL mode, skip the flush here. Workers must NOT call Flush
+	// directly because they only hold RLock. Concurrent writes during flush
+	// pollute the durable state with unflushed values. All flushes in DisableWAL
+	// mode go through runFlusher which holds exclusive Lock.
+	if !*disableWAL {
+		// Flush first to ensure data is in SST files
+		// Note: "immutable memtable already exists" is a transient condition under concurrent load
+		if err := database.Flush(nil); err != nil {
+			if strings.Contains(err.Error(), "immutable memtable already exists") {
+				// Transient condition - flush is in progress, skip and continue
+				if *verbose {
+					fmt.Printf("Flush skipped (memtable busy)\n")
+				}
+			} else {
+				return fmt.Errorf("flush failed: %w", err)
 			}
-		} else {
-			return fmt.Errorf("flush failed: %w", err)
 		}
 	}
 
@@ -2039,41 +2204,67 @@ func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Sta
 			//
 			// Critical ordering: save durable state AFTER successful flush.
 			// This ensures durable_state.bin never contains data that isn't in SST.
-			if *disableWAL && *durableState != "" {
+			if *disableWAL && (*durableState != "" || *traceRecovery != "") {
 				// For DisableWAL mode with durable state tracking:
-				// We save the expected state AFTER a successful flush, not before.
 				//
-				// Why AFTER, not BEFORE:
-				// - If we save BEFORE flush and crash during flush, the saved state
-				//   contains data that never made it to SST (durable state is ahead)
-				// - If we save AFTER successful flush, we guarantee the saved state
-				//   only contains data that is actually in synced SST files
+				// CRITICAL: We only save durable state if something was actually flushed.
+				// db.Flush() returns nil even when memtable is empty, so we check if
+				// the sequence number changed to determine if data was flushed.
 				//
-				// Why holder.mu.Lock() is needed:
-				// - We must block workers during flush to get a consistent snapshot
-				// - While we hold the lock, no new writes can occur
-				// - After flush completes, we save the expected state (now durable)
-				// - Then release lock to let workers resume
+				// The sequence:
+				// 1. holder.mu.Lock() - block all workers
+				// 2. Record current durable seqno (from expected state)
+				// 3. Call db.Flush() - flushes current memtable to SST
+				// 4. Check if seqno changed - if so, save durable state
+				// 5. holder.mu.Unlock() - workers resume
+				//
+				// Key insight: holder.mu.Lock() blocks ALL worker operations,
+				// so no writes can happen during steps 2-4.
 				//
 				// This ensures durable_state.bin <= DB on disk at all times.
 				holder.mu.Lock()
 				if holder.db != nil {
 					flushCount := stats.flushes.Load()
-					// First flush - this writes memtable to SST and syncs
-					if err := holder.db.Flush(nil); err != nil {
+
+					// Record seqno BEFORE flush to detect if anything was flushed
+					prevSeqno := expected.GetPersistedSeqno()
+
+					// Use FlushAndGetDurableSeqno to get the ACTUAL flushed sequence number.
+					// This is critical because GetLatestSequenceNumber() returns db.seq which
+					// can include writes that happened to the NEW memtable after the memswitch
+					// but before doFlush() completed (even though we hold holder.mu.Lock(),
+					// there could be a race with background operations).
+					durableSeqno, err := holder.db.FlushAndGetDurableSeqno(nil)
+					if err != nil {
 						if *verbose {
 							fmt.Printf("Flush #%d error: %v\n", flushCount+1, err)
 						}
 					} else {
-						stats.flushes.Add(1)
-						// Only save expected state AFTER successful flush
-						// At this point, all writes up to now are durable in SST
-						if err := expected.SaveToFile(*durableState); err != nil {
-							if *verbose {
-								fmt.Printf("Flush #%d: durable state save error: %v\n", flushCount+1, err)
+						// Only save durable state if something was actually flushed
+						// (durableSeqno > 0 means data was flushed, durableSeqno=0 means empty memtable)
+						if durableSeqno > 0 && durableSeqno > prevSeqno {
+							expected.SetPersistedSeqno(durableSeqno)
+							stats.flushes.Add(1)
+
+							// Save durable state AFTER successful flush
+							if *durableState != "" {
+								if err := expected.SaveToFile(*durableState); err != nil {
+									if *verbose {
+										fmt.Printf("Flush #%d: durable state save error: %v\n", flushCount+1, err)
+									}
+								} else if *verbose {
+									fmt.Printf("Flush #%d: durable state saved to %s (seqno=%d)\n", flushCount+1, *durableState, durableSeqno)
+								}
 							}
-						} else if *verbose {
-							fmt.Printf("Flush #%d: durable state saved to %s\n", flushCount+1, *durableState)
+
+							// Update trace recovery snapshot AFTER flush
+							if *traceRecovery != "" && globalRecovery != nil {
+								if err := expected.SaveToFile(globalRecovery.SnapshotPath()); err != nil {
+									if *verbose {
+										fmt.Printf("Flush #%d: trace snapshot save error: %v\n", flushCount+1, err)
+									}
+								}
+							}
 						}
 					}
 				}
@@ -2354,4 +2545,45 @@ func traceGetPayload(key []byte) []byte {
 	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key)))
 	copy(buf[4:], key)
 	return buf
+}
+
+// recordRecoveryPut records a Put operation to the recovery trace.
+// This is used for trace-based crash recovery (Option C: seqno-based replay).
+// The seqno MUST be the DB's actual sequence number from GetLatestSequenceNumber().
+func recordRecoveryPut(cf int, key int64, valueBase uint32, seqno uint64) {
+	if globalRecoveryTrace == nil {
+		return
+	}
+	_ = globalRecoveryTrace.RecordPut(cf, key, valueBase, seqno)
+}
+
+// recordRecoveryDelete records a Delete operation to the recovery trace.
+// This is used for trace-based crash recovery (Option C: seqno-based replay).
+// The seqno MUST be the DB's actual sequence number from GetLatestSequenceNumber().
+func recordRecoveryDelete(cf int, key int64, seqno uint64) {
+	if globalRecoveryTrace == nil {
+		return
+	}
+	_ = globalRecoveryTrace.RecordDelete(cf, key, seqno)
+}
+
+// stopRecoveryTrace stops recording and flushes the recovery trace.
+// Called before crash simulation to ensure all operations are written.
+func stopRecoveryTrace() {
+	globalRecoveryMu.Lock()
+	defer globalRecoveryMu.Unlock()
+
+	if globalRecovery != nil {
+		count := uint64(0)
+		if globalRecoveryTrace != nil {
+			count = globalRecoveryTrace.Count()
+		}
+		if err := globalRecovery.StopTracing(); err != nil && *verbose {
+			fmt.Printf("⚠️  Failed to stop recovery trace: %v\n", err)
+		}
+		if *verbose {
+			fmt.Printf("📼 Recovery trace stopped (%d ops recorded)\n", count)
+		}
+	}
+	globalRecoveryTrace = nil
 }

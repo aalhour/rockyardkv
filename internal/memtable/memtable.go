@@ -236,6 +236,14 @@ func (mt *MemTable) RangeTombstoneCount() int {
 	return mt.rangeTombstones.Len()
 }
 
+// LargestSeqno returns the largest sequence number in the memtable.
+// This is used to determine the LastSequence for MANIFEST updates after flush.
+func (mt *MemTable) LargestSeqno() dbformat.SequenceNumber {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	return mt.firstSeqno // Note: firstSeqno is actually the largest due to tracking logic
+}
+
 // Get looks up a key in the memtable.
 // Returns the value and whether the key was found.
 // If the key was deleted, returns nil value with found=true and a deletion status.

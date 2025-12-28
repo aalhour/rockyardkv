@@ -107,6 +107,12 @@ type DB interface {
 	// Flush flushes the memtable to disk.
 	Flush(opts *FlushOptions) error
 
+	// FlushAndGetDurableSeqno flushes the memtable and returns the sequence number
+	// that was actually flushed. This is the correct sequence number for durable
+	// state tracking in DisableWAL mode, as it excludes writes that happened after
+	// the memtable switch but before the flush completed.
+	FlushAndGetDurableSeqno(opts *FlushOptions) (flushedSeqno uint64, err error)
+
 	// Close closes the database, releasing all resources.
 	Close() error
 
@@ -1102,20 +1108,51 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	// Whitebox [synctest]: barrier before memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtable)
 
-	// Capture memtable reference while holding lock to avoid race with Flush
+	// CRITICAL: Hold lock during memtable insert to prevent race with Flush.
+	//
+	// Previously, we released db.mu before wb.Iterate(handler). This caused a
+	// race condition (C02 bug):
+	//   1. Worker captures mem=db.mem (M1), releases db.mu
+	//   2. Flusher acquires db.mu, switches db.imm=M1, db.mem=M2, releases db.mu
+	//   3. Worker inserts into M1 (now immutable!) with seq=N
+	//   4. Flusher reads M1.LargestSeqno() which may/may not include seq=N
+	//
+	// The fix: keep db.mu held during the memtable insert. This ensures that
+	// Flush cannot switch memtables while a Write is inserting into the current
+	// memtable. The trade-off is serialized writes, but this is correct behavior
+	// for durability guarantees.
+	//
+	// Reference: RocksDB v10.7.5 db/db_impl/db_impl_write.cc uses a similar
+	// approach with the WriteThread and mutex coordination.
 	seq := firstSeq
 	mem := db.mem
 	handler := &memtableInserter{
 		db:         db,
 		sequence:   seq,
 		defaultMem: mem,
+		lockHeld:   true, // Signal that we hold db.mu
 	}
-	db.mu.Unlock()
 
-	// Iterate through the batch and apply to memtables
+	// Iterate through the batch and apply to memtable while holding lock
 	if err := wb.Iterate(handler); err != nil {
+		db.mu.Unlock()
 		return err
 	}
+
+	// Verify the sequence count matches what was actually applied.
+	// This assertion detects C02 (internal key collision due to sequence reuse).
+	// If applied != count, the batch header count is inconsistent with the
+	// actual number of sequence-consuming operations.
+	applied := handler.sequence - seq
+	if applied != uint64(count) {
+		db.mu.Unlock()
+		// This is a critical invariant violation that causes internal key collisions.
+		return fmt.Errorf("C02 invariant violation: batch count=%d but applied=%d operations (firstSeq=%d, handler.seq=%d)",
+			count, applied, seq, handler.sequence)
+	}
+
+	// Release lock after memtable insert is complete
+	db.mu.Unlock()
 
 	// Whitebox [synctest]: barrier after memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtableComplete)
@@ -1335,6 +1372,7 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 	// we actually create a new WAL (on DB open/recovery).
 	// Reference: RocksDB v10.7.5 db/db_impl/db_impl_write.cc:2722 (for WAL rotation)
 	db.imm = db.mem
+
 	// Don't set nextLogNumber - same WAL is used for new memtable
 	var memCmp memtable.Comparator
 	if db.comparator != nil {
@@ -1362,6 +1400,90 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 	}
 
 	return nil
+}
+
+// FlushAndGetDurableSeqno flushes the memtable and returns the sequence number
+// that was actually flushed (i.e., the largest sequence number in the memtable
+// that was written to the SST file). This is the correct sequence number to use
+// for durable state tracking in DisableWAL mode.
+//
+// Returns:
+//   - flushedSeqno: The largest sequence number that was flushed to SST, or 0 if
+//     the memtable was empty.
+//   - err: Any error that occurred during the flush.
+//
+// This is different from GetLatestSequenceNumber() which returns the next sequence
+// number to be assigned (db.seq), which may include writes that happened to the
+// new memtable AFTER the memtable switch but BEFORE doFlush() completed.
+func (db *DBImpl) FlushAndGetDurableSeqno(opts *FlushOptions) (uint64, error) {
+	if opts == nil {
+		opts = DefaultFlushOptions()
+	}
+
+	db.mu.Lock()
+	if db.closed {
+		db.mu.Unlock()
+		return 0, ErrDBClosed
+	}
+	// Check for unrecoverable background error
+	if db.backgroundError != nil {
+		err := fmt.Errorf("%w: %w", ErrBackgroundError, db.backgroundError)
+		db.mu.Unlock()
+		return 0, err
+	}
+
+	// Wait for any existing immutable memtable to be flushed
+	for db.imm != nil {
+		// Check for shutdown or background error while waiting
+		if db.closed {
+			db.mu.Unlock()
+			return 0, ErrDBClosed
+		}
+		if db.backgroundError != nil {
+			err := fmt.Errorf("%w: %w", ErrBackgroundError, db.backgroundError)
+			db.mu.Unlock()
+			return 0, err
+		}
+		db.immCond.Wait()
+	}
+
+	// Skip if memtable is empty
+	if db.mem.Empty() {
+		db.mu.Unlock()
+		return 0, nil // No data flushed, return 0
+	}
+
+	// Capture the sequence number that will be flushed BEFORE releasing the lock
+	flushedSeqno := uint64(db.mem.LargestSeqno())
+
+	// Switch memtable: current becomes immutable, create new active memtable.
+	db.imm = db.mem
+	var memCmp memtable.Comparator
+	if db.comparator != nil {
+		memCmp = db.comparator.Compare
+	}
+	db.mem = memtable.NewMemTable(memCmp)
+
+	// Recalculate write stall condition (may now be stalled due to imm)
+	db.recalculateWriteStall()
+	db.mu.Unlock()
+
+	// Perform the flush synchronously
+	if err := db.doFlush(); err != nil {
+		return 0, err
+	}
+
+	// Wait for completion if requested
+	if opts.Wait {
+		// Already done synchronously above
+	}
+
+	// Trigger compaction check after flush
+	if db.bgWork != nil {
+		db.bgWork.MaybeScheduleCompaction()
+	}
+
+	return flushedSeqno, nil
 }
 
 // SyncWAL syncs the current WAL to disk, ensuring all data is durable.

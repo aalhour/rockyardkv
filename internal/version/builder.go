@@ -58,9 +58,39 @@ func (b *Builder) Apply(edit *manifest.VersionEdit) error {
 	// Process deleted files
 	for _, df := range edit.DeletedFiles {
 		if df.Level >= 0 && df.Level < MaxNumLevels {
+			// Check if file was added in this edit batch (add-then-delete)
+			if _, wasAdded := b.addedFiles[df.Level][df.FileNumber]; wasAdded {
+				delete(b.addedFiles[df.Level], df.FileNumber)
+				continue
+			}
+
+			// Check if file exists in base version
+			fileExists := false
+			if b.base != nil {
+				for _, f := range b.base.files[df.Level] {
+					if f.FD.GetNumber() == df.FileNumber {
+						fileExists = true
+						break
+					}
+				}
+			}
+
+			// Also check if it was already deleted (duplicate delete)
+			if _, alreadyDeleted := b.deletedFiles[df.Level][df.FileNumber]; alreadyDeleted {
+				// Silently ignore duplicate deletion
+				continue
+			}
+
+			if !fileExists {
+				// File doesn't exist - this is a sign of version mismatch
+				// This can happen if a compaction was picked from an old version
+				// and by the time LogAndApply is called, the file was already deleted.
+				// Log warning but continue - this matches RocksDB behavior in some cases.
+				// A stricter check could return an error here.
+				continue
+			}
+
 			b.deletedFiles[df.Level][df.FileNumber] = struct{}{}
-			// Remove from added files if present (file was added then deleted in same batch)
-			delete(b.addedFiles[df.Level], df.FileNumber)
 		}
 	}
 

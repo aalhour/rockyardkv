@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/aalhour/rockyardkv/internal/manifest"
+	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
@@ -383,6 +384,24 @@ func (vs *VersionSet) Recover() error {
 		atomic.StoreUint64(&vs.nextFileNumber, maxFileNumSeen+1)
 	}
 
+	// CRITICAL: Scan the database directory for orphaned files.
+	// An orphaned file exists on disk but wasn't in the MANIFEST (crash between
+	// SST write and MANIFEST update). We must ensure nextFileNumber is beyond
+	// all files on disk to avoid reusing file numbers (C02 bug fix).
+	if maxOnDisk := vs.scanForMaxFileNumber(); maxOnDisk >= atomic.LoadUint64(&vs.nextFileNumber) {
+		atomic.StoreUint64(&vs.nextFileNumber, maxOnDisk+1)
+	}
+
+	// CRITICAL: Scan all SST files for the maximum sequence number.
+	// This prevents sequence number reuse after a crash. An orphaned SST file
+	// may contain sequence numbers higher than MANIFEST's LastSequence if a
+	// crash occurred between SST write and MANIFEST update. If we start writing
+	// with sequence numbers that already exist in orphaned SSTs, we get internal
+	// key collisions (C02 bug - same user_key + seq + type with different values).
+	if maxSeqOnDisk := vs.scanForMaxSequenceNumber(); maxSeqOnDisk > atomic.LoadUint64(&vs.lastSequence) {
+		atomic.StoreUint64(&vs.lastSequence, maxSeqOnDisk)
+	}
+
 	// Create the recovered version
 	vs.manifestFileNumber = manifestNum
 	vs.current = builder.SaveTo(vs)
@@ -390,6 +409,128 @@ func (vs *VersionSet) Recover() error {
 	vs.appendVersion(vs.current)
 
 	return nil
+}
+
+// scanForMaxFileNumber scans the database directory for all files (SST, log, MANIFEST)
+// and returns the highest file number found. This is used to detect orphaned files
+// that exist on disk but aren't in the MANIFEST (e.g., SST created but crash before
+// MANIFEST update).
+func (vs *VersionSet) scanForMaxFileNumber() uint64 {
+	entries, err := os.ReadDir(vs.opts.DBName)
+	if err != nil {
+		return 0
+	}
+
+	var maxNum uint64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+
+		// Parse file number from various file types:
+		// - NNNNNN.sst
+		// - NNNNNN.log
+		// - MANIFEST-NNNNNN
+		var num uint64
+		if strings.HasSuffix(name, ".sst") || strings.HasSuffix(name, ".log") {
+			// Format: NNNNNN.ext
+			numStr := strings.TrimSuffix(strings.TrimSuffix(name, ".sst"), ".log")
+			if parsed, err := strconv.ParseUint(numStr, 10, 64); err == nil {
+				num = parsed
+			}
+		} else if numStr, ok := strings.CutPrefix(name, "MANIFEST-"); ok {
+			// Format: MANIFEST-NNNNNN
+			if parsed, err := strconv.ParseUint(numStr, 10, 64); err == nil {
+				num = parsed
+			}
+		}
+		if num > maxNum {
+			maxNum = num
+		}
+	}
+	return maxNum
+}
+
+// scanForMaxSequenceNumber scans all SST files in the database directory and returns
+// the maximum sequence number found. This is critical for preventing sequence number
+// reuse after a crash: orphaned SST files (created but not referenced by MANIFEST)
+// may contain sequence numbers higher than what MANIFEST's LastSequence indicates.
+//
+// This is the sequence number analog of scanForMaxFileNumber - both are needed to
+// prevent reuse of identifiers that exist on disk but aren't tracked in MANIFEST.
+func (vs *VersionSet) scanForMaxSequenceNumber() uint64 {
+	entries, err := os.ReadDir(vs.opts.DBName)
+	if err != nil {
+		return 0
+	}
+
+	var maxSeq uint64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+
+		// Only scan SST files
+		if !strings.HasSuffix(name, ".sst") {
+			continue
+		}
+
+		sstPath := filepath.Join(vs.opts.DBName, name)
+
+		// Open the SST file for random access
+		file, err := vs.opts.FS.OpenRandomAccess(sstPath)
+		if err != nil {
+			continue // Skip files we can't open
+		}
+
+		reader, err := table.Open(file, table.ReaderOptions{
+			VerifyChecksums: false, // Skip checksum verification for speed
+		})
+		if err != nil {
+			_ = file.Close()
+			continue // Skip invalid SST files
+		}
+
+		// First try to get the largest sequence number from properties
+		props, err := reader.Properties()
+		if err == nil && props != nil && props.KeyLargestSeqno > 0 {
+			if props.KeyLargestSeqno > maxSeq {
+				maxSeq = props.KeyLargestSeqno
+			}
+			_ = reader.Close()
+			continue
+		}
+
+		// If KeyLargestSeqno is not available in properties (our SST builder doesn't
+		// write it yet), scan all keys to find the max sequence number.
+		// This is slower but necessary for correctness.
+		iter := reader.NewIterator()
+		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+			key := iter.Key()
+			if len(key) >= 8 {
+				// Extract sequence number from internal key trailer (last 8 bytes)
+				// Format: (seq << 8) | type
+				trailer := uint64(key[len(key)-8]) |
+					uint64(key[len(key)-7])<<8 |
+					uint64(key[len(key)-6])<<16 |
+					uint64(key[len(key)-5])<<24 |
+					uint64(key[len(key)-4])<<32 |
+					uint64(key[len(key)-3])<<40 |
+					uint64(key[len(key)-2])<<48 |
+					uint64(key[len(key)-1])<<56
+				seq := trailer >> 8
+				if seq > maxSeq {
+					maxSeq = seq
+				}
+			}
+		}
+
+		_ = reader.Close()
+	}
+
+	return maxSeq
 }
 
 // LogAndApply logs a VersionEdit to the MANIFEST and applies it.
@@ -515,14 +656,17 @@ func (vs *VersionSet) writeSnapshot() *manifest.VersionEdit {
 
 	// Add all files from current version
 	if vs.current != nil {
+		fileCount := 0
 		for level := range MaxNumLevels {
 			for _, f := range vs.current.files[level] {
 				edit.NewFiles = append(edit.NewFiles, manifest.NewFileEntry{
 					Level: level,
 					Meta:  f,
 				})
+				fileCount++
 			}
 		}
+		_ = fileCount // Used for debugging only
 	}
 
 	return edit

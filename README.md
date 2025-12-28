@@ -17,7 +17,7 @@
 
 ## Overview
 
-RockyardKV is a pure Go implementation of RocksDB.
+RockyardKV is a pure Go implementation of [RocksDB](https://rocksdb.org/).
 It reads and writes RocksDB databases without CGo or C++ dependencies.
 
 The project targets bit-compatible file formats with RocksDB v10.7.5.
@@ -28,6 +28,8 @@ Files created by RockyardKV can be read by C++ RocksDB, and vice versa.
 > Core storage operations work with verified format compatibility.
 > Durability semantics are under active verification.
 > Refer to [Status](docs/status/README.md) for compatibility details and known limitations.
+
+This project exists in respect and alignment with [RocksDB](https://github.com/facebook/rocksdb), the foundational storage engine that inspired this work.
 
 ## Features
 
