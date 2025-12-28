@@ -17,50 +17,25 @@
 
 ## Overview
 
-RockyardKV lets you read and write RocksDB databases from Go without CGo or C++ dependencies.
+RockyardKV is a pure Go implementation of RocksDB.
+It reads and writes RocksDB databases without CGo or C++ dependencies.
 
-**Status:** Core functionality works with verified format compatibility.
-API coverage is at 75% and actively expanding toward full parity.
+The project targets bit-compatible file formats with RocksDB v10.7.5.
+Files created by RockyardKV can be read by C++ RocksDB, and vice versa.
 
-This project exists in respect and alignment with [RocksDB](https://github.com/facebook/rocksdb), the foundational storage engine that inspired this work.
+> [!NOTE]
+> **Project status:** RockyardKV is in v0.1.x.
+> Core storage operations work with verified format compatibility.
+> Durability semantics are under active verification.
+> Refer to [Status](docs/status/README.md) for compatibility details and known limitations.
 
 ## Features
 
-**Storage engine**
-
-- Bit-compatible SST, WAL, and MANIFEST file formats
-- LSM-tree with leveled, universal, and FIFO compaction
-- Column families for data partitioning
-- Snapshots and iterators with MVCC isolation
-- Bloom filters for read optimization
-- Snappy, LZ4, Zstd, and Zlib compression
-
-**Write path**
-
-- Merge operators for incremental updates
-- Range deletions with efficient tombstone handling
-- SST file ingestion for bulk loading
-- Write stall control (L0 slowdown and stop triggers)
-
-**Transactions**
-
-- Optimistic transactions with conflict detection
-- Pessimistic transactions with two-phase commit
-- Deadlock detection
-
-**Operations**
-
-- Backup engine with incremental support
-- Checkpoint for point-in-time snapshots
-- Compaction filters for custom filtering
-- TTL database with automatic expiration
-- Rate limiter for I/O throttling
-
-**Deployment modes**
-
-- Read-only mode for safe concurrent access
-- Secondary instances for read replicas
-- Direct I/O support for reduced cache pressure
+- **Storage:** LSM-tree with leveled, universal, and FIFO compaction; column families; snapshots; Bloom filters; Snappy, LZ4, Zstd, and Zlib compression
+- **Write path:** Merge operators, range deletions, SST ingestion, write stall control
+- **Transactions:** Optimistic and pessimistic modes with deadlock detection
+- **Operations:** Backup engine, checkpoints, compaction filters, TTL, rate limiting
+- **Deployment:** Read-only mode, secondary instances, Direct I/O
 
 ## Installation
 
@@ -112,12 +87,12 @@ func main() {
 
 Refer to the [docs](docs/) directory for detailed guides:
 
+- [Architecture](docs/architecture.md) - Internal design and package structure
+- [Status](docs/status/README.md) - Compatibility and status reports
 - [Integration guide](docs/integration.md) - Add RockyardKV to your application
 - [Migration guide](docs/migration.md) - Migrate from C++ RocksDB or CGo wrappers
-- [Architecture](docs/architecture.md) - Internal design and package structure
-- [Compatibility](docs/compatibility.md) - RocksDB format and API compatibility
 - [Performance tuning](docs/performance.md) - Optimize for your workload
-- [Testing](docs/testing.md) - Run and extend the test suite
+- [Testing](docs/testing/README.md) - Run and extend the test suite
 
 ## Command-line tools
 
@@ -127,9 +102,9 @@ Refer to [cmd/README.md](cmd/README.md) for details.
 ## Compatibility
 
 RockyardKV targets RocksDB v10.7.5 (commit 812b12b).
-Files created by RockyardKV can be read by C++ RocksDB, and vice versa.
+Run `make test-e2e-golden` to verify format compatibility using C++ oracle tools.
 
-The project maintains backward compatibility with this version and tracks upstream changes.
+Refer to [docs/status](docs/status/README.md) for the compatibility matrix and verification details.
 
 ## Benchmarks
 
