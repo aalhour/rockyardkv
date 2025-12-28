@@ -333,6 +333,18 @@ lint: ## Run golangci-lint
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.7.2)
 	golangci-lint run ./...
 
+.PHONY: lint-all-platforms
+lint-all-platforms: ## Run golangci-lint for all supported platforms (catches platform-specific issues)
+	@echo "🔍 Running linters for all platforms..."
+	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.7.2)
+	@echo "  → Linux (amd64)..."
+	@GOOS=linux GOARCH=amd64 golangci-lint run ./...
+	@echo "  → macOS (arm64)..."
+	@GOOS=darwin GOARCH=arm64 golangci-lint run ./...
+	@echo "  → Windows (amd64)..."
+	@GOOS=windows GOARCH=amd64 golangci-lint run ./...
+	@echo "✅ All platforms passed"
+
 .PHONY: check
 check: fmt lint gocyclo test-short ## Run all quality checks (fmt, lint, gocyclo, test-short)
 	@echo "✅ All checks passed"
