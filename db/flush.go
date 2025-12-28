@@ -4,7 +4,12 @@
 // Reference: RocksDB v10.7.5
 //   - db/flush_job.h
 //   - db/flush_job.cc
-
+//
+// # Whitebox Testing Hooks
+//
+// This file contains sync points (requires -tags synctest) and kill points
+// (requires -tags crashtest) for whitebox testing. In production builds,
+// these compile to no-ops with zero overhead. See docs/testing.md for usage.
 package db
 
 import (
@@ -39,14 +44,24 @@ func newFlushJob(db *DBImpl, mem *memtable.MemTable) *FlushJob {
 // Run executes the flush job.
 // Returns the metadata of the created SST file, or an error.
 func (fj *FlushJob) Run() (*manifest.FileMetaData, error) {
+	// Whitebox [synctest]: barrier at flush start
 	_ = testutil.SP(testutil.SPFlushStart)
+
+	// Whitebox [crashtest]: crash before flush begins — tests memtable durability
+	testutil.MaybeKill(testutil.KPFlushStart0)
 
 	// Allocate a file number for the new SST file
 	fj.fileNum = fj.db.versions.NextFileNumber()
 
 	// Create the SST file
 	sstPath := fj.db.sstFilePath(fj.fileNum)
+
+	// Whitebox [synctest]: barrier before SST write
 	_ = testutil.SP(testutil.SPFlushWriteSST)
+
+	// Whitebox [crashtest]: crash before SST write — tests incomplete SST cleanup
+	testutil.MaybeKill(testutil.KPFlushWriteSST0)
+
 	file, err := fj.db.fs.Create(sstPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SST file: %w", err)
@@ -123,12 +138,29 @@ func (fj *FlushJob) Run() (*manifest.FileMetaData, error) {
 	}
 	fileSize := builder.FileSize()
 
-	// Sync the file
+	// Whitebox [synctest]: barrier before SST sync
 	_ = testutil.SP(testutil.SPFlushSyncSST)
+
+	// Whitebox [crashtest]: crash before SST file sync — tests partial SST durability
+	testutil.MaybeKill(testutil.KPFileSync0)
+
+	// Sync the file
 	if err := file.Sync(); err != nil {
 		return nil, fmt.Errorf("failed to sync SST file: %w", err)
 	}
 
+	// Whitebox [crashtest]: crash after SST file sync — SST should be fully durable
+	testutil.MaybeKill(testutil.KPFileSync1)
+
+	// Sync directory to make SST file entry durable.
+	// This is required before updating MANIFEST to reference this SST.
+	// Without this, a crash could leave MANIFEST referencing a non-existent SST
+	// (the file content is synced but the directory entry is not).
+	if err := fj.db.fs.SyncDir(fj.db.name); err != nil {
+		return nil, fmt.Errorf("failed to sync directory after SST write: %w", err)
+	}
+
+	// Whitebox [synctest]: barrier at flush complete
 	_ = testutil.SP(testutil.SPFlushComplete)
 
 	// Create file metadata
@@ -174,6 +206,7 @@ func sstFileName(number uint64) string {
 // doFlush performs the actual flush of the immutable memtable.
 // This is called from the background flush goroutine or synchronously.
 func (db *DBImpl) doFlush() error {
+	// Whitebox [synctest]: barrier at doFlush start
 	_ = testutil.SP(testutil.SPDoFlushStart)
 
 	db.mu.Lock()
@@ -216,11 +249,17 @@ func (db *DBImpl) doFlush() error {
 		Meta:  meta,
 	})
 
+	// Whitebox [crashtest]: crash before manifest update — SST orphaned
+	testutil.MaybeKill(testutil.KPFlushUpdateManifest0)
+
 	// Apply the version edit
 	if err := db.versions.LogAndApply(edit); err != nil {
 		db.mu.Unlock()
 		return fmt.Errorf("failed to log version edit: %w", err)
 	}
+
+	// Whitebox [crashtest]: crash after manifest update — flush complete
+	testutil.MaybeKill(testutil.KPFlushUpdateManifest1)
 
 	// Clear the immutable memtable
 	db.imm = nil

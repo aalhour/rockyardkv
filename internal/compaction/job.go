@@ -6,6 +6,12 @@
 // Reference: RocksDB v10.7.5
 //   - db/compaction/compaction_job.h
 //   - db/compaction/compaction_job.cc
+//
+// # Whitebox Testing Hooks
+//
+// This file contains sync points (requires -tags synctest) for whitebox testing.
+// In production builds, these compile to no-ops with zero overhead.
+// See docs/testing.md for usage.
 package compaction
 
 import (
@@ -166,6 +172,7 @@ func (j *CompactionJob) FilterStats() (removed, changed uint64) {
 // Run executes the compaction.
 // Returns the list of output files created.
 func (j *CompactionJob) Run() ([]*manifest.FileMetaData, error) {
+	// Whitebox [synctest]: barrier at compaction job start
 	_ = testutil.SP(testutil.SPCompactionStart)
 
 	// Check for trivial move
@@ -173,8 +180,10 @@ func (j *CompactionJob) Run() ([]*manifest.FileMetaData, error) {
 		return j.doTrivialMove()
 	}
 
-	// Create iterators for all input files
+	// Whitebox [synctest]: barrier before opening input files
 	_ = testutil.SP(testutil.SPCompactionOpenInputs)
+
+	// Create iterators for all input files
 	iters, err := j.createInputIterators()
 	if err != nil {
 		return nil, fmt.Errorf("create input iterators: %w", err)
@@ -183,14 +192,18 @@ func (j *CompactionJob) Run() ([]*manifest.FileMetaData, error) {
 	// Create merging iterator
 	mergingIter := iterator.NewMergingIterator(iters, block.CompareInternalKeys)
 
-	// Process all entries
+	// Whitebox [synctest]: barrier during entry processing
 	_ = testutil.SP(testutil.SPCompactionProcessing)
+
+	// Process all entries
 	err = j.processEntries(mergingIter)
 	if err != nil {
 		return nil, fmt.Errorf("process entries: %w", err)
 	}
 
+	// Whitebox [synctest]: barrier at compaction job complete
 	_ = testutil.SP(testutil.SPCompactionComplete)
+
 	return j.outputFiles, nil
 }
 
@@ -428,6 +441,13 @@ func (j *CompactionJob) finishOutputFile(builder *table.TableBuilder, output *co
 	err = output.file.Close()
 	if err != nil {
 		return fmt.Errorf("close file: %w", err)
+	}
+
+	// Sync directory to make SST file entry durable.
+	// This is required before updating MANIFEST to reference this SST.
+	// Without this, a crash could leave MANIFEST referencing a non-existent SST.
+	if err := j.fs.SyncDir(j.dbPath); err != nil {
+		return fmt.Errorf("sync directory after compaction SST write: %w", err)
 	}
 
 	// Record the output file metadata
