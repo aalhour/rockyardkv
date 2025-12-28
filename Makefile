@@ -484,7 +484,8 @@ clean-build: ## Remove all build artifacts
 	rm -rf $(BIN_DIR)
 	rm -rf $(COV_DIR)
 	rm -rf $(DIST_DIR)
-	rm -f smoketest stresstest crashtest
+	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump
+	rm -rf crashtest-artifacts
 	rm -f profile.cov coverage.out
 	rm -f *.test
 	rm -f *.out
