@@ -162,4 +162,13 @@ debug/
 
 # Cursor AI rules (project-specific)
 .cursorrules
-goldentest
+
+# Test binaries (when built outside bin/)
+/goldentest
+/stresstest
+/crashtest
+/smoketest
+/adversarialtest
+/traceanalyzer
+/ldb
+/sstdump

@@ -330,7 +330,7 @@ fmt-fix: ## Format code (applies changes)
 .PHONY: lint
 lint: ## Run golangci-lint
 	@echo "🔍 Running linters..."
-	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.7.2)
 	golangci-lint run ./...
 
 .PHONY: check

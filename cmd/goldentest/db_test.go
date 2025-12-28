@@ -312,7 +312,8 @@ func TestDatabase_Contract_CppWritesGoReads(t *testing.T) {
 	opts := db.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(goldenPath, opts)
+	// Use read-only mode to avoid modifying the test fixture
+	database, err := db.OpenForReadOnly(goldenPath, opts, false)
 	if err != nil {
 		t.Fatalf("open C++ database: %v", err)
 	}
