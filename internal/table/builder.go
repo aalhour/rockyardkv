@@ -7,6 +7,12 @@
 //   - table/block_based/block_based_table_builder.h
 //   - table/block_based/block_based_table_builder.cc
 //   - table/table_builder.h
+//
+// # Whitebox Testing Hooks
+//
+// This file contains kill points for crash testing (requires -tags crashtest).
+// In production builds, these compile to no-ops with zero overhead.
+// See docs/testing.md for usage.
 package table
 
 import (
@@ -23,6 +29,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/encoding"
 	"github.com/aalhour/rockyardkv/internal/filter"
 	"github.com/aalhour/rockyardkv/internal/rangedel"
+	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
 // BuilderOptions configures the TableBuilder.
@@ -366,6 +373,9 @@ func (tb *TableBuilder) writeBlockWithTrailer(blockData []byte, blockType block.
 // Finish finalizes the table and writes the footer.
 // After calling Finish, the TableBuilder should not be used.
 func (tb *TableBuilder) Finish() error {
+	// Whitebox [crashtest]: crash before SST finalize — tests incomplete SST handling
+	testutil.MaybeKill(testutil.KPSSTClose0)
+
 	if tb.finished {
 		return errors.New("table: builder already finished")
 	}
@@ -463,6 +473,9 @@ func (tb *TableBuilder) Finish() error {
 		return err
 	}
 
+	// Whitebox [crashtest]: crash after SST complete — SST is valid on disk
+	testutil.MaybeKill(testutil.KPSSTClose1)
+
 	return nil
 }
 
@@ -513,6 +526,10 @@ func (tb *TableBuilder) writeFilterBlock() (block.Handle, error) {
 // - value: end_key
 func (tb *TableBuilder) writeRangeDelBlock() (block.Handle, error) {
 	rangeDelContents := tb.rangeDelBlock.Finish()
+
+	// Whitebox [crashtest]: crash during range-del block write
+	testutil.MaybeKill(testutil.KPSSTClose0)
+
 	return tb.writeBlockWithTrailer(rangeDelContents, block.TypeData)
 }
 

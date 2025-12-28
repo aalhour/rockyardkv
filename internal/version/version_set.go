@@ -6,6 +6,12 @@
 // Reference: RocksDB v10.7.5
 //   - db/version_set.h (VersionSet class)
 //   - db/version_set.cc
+//
+// # Whitebox Testing Hooks
+//
+// This file contains whitebox testing hooks for crash testing (requires -tags crashtest).
+// In production builds, these compile to no-ops with zero overhead.
+// See docs/testing.md for usage.
 package version
 
 import (
@@ -433,32 +439,37 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		}
 	}
 
-	// Write the edit
-	// Kill point: crash during MANIFEST record write
+	// Whitebox [crashtest]: crash before MANIFEST write — tests partial manifest handling
 	testutil.MaybeKill(testutil.KPManifestWrite0)
+
+	// Write the edit
 	if _, err := vs.manifestWriter.AddRecord(encoded); err != nil {
 		return err
 	}
 
-	// Sync the manifest file BEFORE updating CURRENT
-	// Kill point: crash before MANIFEST sync
+	// Whitebox [crashtest]: crash before MANIFEST sync — tests unsynced manifest
 	testutil.MaybeKill(testutil.KPManifestSync0)
+
+	// Sync the manifest file BEFORE updating CURRENT
 	if syncer, ok := vs.manifestFile.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
 			return err
 		}
 	}
-	// Kill point: crash after MANIFEST sync (CURRENT not yet updated)
+
+	// Whitebox [crashtest]: crash after MANIFEST sync — CURRENT not yet updated
 	testutil.MaybeKill(testutil.KPManifestSync1)
 
 	// Update CURRENT file AFTER MANIFEST is synced (avoids crash window)
 	if newManifest {
-		// Kill point: crash before CURRENT update
+		// Whitebox [crashtest]: crash before CURRENT update — old manifest still active
 		testutil.MaybeKill(testutil.KPCurrentWrite0)
+
 		if err := vs.setCurrentFile(vs.manifestFileNumber); err != nil {
 			return err
 		}
-		// Kill point: crash after CURRENT update (fully durable)
+
+		// Whitebox [crashtest]: crash after CURRENT update — fully durable
 		testutil.MaybeKill(testutil.KPCurrentWrite1)
 	}
 
@@ -556,10 +567,16 @@ func (vs *VersionSet) setCurrentFile(manifestNum uint64) error {
 		return fmt.Errorf("rename CURRENT: %w", err)
 	}
 
+	// Whitebox [crashtest]: crash before directory sync — CURRENT may not be durable
+	testutil.MaybeKill(testutil.KPDirSync0)
+
 	// Sync directory to ensure rename is durable
 	if err := vs.opts.FS.SyncDir(vs.opts.DBName); err != nil {
 		return fmt.Errorf("sync dir after CURRENT rename: %w", err)
 	}
+
+	// Whitebox [crashtest]: crash after directory sync — CURRENT is fully durable
+	testutil.MaybeKill(testutil.KPDirSync1)
 
 	return nil
 }
@@ -625,31 +642,36 @@ func (vs *VersionSet) logAndApplyLocked(edit *manifest.VersionEdit) error {
 		vs.manifestFileNumber = manifestNum
 	}
 
-	// Write the edit
-	// Kill point: crash during MANIFEST record write
+	// Whitebox [crashtest]: crash before MANIFEST write — tests partial manifest
 	testutil.MaybeKill(testutil.KPManifestWrite0)
+
+	// Write the edit
 	if _, err := vs.manifestWriter.AddRecord(encoded); err != nil {
 		return err
 	}
 
-	// Sync the manifest file
-	// Kill point: crash before MANIFEST sync
+	// Whitebox [crashtest]: crash before MANIFEST sync — tests unsynced manifest
 	testutil.MaybeKill(testutil.KPManifestSync0)
+
+	// Sync the manifest file
 	if syncer, ok := vs.manifestFile.(interface{ Sync() error }); ok {
 		if err := syncer.Sync(); err != nil {
 			return err
 		}
 	}
-	// Kill point: crash after MANIFEST sync
+
+	// Whitebox [crashtest]: crash after MANIFEST sync — CURRENT not updated
 	testutil.MaybeKill(testutil.KPManifestSync1)
 
-	// Update CURRENT file
-	// Kill point: crash before CURRENT update
+	// Whitebox [crashtest]: crash before CURRENT update — old manifest active
 	testutil.MaybeKill(testutil.KPCurrentWrite0)
+
+	// Update CURRENT file
 	if err := vs.setCurrentFile(vs.manifestFileNumber); err != nil {
 		return err
 	}
-	// Kill point: crash after CURRENT update
+
+	// Whitebox [crashtest]: crash after CURRENT update — fully durable
 	testutil.MaybeKill(testutil.KPCurrentWrite1)
 
 	return nil

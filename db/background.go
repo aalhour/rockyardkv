@@ -6,6 +6,12 @@
 // Reference: RocksDB v10.7.5
 //   - db/db_impl/db_impl_compaction_flush.cc
 //   - db/db_impl/db_impl_bg.cc
+//
+// # Whitebox Testing Hooks
+//
+// This file contains sync points (requires -tags synctest) and kill points
+// (requires -tags crashtest) for whitebox testing. In production builds,
+// these compile to no-ops with zero overhead. See docs/testing.md for usage.
 package db
 
 import (
@@ -211,6 +217,7 @@ func (bg *BackgroundWork) backgroundLoop() {
 
 // doFlushWork performs background flush if needed.
 func (bg *BackgroundWork) doFlushWork() {
+	// Whitebox [synctest]: barrier at background flush start
 	_ = testutil.SP(testutil.SPBGFlushStart)
 
 	bg.mu.Lock()
@@ -236,8 +243,10 @@ func (bg *BackgroundWork) doFlushWork() {
 		return
 	}
 
-	// Perform flush
+	// Whitebox [synctest]: barrier before flush execution
 	_ = testutil.SP(testutil.SPBGFlushExecute)
+
+	// Perform flush
 	err := bg.db.Flush(nil)
 	if err != nil {
 		// Record background error for I/O failures
@@ -245,6 +254,7 @@ func (bg *BackgroundWork) doFlushWork() {
 		bg.IncrementBackgroundErrors()
 	}
 
+	// Whitebox [synctest]: barrier at background flush complete
 	_ = testutil.SP(testutil.SPBGFlushComplete)
 
 	// After flush, check if compaction is needed
@@ -253,6 +263,7 @@ func (bg *BackgroundWork) doFlushWork() {
 
 // doCompactionWork performs background compaction if needed.
 func (bg *BackgroundWork) doCompactionWork() {
+	// Whitebox [synctest]: barrier at background compaction start
 	_ = testutil.SP(testutil.SPBGCompactionStart)
 
 	bg.mu.Lock()
@@ -297,6 +308,8 @@ func (bg *BackgroundWork) doCompactionWork() {
 	// Mark files as being compacted (under lock to prevent concurrent pick of same files)
 	c.MarkFilesBeingCompacted(true)
 	bg.db.mu.Unlock()
+
+	// Whitebox [synctest]: barrier after compaction picked
 	_ = testutil.SP(testutil.SPBGCompactionPickComplete)
 
 	// Execute compaction (defer unmark even on error)
@@ -306,7 +319,12 @@ func (bg *BackgroundWork) doCompactionWork() {
 		bg.db.mu.Unlock()
 	}()
 
+	// Whitebox [synctest]: barrier before compaction execution
 	_ = testutil.SP(testutil.SPBGCompactionExecute)
+
+	// Whitebox [crashtest]: crash before compaction starts
+	testutil.MaybeKill(testutil.KPCompactionStart0)
+
 	err := bg.executeCompaction(c)
 	if err != nil {
 		// Record background error for I/O failures
@@ -315,6 +333,7 @@ func (bg *BackgroundWork) doCompactionWork() {
 		return
 	}
 
+	// Whitebox [synctest]: barrier at compaction complete
 	_ = testutil.SP(testutil.SPBGCompactionComplete)
 
 	// Check if more compaction is needed
@@ -399,6 +418,12 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 	if err != nil {
 		return err
 	}
+
+	// Whitebox [crashtest]: crash after SST write — output exists, manifest not updated
+	testutil.MaybeKill(testutil.KPCompactionWriteSST0)
+
+	// Whitebox [crashtest]: crash before input deletion — both inputs and outputs exist
+	testutil.MaybeKill(testutil.KPCompactionDeleteInput0)
 
 	// Mark input files for deletion
 	c.AddInputDeletions()

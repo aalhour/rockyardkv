@@ -1,6 +1,12 @@
 // Package db provides the main database interface and implementation.
 //
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h
+//
+// # Whitebox Testing Hooks
+//
+// This file contains sync points (requires -tags synctest) and kill points
+// (requires -tags crashtest) for whitebox testing. In production builds,
+// these compile to no-ops with zero overhead. See docs/testing.md for usage.
 package db
 
 import (
@@ -226,6 +232,7 @@ type DB interface {
 
 // Open opens the database at the specified path.
 func Open(path string, opts *Options) (DB, error) {
+	// Whitebox [synctest]: barrier at DB open start
 	_ = testutil.SP(testutil.SPDBOpen)
 
 	if opts == nil {
@@ -315,7 +322,9 @@ func Open(path string, opts *Options) (DB, error) {
 	// Check if compaction is needed after recovery
 	db.bgWork.MaybeScheduleCompaction()
 
+	// Whitebox [synctest]: barrier at DB open complete
 	_ = testutil.SP(testutil.SPDBOpenComplete)
+
 	return db, nil
 }
 
@@ -511,6 +520,7 @@ func (db *DBImpl) Get(opts *ReadOptions, key []byte) ([]byte, error) {
 
 // GetCF retrieves the value for the given key from the specified column family.
 func (db *DBImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([]byte, error) {
+	// Whitebox [synctest]: barrier at Get start
 	_ = testutil.SP(testutil.SPDBGet)
 
 	cfd, err := db.getColumnFamilyData(cf)
@@ -1010,6 +1020,7 @@ func (db *DBImpl) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value 
 
 // Write applies a batch of operations atomically.
 func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
+	// Whitebox [synctest]: barrier at Write start
 	_ = testutil.SP(testutil.SPDBWrite)
 
 	if opts == nil {
@@ -1048,7 +1059,9 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 			}
 		}
 	} else if db.logWriter != nil {
+		// Whitebox [synctest]: barrier before WAL write
 		_ = testutil.SP(testutil.SPDBWriteWAL)
+
 		data := wb.Data()
 		if _, err := db.logWriter.AddRecord(data); err != nil {
 			db.mu.Unlock()
@@ -1062,14 +1075,16 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 				return err
 			}
 		}
+
+		// Whitebox [synctest]: barrier after WAL write
 		_ = testutil.SP(testutil.SPDBWriteWALComplete)
 	}
 
-	// Iterate through the batch and apply to memtables
+	// Whitebox [synctest]: barrier before memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtable)
-	seq := firstSeq
 
 	// Capture memtable reference while holding lock to avoid race with Flush
+	seq := firstSeq
 	mem := db.mem
 	handler := &memtableInserter{
 		db:         db,
@@ -1078,12 +1093,17 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	}
 	db.mu.Unlock()
 
+	// Iterate through the batch and apply to memtables
 	if err := wb.Iterate(handler); err != nil {
 		return err
 	}
 
+	// Whitebox [synctest]: barrier after memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtableComplete)
+
+	// Whitebox [synctest]: barrier at Write complete
 	_ = testutil.SP(testutil.SPDBWriteComplete)
+
 	return nil
 }
 

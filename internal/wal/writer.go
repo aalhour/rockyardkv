@@ -6,6 +6,12 @@
 // Reference: RocksDB v10.7.5
 //   - db/log_writer.h
 //   - db/log_writer.cc
+//
+// # Whitebox Testing Hooks
+//
+// This file contains kill points for crash testing (requires -tags crashtest).
+// In production builds, these compile to no-ops with zero overhead.
+// See docs/testing.md for usage.
 package wal
 
 import (
@@ -69,7 +75,7 @@ func NewWriter(dest io.Writer, logNumber uint64, recyclable bool) *Writer {
 //
 // Returns the number of bytes written (including headers) and any error.
 func (w *Writer) AddRecord(data []byte) (int, error) {
-	// Kill point: crash during WAL append (before any write)
+	// Whitebox [crashtest]: crash before WAL append — tests incomplete record handling
 	testutil.MaybeKill(testutil.KPWALAppend0)
 
 	ptr := data
@@ -212,7 +218,7 @@ func (w *Writer) IsRecyclable() bool {
 
 // Sync flushes the underlying writer if it supports it.
 func (w *Writer) Sync() error {
-	// Kill point: crash before WAL sync
+	// Whitebox [crashtest]: crash before WAL sync — tests durability of unsynced writes
 	testutil.MaybeKill(testutil.KPWALSync0)
 
 	if syncer, ok := w.dest.(interface{ Sync() error }); ok {
@@ -221,7 +227,8 @@ func (w *Writer) Sync() error {
 		}
 	}
 
-	// Kill point: crash after WAL sync (data is durable)
+	// Whitebox [crashtest]: crash after WAL sync — data is durable, tests recovery
 	testutil.MaybeKill(testutil.KPWALSync1)
+
 	return nil
 }
