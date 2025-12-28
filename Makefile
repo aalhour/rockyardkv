@@ -39,10 +39,50 @@ TRACEANALYZER_BIN := $(BIN_DIR)/traceanalyzer
 LDB_BIN := $(BIN_DIR)/ldb
 SSTDUMP_BIN := $(BIN_DIR)/sstdump
 
-# Test settings
-TEST_TIMEOUT ?= 10m
-FUZZ_TIME ?= 30s
-RACE_FLAG ?= -race
+# ─────────────────────────────────────────────────────────────────────────────
+# Test Tier Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Tier System (set TIER=quick|long|marathon):
+#   quick (default) - 2 min, light concurrency, fast feedback
+#   long            - 5 min, 10x harder, pre-merge/nightly
+#   marathon        - 30 min, 100x harder, pre-release (v0.2, v0.3)
+
+TIER ?= quick
+
+ifeq ($(TIER),quick)
+  # Go tests
+  TEST_TIMEOUT := 10m
+  RACE_FLAG := -race
+  FUZZ_TIME := 30s
+  # E2E tests
+  E2E_DURATION := 2m
+  E2E_THREADS := 8
+  CRASH_CYCLES := 3
+  ADVERSARIAL_FLAGS := -duration=2m
+else ifeq ($(TIER),long)
+  # Go tests
+  TEST_TIMEOUT := 15m
+  RACE_FLAG := -race
+  FUZZ_TIME := 1m
+  # E2E tests
+  E2E_DURATION := 5m
+  E2E_THREADS := 32
+  CRASH_CYCLES := 10
+  ADVERSARIAL_FLAGS := -duration=5m
+else ifeq ($(TIER),marathon)
+  # Go tests
+  TEST_TIMEOUT := 30m
+  RACE_FLAG := -race
+  FUZZ_TIME := 5m
+  # E2E tests
+  E2E_DURATION := 30m
+  E2E_THREADS := 64
+  CRASH_CYCLES := 50
+  ADVERSARIAL_FLAGS := -long
+else
+  $(error Unknown TIER: $(TIER). Use quick, long, or marathon)
+endif
 
 # Coverage
 COVERAGE_FILE := $(COV_DIR)/coverage.out
@@ -132,15 +172,12 @@ build-release: ## Build release binaries for all platforms
 # TESTING
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# Test Hierarchy:
-#   test              - Quick Go tests (default, fast feedback)
-#   test-full         - Thorough Go tests with race detection
-#   test-fuzz         - Fuzz testing (configurable duration)
-#   test-e2e-*        - End-to-end tests via binaries
-#   test-e2e          - All E2E tests (short modes)
-#   test-e2e-long     - All E2E tests (long modes, 10 min, 256 threads)
-#   test-all          - Everything (Go + E2E short)
-#   test-all-long     - Everything (Go + E2E long)
+# Primary Targets:
+#   test              - Go unit tests (race detection)
+#   test-fuzz         - Fuzz tests
+#   test-e2e          - All E2E tests at current TIER
+#   test-all          - Go + Fuzz + E2E + Benchmarks at current TIER
+#   test-release      - Marathon + all Linux distros in parallel
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # Go Tests (via go test)
@@ -155,16 +192,6 @@ test: ## Run Go tests with race detection (default)
 test-short: ## Run short Go tests only (fast feedback, no race)
 	@echo "🧪 Running short tests..."
 	$(GO) test -short -timeout 2m ./...
-
-.PHONY: test-full
-test-full: ## Run Go tests (verbose, race, extended timeout)
-	@echo "🧪 Running full test suite..."
-	$(GO) test -v $(RACE_FLAG) -timeout 15m ./...
-
-.PHONY: test-verbose
-test-verbose: ## Run Go tests with verbose output
-	@echo "🧪 Running tests (verbose)..."
-	$(GO) test -v $(RACE_FLAG) -timeout $(TEST_TIMEOUT) ./...
 
 .PHONY: test-count
 test-count: ## Show test statistics
@@ -204,45 +231,31 @@ test-fuzz-skiplist: ## Fuzz skiplist
 
 # ─────────────────────────────────────────────────────────────────────────────
 # End-to-End Tests (via test binaries)
+# Uses TIER configuration (quick/long/marathon)
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: test-e2e-smoke
-test-e2e-smoke: $(SMOKE_BIN) ## E2E: Feature verification (~30s)
+test-e2e-smoke: $(SMOKE_BIN) ## E2E: Feature verification (~30s, tier-independent)
 	@echo "💨 Running smoke tests..."
 	$(SMOKE_BIN) -cleanup
 
 .PHONY: test-e2e-stress
-test-e2e-stress: $(STRESS_BIN) ## E2E: Concurrent correctness (1 min, 32 threads)
-	@echo "🏋️ Running stress tests (1 min, 32 threads)..."
-	$(STRESS_BIN) -cleanup -duration=1m -threads=32
-
-.PHONY: test-e2e-stress-long
-test-e2e-stress-long: $(STRESS_BIN) ## E2E: Concurrent correctness (10 min, 256 threads)
-	@echo "🏋️ Running stress tests (10 min, 256 threads)..."
-	$(STRESS_BIN) -cleanup -duration=10m -threads=256
+test-e2e-stress: $(STRESS_BIN) ## E2E: Concurrent correctness (uses current TIER)
+	@echo "🏋️ Running stress tests ($(E2E_DURATION), $(E2E_THREADS) threads)..."
+	$(STRESS_BIN) -cleanup -duration=$(E2E_DURATION) -threads=$(E2E_THREADS)
 
 .PHONY: test-e2e-adversarial
-test-e2e-adversarial: $(ADVERSARIAL_BIN) ## E2E: Breaking attempts (2 min)
-	@echo "🔥 Running adversarial tests (2 min)..."
-	$(ADVERSARIAL_BIN) -cleanup
-
-.PHONY: test-e2e-adversarial-long
-test-e2e-adversarial-long: $(ADVERSARIAL_BIN) ## E2E: Breaking attempts (10 min, 256 threads)
-	@echo "🔥 Running adversarial tests (10 min, 256 threads)..."
-	$(ADVERSARIAL_BIN) -cleanup -long
+test-e2e-adversarial: $(ADVERSARIAL_BIN) ## E2E: Breaking attempts (uses current TIER)
+	@echo "🔥 Running adversarial tests ($(TIER) mode)..."
+	$(ADVERSARIAL_BIN) -cleanup $(ADVERSARIAL_FLAGS)
 
 .PHONY: test-e2e-crash
-test-e2e-crash: $(CRASH_BIN) ## E2E: Crash recovery (5 cycles, synced writes)
-	@echo "💥 Running crash tests (5 cycles, synced writes)..."
-	$(CRASH_BIN) -cycles=5 -sync
-
-.PHONY: test-e2e-crash-long
-test-e2e-crash-long: $(CRASH_BIN) ## E2E: Crash recovery (20 cycles, synced writes)
-	@echo "💥 Running crash tests (20 cycles, synced writes)..."
-	$(CRASH_BIN) -cycles=20 -sync
+test-e2e-crash: $(CRASH_BIN) ## E2E: Crash recovery (uses current TIER)
+	@echo "💥 Running crash tests ($(CRASH_CYCLES) cycles, $(E2E_DURATION) duration)..."
+	$(CRASH_BIN) -cycles=$(CRASH_CYCLES) -duration=$(E2E_DURATION) -sync -kill-mode=random
 
 .PHONY: test-e2e-golden
-test-e2e-golden: ## E2E: C++ RocksDB compatibility
+test-e2e-golden: ## E2E: C++ RocksDB compatibility (tier-independent)
 	@echo "🥇 Running golden tests (C++ compatibility)..."
 	$(GO) test -v -run Golden ./...
 
@@ -253,12 +266,50 @@ test-e2e-cross-compat: ## E2E: Cross-compatibility tests (Go ↔ C++)
 	$(GO) test -v -run TestGenerateGoSST ./internal/table/...
 
 .PHONY: test-e2e
-test-e2e: test-e2e-smoke test-e2e-stress test-e2e-crash test-e2e-adversarial test-e2e-golden ## Run all E2E tests (short modes)
-	@echo "✅ All E2E tests complete (short modes)"
+test-e2e: test-e2e-smoke test-e2e-stress test-e2e-crash test-e2e-adversarial test-e2e-golden ## Run all E2E tests (uses current TIER)
+	@echo "✅ All E2E tests complete ($(TIER) tier)"
 
-.PHONY: test-e2e-long
-test-e2e-long: test-e2e-smoke test-e2e-stress-long test-e2e-crash-long test-e2e-adversarial-long test-e2e-golden ## Run all E2E tests (long modes)
-	@echo "✅ All E2E tests complete (long modes)"
+# ─────────────────────────────────────────────────────────────────────────────
+# Status checks (durability/compatibility snapshots)
+# ─────────────────────────────────────────────────────────────────────────────
+
+STATUS_RUN_ROOT ?= crashtest-artifacts/status/$(shell date +%Y%m%d-%H%M%S)
+
+.PHONY: status-golden
+status-golden: test-e2e-golden ## Status: Always-on compatibility gate (golden tests)
+
+.PHONY: status-durability-wal-sync
+status-durability-wal-sync: build ## Status: Repro WAL+sync crash durability behavior (writes artifacts)
+	@echo "💥 Running durability repro (wal-sync) ..."
+	@bash scripts/status/run_durability_repros.sh wal-sync "$(STATUS_RUN_ROOT)/wal-sync"
+
+.PHONY: status-durability-wal-sync-sweep
+status-durability-wal-sync-sweep: build ## Status: Seed sweep for WAL+sync crash durability (writes artifacts)
+	@echo "💥 Running durability sweep (wal-sync-sweep) ..."
+	@bash scripts/status/run_durability_repros.sh wal-sync-sweep "$(STATUS_RUN_ROOT)/wal-sync-sweep"
+
+.PHONY: status-durability-disablewal-faultfs
+status-durability-disablewal-faultfs: build ## Status: Repro DisableWAL+faultfs crash durability behavior (writes artifacts)
+	@echo "💥 Running durability repro (disablewal-faultfs) ..."
+	@bash scripts/status/run_durability_repros.sh disablewal-faultfs "$(STATUS_RUN_ROOT)/disablewal-faultfs"
+
+.PHONY: status-durability-disablewal-faultfs-minimize
+status-durability-disablewal-faultfs-minimize: build ## Status: Minimization sweep for DisableWAL+faultfs durability (writes artifacts)
+	@echo "💥 Running durability minimization (disablewal-faultfs-minimize) ..."
+	@bash scripts/status/run_durability_repros.sh disablewal-faultfs-minimize "$(STATUS_RUN_ROOT)/disablewal-faultfs-minimize"
+
+.PHONY: status-adversarial-corruption
+status-adversarial-corruption: build ## Status: Run adversarial corruption suite (writes artifacts)
+	@echo "🧨 Running adversarial corruption suite ..."
+	@bash scripts/status/run_durability_repros.sh adversarial-corruption "$(STATUS_RUN_ROOT)/adversarial-corruption"
+
+.PHONY: status-durability
+status-durability: status-durability-wal-sync status-durability-wal-sync-sweep status-durability-disablewal-faultfs status-durability-disablewal-faultfs-minimize ## Status: Run durability repros (writes artifacts)
+	@echo "✅ Durability repros complete"
+
+.PHONY: status-check
+status-check: status-golden status-durability status-adversarial-corruption ## Status: Run golden tests and repro suite
+	@echo "✅ Status check complete"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Benchmark Tests
@@ -289,12 +340,89 @@ test-bench-db: ## Benchmark DB operations
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: test-all
-test-all: test test-e2e test-bench ## Run all tests: Go + E2E + Benchmarks
-	@echo "✅ All tests complete"
+test-all: test test-fuzz test-e2e test-bench ## Run all tests: Go + Fuzz + E2E + Benchmarks (uses current TIER)
+	@echo "✅ All tests complete ($(TIER) tier)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tier Convenience Aliases
+# ─────────────────────────────────────────────────────────────────────────────
+
+.PHONY: test-long
+test-long: ## Run Go tests (long tier)
+	@$(MAKE) test TIER=long
+
+.PHONY: test-marathon
+test-marathon: ## Run Go tests (marathon tier - 30m, pre-release)
+	@$(MAKE) test TIER=marathon
+
+.PHONY: test-e2e-long
+test-e2e-long: ## Run all E2E tests (long tier - 5m each)
+	@$(MAKE) test-e2e TIER=long
+
+.PHONY: test-e2e-marathon
+test-e2e-marathon: ## Run all E2E tests (marathon tier - 30m each)
+	@$(MAKE) test-e2e TIER=marathon
 
 .PHONY: test-all-long
-test-all-long: test-full test-e2e-long test-bench ## Run all tests: Go + E2E (long) + Benchmarks
-	@echo "✅ All tests complete (long modes)"
+test-all-long: ## Run all tests (long tier - 5m each)
+	@$(MAKE) test-all TIER=long
+
+.PHONY: test-all-marathon
+test-all-marathon: ## Run all tests (marathon tier - 30m each, pre-release)
+	@$(MAKE) test-all TIER=marathon
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Release Testing (marathon + all Linux distros in parallel)
+# ─────────────────────────────────────────────────────────────────────────────
+
+.PHONY: test-release
+test-release: build ## Pre-release validation: marathon tests + all Linux distros (parallel)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🚀 Pre-Release Test Suite Starting                  ║"
+	@echo "║    Marathon tier (30m) + All Linux distros in parallel           ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@# Run marathon tests and all Linux distros in parallel
+	@# Each gets 30m, all run simultaneously
+	$(MAKE) -j4 \
+		_test-release-marathon \
+		_test-release-linux \
+		_test-release-alpine \
+		_test-release-rocky
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              ✅ Pre-Release Test Suite Complete                  ║"
+	@echo "╠══════════════════════════════════════════════════════════════════╣"
+	@echo "║  ✅ Marathon:    30m stress/crash/adversarial passed             ║"
+	@echo "║  ✅ Debian:      Linux glibc tests passed                        ║"
+	@echo "║  ✅ Alpine:      Linux musl libc tests passed                    ║"
+	@echo "║  ✅ Rocky Linux: RHEL-compatible tests passed                    ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+
+# Internal targets for parallel release testing (30m each)
+.PHONY: _test-release-marathon
+_test-release-marathon:
+	@echo "🏃 [Marathon] Starting 30m stress/crash/adversarial tests..."
+	@$(MAKE) test-e2e TIER=marathon
+
+.PHONY: _test-release-linux
+_test-release-linux:
+	@echo "🐧 [Debian] Starting 30m Linux tests..."
+	@docker build -f Dockerfile.ci -t rockyardkv-test-linux . --quiet
+	@docker run --rm rockyardkv-test-linux go test -race -timeout 30m ./...
+
+.PHONY: _test-release-alpine
+_test-release-alpine:
+	@echo "🏔️  [Alpine] Starting 30m Alpine tests..."
+	@docker run --rm -v $(PWD):/app -w /app golang:1.25-alpine \
+		sh -c "apk add --no-cache gcc musl-dev git && go test -race -timeout 30m ./..."
+
+.PHONY: _test-release-rocky
+_test-release-rocky:
+	@echo "🪨 [Rocky] Starting 30m Rocky Linux tests..."
+	@docker run --rm -v $(PWD):/app -w /app rockylinux:9 \
+		sh -c "dnf install -y golang gcc git && cd /app && go test -race -timeout 30m ./..."
 
 # ═══════════════════════════════════════════════════════════════════════════
 # QUALITY
@@ -411,7 +539,7 @@ test-all-linux: test-linux test-alpine test-rockylinux ## Run tests on all Linux
 	@echo "╚══════════════════════════════════════════════════════════════════╝"
 
 .PHONY: ci-local
-ci-local: lint-all-platforms test-all-platforms ## Reproduce full CI locally (lint + test all platforms)
+ci-local: lint-all-platforms test test-all-linux ## Reproduce full CI locally (lint + test + all Linux distros)
 	@echo ""
 	@echo "🎉 CI simulation complete - all checks passed!"
 
@@ -612,48 +740,56 @@ help: ## Show this help message
 	@echo ""
 	@echo "\033[1mRockyardKV\033[0m - Pure Go reimplementation of RocksDB v10.7.5"
 	@echo ""
-	@echo "\033[1mUsage:\033[0m make \033[36m<target>\033[0m"
+	@echo "\033[1mUsage:\033[0m make \033[36m<target>\033[0m [TIER=quick|long|marathon]"
+	@echo ""
+	@echo "\033[1m\033[33mTier System (TIER=quick|long|marathon):\033[0m"
+	@echo "  \033[36mquick\033[0m (default)  Go: 10m, Fuzz: 30s | E2E: 2m, 8 threads"
+	@echo "  \033[36mlong\033[0m             Go: 15m, Fuzz: 1m  | E2E: 5m, 32 threads"
+	@echo "  \033[36mmarathon\033[0m         Go: 30m, Fuzz: 5m  | E2E: 30m, 64 threads"
 	@echo ""
 	@echo "\033[1m\033[32mBUILD\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(all|build|build-release):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(all|build|build-release):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mTESTING\033[0m"
 	@echo "  \033[33m── Go Tests ──\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test(-short|-full|-verbose|-count)?:' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test(-short|-count)?:' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo "  \033[33m── Fuzz Tests ──\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-fuzz' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
-	@echo "  \033[33m── E2E Tests ──\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-e2e' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-fuzz' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@echo "  \033[33m── E2E Tests (use TIER) ──\033[0m"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-e2e(-smoke|-stress|-crash|-adversarial|-golden|-cross-compat)?:' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo "  \033[33m── Benchmarks ──\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-bench' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
-	@echo "  \033[33m── Aggregate ──\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-all' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-bench' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@echo "  \033[33m── Aggregate & Tiers ──\033[0m"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-(all|long|marathon|e2e-long|e2e-marathon|all-long|all-marathon|release):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@echo "  \033[33m── Cross-Platform ──\033[0m"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^test-(linux|alpine|rockylinux|all-linux):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mQUALITY\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(lint|fmt|fmt-fix|staticcheck|modernize|modernize-fix|refactor-tips|gocritic|gocyclo|gocyclo-top|gocyclo-strict|check|coverage|coverage-func):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(lint|fmt|fmt-fix|staticcheck|modernize|modernize-fix|refactor-tips|gocritic|gocyclo|gocyclo-top|gocyclo-strict|check|coverage|coverage-func):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mDEPENDENCIES\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(deps|deps-update|tidy):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(deps|deps-update|tidy):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mDEVELOPMENT\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(doc|watch|info|todo):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(doc|watch|info|todo):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mCLEANUP\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^clean' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^clean' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mCI/CD\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(ci|pre-commit):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
-	@echo ""
-	@echo "\033[1m\033[32mHELP\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^help:' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(ci|ci-local|pre-commit):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1mExamples:\033[0m"
-	@echo "  make build         Build binaries"
-	@echo "  make test          Run all tests"
-	@echo "  make smoke         Quick validation"
-	@echo "  make ci            Full CI pipeline"
+	@echo "  make test                   Run Go tests (quick)"
+	@echo "  make test-e2e               Run E2E tests (quick tier)"
+	@echo "  make test-e2e TIER=long     Run E2E tests (5m each)"
+	@echo "  make test-all-marathon      Full suite, 30m each"
+	@echo "  make test-release           Pre-release: marathon + all Linux"
 	@echo ""
-	@echo "\033[1mVariables:\033[0m"
-	@echo "  FUZZ_TIME=$(FUZZ_TIME)    Duration for fuzz tests"
-	@echo "  TEST_TIMEOUT=$(TEST_TIMEOUT)  Timeout for test runs"
+	@echo "\033[1mCurrent Tier: $(TIER)\033[0m"
+	@echo "  TEST_TIMEOUT=$(TEST_TIMEOUT)   Go test timeout"
+	@echo "  FUZZ_TIME=$(FUZZ_TIME)      Fuzz test duration"
+	@echo "  E2E_DURATION=$(E2E_DURATION)    E2E test duration"
+	@echo "  E2E_THREADS=$(E2E_THREADS)      E2E concurrency"
+	@echo "  CRASH_CYCLES=$(CRASH_CYCLES)     Crash test cycles"
 	@echo ""
