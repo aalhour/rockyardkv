@@ -149,6 +149,8 @@ linters:
   exclusions:
     warn-unused: true
     generated: lax
+    paths:
+      - tmp/
     rules:
       # Test files: relax linters - test code doesn't need strict checking
       - path: '(.+)_test\.go$'
