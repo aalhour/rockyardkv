@@ -16,6 +16,9 @@ import (
 // FuzzTableReader tests the table reader with random SST-like data.
 // This verifies that malformed inputs don't cause panics.
 func FuzzTableReader(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	// Seed with some interesting cases
 	f.Add([]byte{})                                               // Empty
 	f.Add([]byte{0x00, 0x00, 0x00, 0x00})                         // Too small
@@ -64,6 +67,9 @@ func FuzzTableReader(f *testing.F) {
 
 // FuzzBlockIterator tests the block iterator with random block data.
 func FuzzBlockIterator(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	// Seed with edge cases
 	f.Add([]byte{})
 	f.Add([]byte{0x00})
@@ -105,6 +111,9 @@ func FuzzBlockIterator(f *testing.F) {
 
 // FuzzTableBuilder tests that building with various inputs produces valid SSTs.
 func FuzzTableBuilder(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	// Seed with interesting key/value combinations
 	f.Add([]byte("key"), []byte("value"))
 	f.Add([]byte{}, []byte("value"))                                          // Empty key
@@ -167,6 +176,9 @@ func FuzzTableBuilder(f *testing.F) {
 
 // FuzzMultipleEntries tests building SSTs with multiple random entries.
 func FuzzMultipleEntries(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	f.Add(uint8(5), []byte("seed"))
 
 	f.Fuzz(func(t *testing.T, numEntries uint8, seed []byte) {

@@ -6,6 +6,9 @@ import (
 
 // FuzzFooterDecode tests the footer decoder with arbitrary input.
 func FuzzFooterDecode(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	// Add some seed corpus
 	f.Add(make([]byte, 0))
 	f.Add(make([]byte, 10))
@@ -49,6 +52,9 @@ func FuzzFooterDecode(f *testing.F) {
 
 // FuzzBlockHandleDecode tests BlockHandle decoder with arbitrary input.
 func FuzzBlockHandleDecode(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping fuzz test in short mode")
+	}
 	f.Add([]byte{})
 	f.Add([]byte{0})
 	f.Add([]byte{0, 0})
