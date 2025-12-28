@@ -32,7 +32,8 @@ func openDirectWrite(name string, create bool) (*os.File, error) {
 }
 
 // openDirectRW opens a file for read/write without Direct I/O on unsupported platforms.
-func openDirectRW(name string, create bool) (*os.File, error) {
+// Currently unused but available for future DirectIOFS.OpenRW implementation.
+func openDirectRW(name string, create bool) (*os.File, error) { //nolint:unused // reserved for future use
 	flags := os.O_RDWR
 	if create {
 		flags |= os.O_CREATE
@@ -46,6 +47,7 @@ func getBlockSize(_ string) (int, error) {
 }
 
 // enableDirectIO is a no-op on unsupported platforms.
-func enableDirectIO(_ int) error {
+// Currently unused but available for symmetry with other platforms.
+func enableDirectIO(_ int) error { //nolint:unused // reserved for future use
 	return ErrDirectIONotSupported
 }

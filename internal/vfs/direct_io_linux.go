@@ -41,7 +41,8 @@ func openDirectWrite(name string, create bool) (*os.File, error) {
 }
 
 // openDirectRW opens a file for read/write with O_DIRECT on Linux.
-func openDirectRW(name string, create bool) (*os.File, error) {
+// Currently unused but available for future DirectIOFS.OpenRW implementation.
+func openDirectRW(name string, create bool) (*os.File, error) { //nolint:unused // reserved for future use
 	flags := syscall.O_RDWR | syscall.O_DIRECT
 	if create {
 		flags |= syscall.O_CREAT
@@ -57,17 +58,8 @@ func openDirectRW(name string, create bool) (*os.File, error) {
 func getBlockSize(path string) (int, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
-		return DefaultBlockSize, nil // Fall back to default on error
+		// Fall back to default on error (e.g., path doesn't exist yet)
+		return DefaultBlockSize, nil //nolint:nilerr // intentional fallback
 	}
 	return int(stat.Bsize), nil
-}
-
-// enableDirectIO enables Direct I/O on an already-open file descriptor.
-// On Linux, this is a no-op because O_DIRECT must be specified at open time.
-// Returns true if Direct I/O is enabled (even if it was a no-op).
-func enableDirectIO(fd int) error {
-	// On Linux, O_DIRECT must be specified when opening the file.
-	// We cannot enable it on an already-open file.
-	// However, we can check if the file was opened with O_DIRECT.
-	return nil
 }
