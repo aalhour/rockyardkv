@@ -411,7 +411,8 @@ func (fs *FaultInjectionFS) SyncDir(path string) error {
 	// Mark all files in this directory as having their directory synced
 	absPath, _ := filepath.Abs(path)
 	for filePath, state := range fs.fileState {
-		if filepath.Dir(filePath) == absPath {
+		fileDir := filepath.Dir(filePath)
+		if fileDir == absPath {
 			state.dirSynced = true
 		}
 	}

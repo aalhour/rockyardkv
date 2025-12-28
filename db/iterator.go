@@ -351,8 +351,11 @@ func (it *dbIterator) Valid() bool {
 
 // SeekToFirst positions the iterator at the first key.
 func (it *dbIterator) SeekToFirst() {
+	// Don't clear errors set during construction (e.g., SST file corruption)
+	if it.err != nil {
+		return
+	}
 	it.direction = dirForward
-	it.err = nil
 	it.seekPrefix = nil // Clear prefix on SeekToFirst
 
 	// If we have a lower bound, seek to it instead
@@ -371,8 +374,11 @@ func (it *dbIterator) SeekToFirst() {
 
 // SeekToLast positions the iterator at the last key.
 func (it *dbIterator) SeekToLast() {
+	// Don't clear errors set during construction (e.g., SST file corruption)
+	if it.err != nil {
+		return
+	}
 	it.direction = dirBackward
-	it.err = nil
 
 	// Seek all iterators to last
 	for _, iter := range it.iterators {
@@ -396,8 +402,11 @@ func (it *dbIterator) SeekToLast() {
 
 // Seek positions the iterator at the first key >= target.
 func (it *dbIterator) Seek(target []byte) {
+	// Don't clear errors set during construction (e.g., SST file corruption)
+	if it.err != nil {
+		return
+	}
 	it.direction = dirForward
-	it.err = nil
 
 	// Check lower bound
 	if len(it.iterateLowerBound) > 0 && bytes.Compare(target, it.iterateLowerBound) < 0 {
@@ -561,6 +570,12 @@ outerLoop:
 
 		for i, iter := range it.iterators {
 			if !iter.Valid() {
+				// Check if the iterator became invalid due to an error (not just EOF)
+				if err := iter.Error(); err != nil {
+					it.err = err
+					it.valid = false
+					return
+				}
 				continue
 			}
 			if err := iter.Error(); err != nil {
@@ -681,6 +696,12 @@ outerLoop:
 
 		for i, iter := range it.iterators {
 			if !iter.Valid() {
+				// Check if the iterator became invalid due to an error (not just BOF)
+				if err := iter.Error(); err != nil {
+					it.err = err
+					it.valid = false
+					return
+				}
 				continue
 			}
 			if err := iter.Error(); err != nil {
@@ -722,6 +743,12 @@ outerLoop:
 				continue
 			}
 			if !iter.Valid() {
+				// Check if the iterator became invalid due to an error (not just BOF)
+				if err := iter.Error(); err != nil {
+					it.err = err
+					it.valid = false
+					return
+				}
 				continue
 			}
 			// Only check if this iterator is also at the same key

@@ -39,6 +39,13 @@ type MemTable struct {
 	// Reference counting
 	refs int32
 
+	// nextLogNumber indicates which WAL files can be deleted after this memtable
+	// is flushed. WAL files with number < nextLogNumber can be safely deleted.
+	// This is set when the memtable becomes immutable, to the log number of
+	// the NEW log file that will receive subsequent writes.
+	// Reference: RocksDB v10.7.5 db/memtable.h mem_next_walfile_number_
+	nextLogNumber uint64
+
 	// Mutex for write synchronization
 	mu sync.Mutex
 }
@@ -507,6 +514,19 @@ func parseEntry(entry []byte) (key, value []byte, seq dbformat.SequenceNumber, t
 // ApproximateMemoryUsage returns the approximate memory usage in bytes.
 func (mt *MemTable) ApproximateMemoryUsage() int64 {
 	return atomic.LoadInt64(&mt.memoryUsage)
+}
+
+// NextLogNumber returns the log number that can be deleted after this memtable
+// is flushed. WAL files with number < NextLogNumber() can be safely deleted.
+// Returns 0 if not set.
+func (mt *MemTable) NextLogNumber() uint64 {
+	return atomic.LoadUint64(&mt.nextLogNumber)
+}
+
+// SetNextLogNumber sets the log number for deletion after flush.
+// This should be called when the memtable becomes immutable.
+func (mt *MemTable) SetNextLogNumber(num uint64) {
+	atomic.StoreUint64(&mt.nextLogNumber, num)
 }
 
 // Count returns the number of entries in the memtable.

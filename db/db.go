@@ -725,6 +725,11 @@ func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq db
 	}
 
 	// Search L1+ files if we haven't found the base yet
+	// NOTE: We search ALL files in each level because files may overlap due to
+	// trivial moves or pending compactions. The binary search optimization is
+	// only safe when we can guarantee non-overlapping files, which we can't
+	// currently guarantee. This is a correctness fix at the cost of performance.
+	// TODO: Add non-overlap invariant enforcement to compaction and re-enable binary search.
 	if !foundBase {
 		for level := 1; level < v.NumLevels(); level++ {
 			files := v.Files(level)
@@ -732,43 +737,49 @@ func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq db
 				continue
 			}
 
-			// Binary search for the file that might contain this key
-			idx := db.findFile(files, key)
-			if idx >= len(files) {
-				continue
-			}
+			// Search all files in reverse order (newest first) since we can't
+			// guarantee non-overlapping files at L1+
+			for i := len(files) - 1; i >= 0; i-- {
+				f := files[i]
 
-			f := files[idx]
-			// Skip files that don't belong to this column family.
-			if f.ColumnFamilyID != cfID {
-				continue
-			}
-			if db.cmp.Compare(key, extractUserKey(f.Smallest)) < 0 {
-				continue
-			}
-
-			// Key might be in this file
-			value, found, deleted, isMerge, foundSeq, err := db.getFromFile(f, key, seq, rangeDelAgg)
-			if err != nil {
-				return nil, err
-			}
-			if found {
-				// Check if the found value is covered by a range tombstone
-				if deleted || rangeDelAgg.ShouldDelete(key, foundSeq) {
-					// Base is deleted - apply merge with nil base
-					if len(mergeOperands) > 0 {
-						return db.applyMerge(key, nil, mergeOperands)
-					}
-					return nil, ErrNotFound
-				}
-				if isMerge {
-					// Collect this merge operand and continue searching
-					mergeOperands = append(mergeOperands, value)
+				// Skip files that don't belong to this column family.
+				if f.ColumnFamilyID != cfID {
 					continue
 				}
-				// Found a value - this is the base
-				foundBase = true
-				existingValue = value
+				// Check if key is in this file's range
+				if db.cmp.Compare(key, extractUserKey(f.Smallest)) < 0 {
+					continue
+				}
+				if db.cmp.Compare(key, extractUserKey(f.Largest)) > 0 {
+					continue
+				}
+
+				// Key might be in this file
+				value, found, deleted, isMerge, foundSeq, err := db.getFromFile(f, key, seq, rangeDelAgg)
+				if err != nil {
+					return nil, err
+				}
+				if found {
+					// Check if the found value is covered by a range tombstone
+					if deleted || rangeDelAgg.ShouldDelete(key, foundSeq) {
+						// Base is deleted - apply merge with nil base
+						if len(mergeOperands) > 0 {
+							return db.applyMerge(key, nil, mergeOperands)
+						}
+						return nil, ErrNotFound
+					}
+					if isMerge {
+						// Collect this merge operand and continue searching
+						mergeOperands = append(mergeOperands, value)
+						continue
+					}
+					// Found a value - this is the base
+					foundBase = true
+					existingValue = value
+					break
+				}
+			}
+			if foundBase {
 				break
 			}
 		}
@@ -926,6 +937,14 @@ func extractSequenceNumber(internalKey []byte) dbformat.SequenceNumber {
 
 // findFile finds the file in a sorted level that might contain the key.
 // Returns the index of the first file whose largest key >= key.
+//
+// NOTE: This function is currently unused because Get() iterates through
+// all files at L1+ to handle cases where overlapping files exist at higher
+// levels (which shouldn't happen but can due to compaction bugs).
+// Once the compaction invariant (non-overlapping files at L1+) is fixed,
+// this function should be reinstated for O(log n) file lookup.
+//
+//nolint:unused // reinstated once compaction guarantees non-overlapping files at L1+
 func (db *DBImpl) findFile(files []*manifest.FileMetaData, key []byte) int {
 	lo := 0
 	hi := len(files)
@@ -1309,7 +1328,14 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 		return nil
 	}
 
+	// Switch memtable: current becomes immutable, create new active memtable.
+	// NOTE: We do NOT create a new WAL here (unlike RocksDB which rotates WALs).
+	// This means the current WAL continues to receive writes from the new memtable.
+	// Therefore, we do NOT set nextLogNumber - we can't advance LogNumber until
+	// we actually create a new WAL (on DB open/recovery).
+	// Reference: RocksDB v10.7.5 db/db_impl/db_impl_write.cc:2722 (for WAL rotation)
 	db.imm = db.mem
+	// Don't set nextLogNumber - same WAL is used for new memtable
 	var memCmp memtable.Comparator
 	if db.comparator != nil {
 		memCmp = db.comparator.Compare

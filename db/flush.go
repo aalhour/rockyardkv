@@ -237,12 +237,22 @@ func (db *DBImpl) doFlush() error {
 	}
 
 	db.mu.Lock()
-	// Update the version with the new file
+	// Update the version with the new file.
+	//
+	// IMPORTANT: We do NOT advance LogNumber here. In our current architecture,
+	// we don't rotate WALs when switching memtables - the same WAL is used for
+	// all memtables until DB restart. Therefore:
+	// - The current WAL contains unflushed data (from the active memtable)
+	// - Advancing LogNumber would cause that data to be skipped on recovery
+	// - LogNumber is only safely advanced when we create a new WAL (on DB open)
+	//
+	// If/when we implement WAL rotation (like RocksDB), the immutable memtable's
+	// nextLogNumber should be used here to advance LogNumber.
+	// Reference: RocksDB v10.7.5 db/flush_job.cc:206 (SetLogNumber)
 	edit := &manifest.VersionEdit{
-		HasLogNumber:    true,
-		LogNumber:       db.logFileNumber,
 		HasLastSequence: true,
 		LastSequence:    manifest.SequenceNumber(db.seq),
+		// HasLogNumber intentionally NOT set - don't advance LogNumber during flush
 	}
 	edit.NewFiles = append(edit.NewFiles, manifest.NewFileEntry{
 		Level: 0, // Flush always goes to L0
