@@ -14,6 +14,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -251,6 +252,21 @@ func runCrashTestCycles(ctx context.Context, testDir string, stats *Stats) error
 		}
 		stats.successfulVerify++
 		fmt.Printf("✓ Verification passed\n")
+
+		// CRITICAL: When DisableWAL is enabled, reset expected_state to match durable_state
+		// after each successful verification. This prevents expected state drift:
+		// - Unflushed writes are recorded in expected_state but lost after crash
+		// - Without reset, next cycle thinks current value is higher than reality
+		// - This causes value_base mismatch: expected=N, actual=M where N >> M
+		if *stressDisableWAL {
+			durableStateFile := expectedStateFile + ".durable"
+			if err := copyFile(durableStateFile, expectedStateFile); err != nil {
+				// If durable state doesn't exist, that's OK - it means no flushes happened
+				if !os.IsNotExist(err) {
+					fmt.Printf("⚠️  Failed to reset expected state: %v\n", err)
+				}
+			}
+		}
 	}
 
 	// Final verification
@@ -502,6 +518,28 @@ func printStats(stats *Stats) {
 		fmt.Printf("║ Avg Cycle Time:          %-20s                  ║\n", avgCycleTime.Round(time.Millisecond))
 	}
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
+}
+
+// copyFile copies src to dst, overwriting dst if it exists.
+// Used to reset expected_state to durable_state after crash cycles.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+
+	return dstFile.Sync()
 }
 
 func fatal(format string, args ...any) {

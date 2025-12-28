@@ -133,6 +133,14 @@ var globalFaultFS *vfs.FaultInjectionFS
 var globalTraceWriter *trace.Writer
 var traceFile *os.File
 
+// globalExpectedState and globalExpectedStatePath are used by the SIGTERM handler
+// to save expected state before exiting for clean crash test shutdown.
+var globalExpectedState *testutil.ExpectedStateV2
+var globalExpectedStatePath string
+var globalStopChan chan struct{}
+var globalWorkerWg *sync.WaitGroup
+var globalStopSave chan struct{}
+
 // errStopped is returned when an operation is cancelled due to stop signal.
 var errStopped = fmt.Errorf("stopped")
 
@@ -176,16 +184,71 @@ func main() {
 
 	rand.Seed(*seed)
 
-	// Setup fault injection signal handler
-	// When SIGTERM is received and -faultfs-simulate-crash-on-signal is set,
-	// simulate a crash by dropping unsynced data / deleting unsynced files before exiting.
-	if *faultSimulateCrashOnSig && *faultFS {
+	// Setup SIGTERM handler for clean crash test shutdown.
+	// When SIGTERM is received:
+	// 1. Stop workers (so no more writes in flight)
+	// 2. Save expected state (so verification can use the final state)
+	// 3. Simulate fault crash if -faultfs-simulate-crash-on-signal is set
+	// 4. Exit
+	{
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGTERM)
 		go func() {
 			<-sigChan
-			fmt.Println("\n🔥 SIGTERM received — simulating crash with FaultInjectionFS")
-			SimulateFaultFSCrash()
+			fmt.Println("\n🔥 SIGTERM received — shutting down cleanly")
+
+			// Stop the periodic saver first (so it doesn't save stale state)
+			if globalStopSave != nil {
+				select {
+				case <-globalStopSave:
+					// Already closed
+				default:
+					close(globalStopSave)
+				}
+			}
+
+			// Signal workers to stop and wait for them to finish
+			if globalStopChan != nil {
+				select {
+				case <-globalStopChan:
+					// Already closed
+				default:
+					close(globalStopChan)
+				}
+				// Wait for workers to complete their in-flight operations.
+				// This ensures all committed writes have their WAL syncs completed.
+				if globalWorkerWg != nil {
+					fmt.Println("⏳ Waiting for workers to finish...")
+					done := make(chan struct{})
+					go func() {
+						globalWorkerWg.Wait()
+						close(done)
+					}()
+					select {
+					case <-done:
+						fmt.Println("✓ Workers finished")
+					case <-time.After(2 * time.Second):
+						// Timeout - workers might be stuck
+						fmt.Println("⚠️  Timeout waiting for workers to finish")
+					}
+				}
+			}
+
+			// Save expected state for crash test verification
+			if globalExpectedState != nil && globalExpectedStatePath != "" {
+				if err := globalExpectedState.SaveToFile(globalExpectedStatePath); err != nil {
+					fmt.Printf("⚠️  Failed to save expected state: %v\n", err)
+				} else {
+					fmt.Println("📁 Saved expected state before exit")
+				}
+			}
+
+			// Simulate fault injection crash if enabled
+			if *faultSimulateCrashOnSig && *faultFS {
+				fmt.Println("🔥 Simulating crash with FaultInjectionFS")
+				SimulateFaultFSCrash()
+			}
+
 			os.Exit(0)
 		}()
 	}
@@ -258,9 +321,14 @@ func main() {
 		expState = testutil.NewExpectedStateV2(*numKeys, 1, uint32(*log2KeysPerLock))
 	}
 
+	// Set global expected state for SIGTERM handler
+	globalExpectedState = expState
+	globalExpectedStatePath = *expectedState
+
 	// Periodically persist expected state for crash testing.
 	// This makes -save-expected meaningful under SIGKILL.
 	stopSave := make(chan struct{})
+	globalStopSave = stopSave // Set global for SIGTERM handler
 	if *expectedState != "" && *saveExpected && *saveExpectedInterval > 0 {
 		// Save immediately so crash tests have an initial state file
 		// even if killed before the first tick.
@@ -302,12 +370,30 @@ func main() {
 		if *durableState != "" {
 			durState, err := testutil.LoadExpectedStateV2FromFile(*durableState)
 			if err == nil {
+				// Count keys that exist in durable state
+				durableCount := 0
+				for key := range int64(*numKeys) {
+					if durState.Get(0, key).Exists() {
+						durableCount++
+					}
+				}
 				if *verbose {
-					fmt.Printf("📂 Using durable state for verification (seqno: %d)\n", durState.GetPersistedSeqno())
+					fmt.Printf("📂 Using durable state for verification (seqno: %d, %d keys exist)\n",
+						durState.GetPersistedSeqno(), durableCount)
 				}
 				verifyState = durState
-			} else if *verbose {
-				fmt.Printf("⚠️  Could not load durable state from %s: %v (using expected state)\n", *durableState, err)
+			} else {
+				// Durable state file doesn't exist. For DisableWAL=true mode,
+				// this means no flush completed successfully. By definition,
+				// nothing is durable - use an empty expected state.
+				if *disableWAL {
+					if *verbose {
+						fmt.Printf("⚠️  Durable state file %s not found (no flush completed). Using empty state.\n", *durableState)
+					}
+					verifyState = testutil.NewExpectedStateV2(*numKeys, 1, uint32(*log2KeysPerLock))
+				} else if *verbose {
+					fmt.Printf("⚠️  Could not load durable state from %s: %v (using expected state)\n", *durableState, err)
+				}
 			}
 		}
 
@@ -366,7 +452,7 @@ func printBanner() {
 	}
 
 	fmt.Println("╔═════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║              RockyardKV Full Stress Test (v2)                ║")
+	fmt.Println("║                 RockyardKV Full Stress Test (v2)                ║")
 	fmt.Println("╠═════════════════════════════════════════════════════════════════╣")
 	line(fmt.Sprintf("Duration: %-10s Keys: %-10d Threads: %-6d", *duration, *numKeys, *numThreads))
 	line(fmt.Sprintf("Seed: %-20d", *seed))
@@ -559,7 +645,9 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 
 	// Stop channels
 	stop := make(chan struct{})
+	globalStopChan = stop // Set global for SIGTERM handler
 	var wg sync.WaitGroup
+	globalWorkerWg = &wg // Set global for SIGTERM handler to wait on
 
 	// Database holder for safe access
 	holder := &dbHolder{db: database, path: dbPath, columnFamilies: cfs}
@@ -717,16 +805,13 @@ func runWorker(threadID int, holder *dbHolder, expected *testutil.ExpectedStateV
 		// Pick operation
 		r := rng.Intn(totalWeight)
 
-		// Try to acquire read lock with TryRLock + polling
-		for {
-			if isStopped() {
-				return
-			}
-			if holder.mu.TryRLock() {
-				break
-			}
-			time.Sleep(100 * time.Microsecond)
+		// Acquire read lock. We use RLock() which blocks when a writer
+		// (flusher) is waiting, giving the flusher priority.
+		// This ensures durable state snapshots are consistent.
+		if isStopped() {
+			return
 		}
+		holder.mu.RLock()
 
 		database := holder.db
 		if database == nil {
@@ -1948,36 +2033,65 @@ func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Sta
 		case <-stop:
 			return
 		case <-ticker.C:
-			holder.mu.RLock()
-			if holder.db != nil {
-				// When DisableWAL is enabled, save durable state BEFORE flush.
-				// This captures the expected state of what's about to become durable.
+			// When DisableWAL is enabled, we track the "durable state" - the expected
+			// state at the last successful flush. This is what we verify against
+			// after crash recovery, since only flushed data is durable without WAL.
+			//
+			// Critical ordering: save durable state AFTER successful flush.
+			// This ensures durable_state.bin never contains data that isn't in SST.
+			if *disableWAL && *durableState != "" {
+				// For DisableWAL mode with durable state tracking:
+				// We save the expected state AFTER a successful flush, not before.
 				//
-				// IMPORTANT: We save BEFORE flush, not after, because:
-				// 1. Flush() moves current memtable to immutable and creates a new one
-				// 2. New writes during flush go to the NEW memtable
-				// 3. If we save after flush, we'd include writes that aren't flushed yet
-				// 4. By saving before, we capture exactly what's in the memtable being flushed
+				// Why AFTER, not BEFORE:
+				// - If we save BEFORE flush and crash during flush, the saved state
+				//   contains data that never made it to SST (durable state is ahead)
+				// - If we save AFTER successful flush, we guarantee the saved state
+				//   only contains data that is actually in synced SST files
 				//
-				// The durable state may include some pending operations, but those are
-				// skipped during verification (keys with pending flags are ignored).
-				if *disableWAL && *durableState != "" {
-					if err := expected.SaveToFile(*durableState); err != nil {
+				// Why holder.mu.Lock() is needed:
+				// - We must block workers during flush to get a consistent snapshot
+				// - While we hold the lock, no new writes can occur
+				// - After flush completes, we save the expected state (now durable)
+				// - Then release lock to let workers resume
+				//
+				// This ensures durable_state.bin <= DB on disk at all times.
+				holder.mu.Lock()
+				if holder.db != nil {
+					flushCount := stats.flushes.Load()
+					// First flush - this writes memtable to SST and syncs
+					if err := holder.db.Flush(nil); err != nil {
 						if *verbose {
-							fmt.Printf("Durable state save error: %v\n", err)
+							fmt.Printf("Flush #%d error: %v\n", flushCount+1, err)
+						}
+					} else {
+						stats.flushes.Add(1)
+						// Only save expected state AFTER successful flush
+						// At this point, all writes up to now are durable in SST
+						if err := expected.SaveToFile(*durableState); err != nil {
+							if *verbose {
+								fmt.Printf("Flush #%d: durable state save error: %v\n", flushCount+1, err)
+							}
+						} else if *verbose {
+							fmt.Printf("Flush #%d: durable state saved to %s\n", flushCount+1, *durableState)
 						}
 					}
 				}
-
-				if err := holder.db.Flush(nil); err != nil {
-					if *verbose {
-						fmt.Printf("Flush error: %v\n", err)
+				holder.mu.Unlock()
+			} else {
+				// Normal flush without durable state tracking
+				holder.mu.RLock()
+				if holder.db != nil {
+					if err := holder.db.Flush(nil); err != nil {
+						if *verbose {
+							fmt.Printf("Flush error: %v\n", err)
+						}
+					} else {
+						stats.flushes.Add(1)
 					}
-				} else {
-					stats.flushes.Add(1)
 				}
+				holder.mu.RUnlock()
 			}
-			holder.mu.RUnlock()
 		}
 	}
 }

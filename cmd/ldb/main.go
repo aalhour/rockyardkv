@@ -345,22 +345,21 @@ func cmdInfo() error {
 func cmdManifestDump() error {
 	fs := vfs.Default()
 
-	// Find MANIFEST file
-	manifestPath := ""
-	entries, err := fs.ListDir(*dbPath)
+	// Read CURRENT file to find the active MANIFEST
+	currentPath := filepath.Join(*dbPath, "CURRENT")
+	currentData, err := os.ReadFile(currentPath)
 	if err != nil {
-		return fmt.Errorf("failed to list directory: %w", err)
+		return fmt.Errorf("failed to read CURRENT file: %w", err)
 	}
 
-	for _, entry := range entries {
-		if strings.HasPrefix(entry, "MANIFEST-") {
-			manifestPath = filepath.Join(*dbPath, entry)
-			break
-		}
+	manifestName := strings.TrimSpace(string(currentData))
+	if manifestName == "" || !strings.HasPrefix(manifestName, "MANIFEST-") {
+		return fmt.Errorf("invalid CURRENT file content: %q", manifestName)
 	}
 
-	if manifestPath == "" {
-		return fmt.Errorf("MANIFEST file not found in %s", *dbPath)
+	manifestPath := filepath.Join(*dbPath, manifestName)
+	if _, err := fs.Stat(manifestPath); err != nil {
+		return fmt.Errorf("MANIFEST file %s not found: %w", manifestPath, err)
 	}
 
 	fmt.Printf("MANIFEST file: %s\n", manifestPath)
