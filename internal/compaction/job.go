@@ -72,6 +72,20 @@ type Filter interface {
 	Filter(level int, key, value []byte) (decision FilterDecision, newValue []byte)
 }
 
+// MergeOperator is the interface for user-defined merge operations during compaction.
+// When multiple merge operands exist for the same key, they are combined using FullMerge.
+type MergeOperator interface {
+	// FullMerge performs a merge operation.
+	// Parameters:
+	// - key: The key associated with this merge operation
+	// - existingValue: The existing value (nil if key doesn't exist)
+	// - operands: List of merge operands to apply, oldest first
+	// Returns:
+	// - newValue: The result of the merge
+	// - ok: Whether the merge succeeded
+	FullMerge(key []byte, existingValue []byte, operands [][]byte) (newValue []byte, ok bool)
+}
+
 // CompactionJob performs a single compaction operation.
 // It reads from input files, merges them, and writes to new output files.
 type CompactionJob struct {
@@ -98,9 +112,13 @@ type CompactionJob struct {
 	// Compaction filter for custom filtering/transformation during compaction
 	filter Filter
 
+	// Merge operator for combining merge operands during compaction
+	mergeOperator MergeOperator
+
 	// Statistics about filtered entries
 	filteredRecords uint64
 	changedRecords  uint64
+	mergedRecords   uint64
 }
 
 // NewCompactionJob creates a new compaction job.
@@ -161,6 +179,12 @@ func NewCompactionJobWithRateLimiter(
 // The filter will be called for each key-value pair during compaction.
 func (j *CompactionJob) SetFilter(f Filter) {
 	j.filter = f
+}
+
+// SetMergeOperator sets the merge operator for this job.
+// When set, merge operands for the same key will be combined during compaction.
+func (j *CompactionJob) SetMergeOperator(m MergeOperator) {
+	j.mergeOperator = m
 }
 
 // FilterStats returns statistics about filtered entries.
@@ -282,10 +306,9 @@ func (j *CompactionJob) sstPath(fileNum uint64) string {
 }
 
 // processEntries iterates through all entries and writes them to output files.
+// When a merge operator is configured, merge operands for the same key are combined.
 func (j *CompactionJob) processEntries(iter *iterator.MergingIterator) error {
-	var builder *table.TableBuilder
-	var currentFile *compactionOutputFile
-	var err error
+	proc := newCompactionProcessor(j)
 
 	iter.SeekToFirst()
 
@@ -299,54 +322,19 @@ func (j *CompactionJob) processEntries(iter *iterator.MergingIterator) error {
 			continue
 		}
 
-		// Apply compaction filter if configured
-		if j.filter != nil {
-			// Extract user key from internal key for the filter
-			userKey := dbformat.ExtractUserKey(key)
-
-			decision, newValue := j.filter.Filter(j.compaction.OutputLevel, userKey, value)
-			switch decision {
-			case FilterRemove:
-				// Skip this entry
-				j.filteredRecords++
-				iter.Next()
-				continue
-			case FilterChange:
-				// Use the new value
-				value = newValue
-				j.changedRecords++
-				// FilterKeep: continue with original value
-			}
-		}
-
-		// Check if we should start a new output file
-		if builder == nil || j.shouldFinishFile(currentFile, key) {
-			// Finish current file if any
-			if builder != nil {
-				err = j.finishOutputFile(builder, currentFile)
-				if err != nil {
-					return err
-				}
-			}
-
-			// Start new file
-			currentFile, builder, err = j.startOutputFile()
-			if err != nil {
+		// If no merge operator, write entries as-is (original behavior)
+		if j.mergeOperator == nil {
+			if err := proc.writeRawEntry(key, value); err != nil {
 				return err
 			}
+			iter.Next()
+			continue
 		}
 
-		// Add the key-value pair
-		err = builder.Add(key, value)
-		if err != nil {
-			return fmt.Errorf("add to builder: %w", err)
+		// Merge operator is configured - handle merge operand accumulation
+		if err := proc.processEntryWithMerge(key, value); err != nil {
+			return err
 		}
-
-		// Track key range
-		if currentFile.smallest == nil {
-			currentFile.smallest = append([]byte{}, key...)
-		}
-		currentFile.largest = append(currentFile.largest[:0], key...)
 
 		iter.Next()
 	}
@@ -355,15 +343,258 @@ func (j *CompactionJob) processEntries(iter *iterator.MergingIterator) error {
 		return fmt.Errorf("iterator error: %w", err)
 	}
 
+	// Flush any remaining accumulated merge state
+	if err := proc.flushMerge(); err != nil {
+		return err
+	}
+
 	// Finish the last file
-	if builder != nil {
-		err = j.finishOutputFile(builder, currentFile)
+	return proc.finish()
+}
+
+// =============================================================================
+// compactionProcessor: Helper for processEntries
+// =============================================================================
+//
+// compactionProcessor manages the mutable state during entry processing.
+// It handles output file management and merge operand accumulation.
+
+// compactionProcessor holds the mutable state for processing compaction entries.
+type compactionProcessor struct {
+	job         *CompactionJob
+	builder     *table.TableBuilder
+	currentFile *compactionOutputFile
+
+	// Merge accumulator state (only used when merge operator is configured)
+	currentUserKey []byte
+	mergeOperands  [][]byte                // Collected in newest-first order
+	baseValue      []byte                  // Base value (from Put) if found
+	hasBaseValue   bool                    // Whether we found a Put for this key
+	baseSeqNum     dbformat.SequenceNumber // Sequence number for output key
+	isDeleted      bool                    // Whether key is deleted
+}
+
+// newCompactionProcessor creates a new processor for the given job.
+func newCompactionProcessor(job *CompactionJob) *compactionProcessor {
+	return &compactionProcessor{job: job}
+}
+
+// writeRawEntry writes an entry using its original internal key.
+// This is the fast path when no merge operator is configured.
+func (p *compactionProcessor) writeRawEntry(internalKey, value []byte) error {
+	userKey := dbformat.ExtractUserKey(internalKey)
+
+	// Apply compaction filter if configured
+	if p.job.filter != nil {
+		decision, newValue := p.job.filter.Filter(p.job.compaction.OutputLevel, userKey, value)
+		switch decision {
+		case FilterRemove:
+			p.job.filteredRecords++
+			return nil
+		case FilterChange:
+			value = newValue
+			p.job.changedRecords++
+		}
+	}
+
+	return p.addToOutput(internalKey, value)
+}
+
+// writeEntry writes an entry by constructing a new internal key.
+// Used when emitting merged results.
+func (p *compactionProcessor) writeEntry(userKey, value []byte, seqNum dbformat.SequenceNumber, valueType dbformat.ValueType) error {
+	internalKey := dbformat.NewInternalKey(userKey, seqNum, valueType)
+
+	// Apply compaction filter if configured
+	if p.job.filter != nil {
+		decision, newValue := p.job.filter.Filter(p.job.compaction.OutputLevel, userKey, value)
+		switch decision {
+		case FilterRemove:
+			p.job.filteredRecords++
+			return nil
+		case FilterChange:
+			value = newValue
+			p.job.changedRecords++
+		}
+	}
+
+	return p.addToOutput(internalKey, value)
+}
+
+// addToOutput adds a key-value pair to the current output file.
+// Creates a new file if needed.
+func (p *compactionProcessor) addToOutput(internalKey, value []byte) error {
+	// Check if we should start a new output file
+	if p.builder == nil || p.job.shouldFinishFile(p.currentFile, internalKey) {
+		if p.builder != nil {
+			if err := p.job.finishOutputFile(p.builder, p.currentFile); err != nil {
+				return err
+			}
+		}
+		var err error
+		p.currentFile, p.builder, err = p.job.startOutputFile()
 		if err != nil {
 			return err
 		}
 	}
 
+	// Add the key-value pair
+	if err := p.builder.Add(internalKey, value); err != nil {
+		return fmt.Errorf("add to builder: %w", err)
+	}
+
+	// Track key range
+	if p.currentFile.smallest == nil {
+		p.currentFile.smallest = append([]byte{}, internalKey...)
+	}
+	p.currentFile.largest = append(p.currentFile.largest[:0], internalKey...)
+
 	return nil
+}
+
+// processEntryWithMerge handles an entry when merge operator is configured.
+// Accumulates merge operands and flushes when user key changes.
+func (p *compactionProcessor) processEntryWithMerge(key, value []byte) error {
+	userKey := dbformat.ExtractUserKey(key)
+	seqNum := dbformat.ExtractSequenceNumber(key)
+	valueType := dbformat.ExtractValueType(key)
+
+	// Check if we're starting a new user key
+	if p.currentUserKey == nil || !bytesEqual(userKey, p.currentUserKey) {
+		// Flush previous key's accumulated state
+		if err := p.flushMerge(); err != nil {
+			return err
+		}
+
+		// Start new accumulation
+		p.currentUserKey = append(p.currentUserKey[:0], userKey...)
+		p.baseSeqNum = seqNum // Use highest seqnum (first seen) for output
+		p.mergeOperands = nil
+		p.baseValue = nil
+		p.hasBaseValue = false
+		p.isDeleted = false
+	}
+
+	// Process based on value type
+	switch valueType {
+	case dbformat.TypeValue:
+		// Found a Put - this is the base value
+		p.baseValue = append([]byte{}, value...)
+		p.hasBaseValue = true
+
+	case dbformat.TypeMerge:
+		// Accumulate merge operand (newest first)
+		p.mergeOperands = append(p.mergeOperands, append([]byte{}, value...))
+
+	case dbformat.TypeDeletion, dbformat.TypeSingleDeletion:
+		// Delete wins - discard any accumulated operands
+		p.isDeleted = true
+
+	default:
+		// For other types (range delete, etc.), write directly
+		if err := p.writeEntry(userKey, value, seqNum, valueType); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// flushMerge flushes any accumulated merge operands for the current user key.
+func (p *compactionProcessor) flushMerge() error {
+	if p.currentUserKey == nil {
+		return nil
+	}
+
+	// If deleted, skip (delete wins over merges)
+	if p.isDeleted {
+		p.resetMergeState()
+		return nil
+	}
+
+	// If no merge operands, write the base value directly
+	if len(p.mergeOperands) == 0 {
+		if p.hasBaseValue {
+			err := p.writeEntry(p.currentUserKey, p.baseValue, p.baseSeqNum, dbformat.TypeValue)
+			p.resetMergeState()
+			return err
+		}
+		p.resetMergeState()
+		return nil
+	}
+
+	// Combine operands using merge operator
+	if p.job.mergeOperator != nil {
+		// Reverse operands to get oldest-first order for FullMerge
+		reversed := make([][]byte, len(p.mergeOperands))
+		for i, op := range p.mergeOperands {
+			reversed[len(p.mergeOperands)-1-i] = op
+		}
+
+		var existingValue []byte
+		if p.hasBaseValue {
+			existingValue = p.baseValue
+		}
+
+		mergedValue, ok := p.job.mergeOperator.FullMerge(p.currentUserKey, existingValue, reversed)
+		if !ok {
+			return fmt.Errorf("merge operator failed for key %q", p.currentUserKey)
+		}
+
+		p.job.mergedRecords++
+		err := p.writeEntry(p.currentUserKey, mergedValue, p.baseSeqNum, dbformat.TypeValue)
+		p.resetMergeState()
+		return err
+	}
+
+	// No merge operator configured - write entries as-is (fallback)
+	if p.hasBaseValue {
+		if err := p.writeEntry(p.currentUserKey, p.baseValue, p.baseSeqNum, dbformat.TypeValue); err != nil {
+			return err
+		}
+	}
+	for _, op := range p.mergeOperands {
+		if err := p.writeEntry(p.currentUserKey, op, p.baseSeqNum, dbformat.TypeMerge); err != nil {
+			return err
+		}
+	}
+
+	p.resetMergeState()
+	return nil
+}
+
+// resetMergeState clears the merge accumulator.
+func (p *compactionProcessor) resetMergeState() {
+	p.currentUserKey = nil
+	p.mergeOperands = nil
+	p.baseValue = nil
+	p.hasBaseValue = false
+	p.isDeleted = false
+}
+
+// finish completes the current output file if any.
+func (p *compactionProcessor) finish() error {
+	if p.builder != nil {
+		return p.job.finishOutputFile(p.builder, p.currentFile)
+	}
+	return nil
+}
+
+// =============================================================================
+// End of compactionProcessor helpers
+// =============================================================================
+
+// bytesEqual compares two byte slices for equality.
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // shouldDropKey checks if a key should be dropped during compaction.

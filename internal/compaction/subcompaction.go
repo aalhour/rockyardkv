@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"github.com/aalhour/rockyardkv/internal/block"
+	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/iterator"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/table"
@@ -78,6 +79,9 @@ type ParallelCompactionJob struct {
 
 	// Aggregate statistics
 	stats SubcompactionStats
+
+	// Merge operator for combining merge operands during compaction
+	mergeOperator MergeOperator
 }
 
 // NewParallelCompactionJob creates a new parallel compaction job.
@@ -107,6 +111,12 @@ func NewParallelCompactionJob(
 	}
 }
 
+// SetMergeOperator sets the merge operator for this job.
+// When set, merge operands for the same key will be combined during compaction.
+func (job *ParallelCompactionJob) SetMergeOperator(m MergeOperator) {
+	job.mergeOperator = m
+}
+
 // Run executes the parallel compaction job.
 func (job *ParallelCompactionJob) Run() ([]*manifest.FileMetaData, error) {
 	// Partition the key range
@@ -115,6 +125,9 @@ func (job *ParallelCompactionJob) Run() ([]*manifest.FileMetaData, error) {
 	if len(boundaries) <= 2 {
 		// Not enough range to parallelize, use single compaction
 		singleJob := NewCompactionJob(job.compaction, job.dbPath, job.fs, job.tableCache, job.nextFileNum)
+		if job.mergeOperator != nil {
+			singleJob.SetMergeOperator(job.mergeOperator)
+		}
 		return singleJob.Run()
 	}
 
@@ -350,6 +363,71 @@ func (job *ParallelCompactionJob) runSubcompaction(sub *SubcompactionState) erro
 		return nil
 	}
 
+	// Helper to write an entry to the current file
+	writeEntry := func(internalKey, value []byte) error {
+		// Start a new file if needed
+		if currentBuilder == nil {
+			if err := startNewFile(); err != nil {
+				return err
+			}
+		}
+
+		// Track key range
+		if currentFile.Smallest == nil {
+			currentFile.Smallest = append([]byte(nil), internalKey...)
+		}
+		currentFile.Largest = append(currentFile.Largest[:0], internalKey...)
+
+		// Add to current file
+		if err := currentBuilder.Add(internalKey, value); err != nil {
+			return err
+		}
+		sub.stats.NumOutputRecords++
+		entriesInCurrentFile++
+
+		// Check if we need to finish the current file (based on entry count estimate)
+		if entriesInCurrentFile >= targetEntriesPerFile {
+			if err := finishCurrentFile(); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// Merge accumulator state (only used when merge operator is configured)
+	var currentUserKey []byte
+	var mergeOperands [][]byte
+	var baseSeqNum dbformat.SequenceNumber
+
+	// Helper to flush accumulated merge operands
+	flushMergeOperands := func(baseValue []byte) error {
+		if len(mergeOperands) == 0 || job.mergeOperator == nil {
+			return nil
+		}
+
+		// Reverse operands to get oldest-first order for FullMerge
+		reversed := make([][]byte, len(mergeOperands))
+		for i, op := range mergeOperands {
+			reversed[len(mergeOperands)-1-i] = op
+		}
+
+		mergedValue, ok := job.mergeOperator.FullMerge(currentUserKey, baseValue, reversed)
+		if !ok {
+			return fmt.Errorf("merge operator failed for key %q", currentUserKey)
+		}
+
+		internalKey := dbformat.NewInternalKey(currentUserKey, baseSeqNum, dbformat.TypeValue)
+		return writeEntry(internalKey, mergedValue)
+	}
+
+	// Helper to reset merge state
+	resetMergeState := func() {
+		currentUserKey = nil
+		mergeOperands = nil
+		baseSeqNum = 0
+	}
+
 	// Iterate through the merged data
 	// Note: sub.startKey and sub.endKey are USER KEYS (not internal keys)
 	for merged.SeekToFirst(); merged.Valid(); merged.Next() {
@@ -370,29 +448,64 @@ func (job *ParallelCompactionJob) runSubcompaction(sub *SubcompactionState) erro
 
 		sub.stats.NumInputRecords++
 
-		// Start a new file if needed
-		if currentBuilder == nil {
-			if err := startNewFile(); err != nil {
+		// If no merge operator, write entries as-is (original behavior)
+		if job.mergeOperator == nil {
+			if err := writeEntry(key, value); err != nil {
 				return err
 			}
+			continue
 		}
 
-		// Track key range
-		if currentFile.Smallest == nil {
-			currentFile.Smallest = append([]byte(nil), key...)
-		}
-		currentFile.Largest = append(currentFile.Largest[:0], key...)
+		// Merge operator is configured - handle merge operand accumulation
+		seqNum := dbformat.ExtractSequenceNumber(key)
+		valueType := dbformat.ExtractValueType(key)
 
-		// Add to current file
-		if err := currentBuilder.Add(key, value); err != nil {
-			return err
-		}
-		sub.stats.NumOutputRecords++
-		entriesInCurrentFile++
+		// Check if we're starting a new user key
+		if currentUserKey == nil || !bytes.Equal(userKey, currentUserKey) {
+			// Flush any pending merge operands without a base value
+			if len(mergeOperands) > 0 {
+				if err := flushMergeOperands(nil); err != nil {
+					return err
+				}
+			}
 
-		// Check if we need to finish the current file (based on entry count estimate)
-		if entriesInCurrentFile >= targetEntriesPerFile {
-			if err := finishCurrentFile(); err != nil {
+			// Start new accumulation
+			currentUserKey = append(currentUserKey[:0], userKey...)
+			baseSeqNum = seqNum
+			mergeOperands = nil
+		}
+
+		// Process based on value type
+		switch valueType {
+		case dbformat.TypeMerge:
+			// Accumulate merge operand (newest first)
+			mergeOperands = append(mergeOperands, append([]byte{}, value...))
+
+		case dbformat.TypeValue:
+			// Found a Put - flush merge operands with this base value
+			if len(mergeOperands) > 0 {
+				if err := flushMergeOperands(value); err != nil {
+					return err
+				}
+				resetMergeState()
+			} else {
+				// No merge operands, write the Put directly
+				if err := writeEntry(key, value); err != nil {
+					return err
+				}
+			}
+
+		case dbformat.TypeDeletion, dbformat.TypeSingleDeletion:
+			// Delete discards any accumulated merge operands
+			resetMergeState()
+			// Write the deletion marker
+			if err := writeEntry(key, value); err != nil {
+				return err
+			}
+
+		default:
+			// For other types, write directly
+			if err := writeEntry(key, value); err != nil {
 				return err
 			}
 		}
@@ -400,6 +513,13 @@ func (job *ParallelCompactionJob) runSubcompaction(sub *SubcompactionState) erro
 
 	if err := merged.Error(); err != nil {
 		return err
+	}
+
+	// Flush any remaining merge operands (without a base value)
+	if len(mergeOperands) > 0 {
+		if err := flushMergeOperands(nil); err != nil {
+			return err
+		}
 	}
 
 	// Finish the last file

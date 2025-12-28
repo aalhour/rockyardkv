@@ -93,6 +93,15 @@ func (a *compactionFilterAdapter) Filter(level int, key, value []byte) (compacti
 	}
 }
 
+// mergeOperatorAdapter adapts db.MergeOperator to compaction.MergeOperator.
+type mergeOperatorAdapter struct {
+	op MergeOperator
+}
+
+func (a *mergeOperatorAdapter) FullMerge(key []byte, existingValue []byte, operands [][]byte) ([]byte, bool) {
+	return a.op.FullMerge(key, existingValue, operands)
+}
+
 // createCompactionPicker creates the appropriate picker based on options.
 func createCompactionPicker(opts *Options) compaction.CompactionPicker {
 	switch opts.CompactionStyle {
@@ -398,12 +407,21 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 		compFilter = &compactionFilterAdapter{filter: bg.db.options.CompactionFilter}
 	}
 
+	// Get merge operator from database options
+	var mergeOp compaction.MergeOperator
+	if bg.db.options.MergeOperator != nil {
+		mergeOp = &mergeOperatorAdapter{op: bg.db.options.MergeOperator}
+	}
+
 	if bg.maxSubcompactions > 1 && c.NumInputFiles() >= 4 {
 		// Use parallel compaction for larger jobs
 		parallelJob := compaction.NewParallelCompactionJob(
 			c, dbPath, fs, tableCache, nextFileNum, bg.maxSubcompactions,
 		)
-		// TODO: Add filter support to parallel compaction job
+		// TODO: Add filter and merge operator support to parallel compaction job
+		if mergeOp != nil {
+			parallelJob.SetMergeOperator(mergeOp)
+		}
 		outputFiles, err = parallelJob.Run()
 	} else {
 		// Use single-threaded compaction with rate limiter
@@ -412,6 +430,9 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 		)
 		if compFilter != nil {
 			job.SetFilter(compFilter)
+		}
+		if mergeOp != nil {
+			job.SetMergeOperator(mergeOp)
 		}
 		outputFiles, err = job.Run()
 	}
