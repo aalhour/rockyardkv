@@ -5,8 +5,6 @@ run:
   tests: true
   modules-download-mode: readonly
   go: "1.25"
-  skip-dirs:
-    - tmp
 
 linters:
   default: none
