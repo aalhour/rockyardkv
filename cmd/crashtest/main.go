@@ -306,6 +306,10 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 	}
 	if *stressDisableWAL {
 		stressArgs = append(stressArgs, "-disable-wal")
+		// Track durable state at flush barriers for DisableWAL mode.
+		// This allows verification to tolerate unflushed writes being lost.
+		durableStateFile := expectedStateFile + ".durable"
+		stressArgs = append(stressArgs, "-durable-state", durableStateFile)
 	}
 
 	// Propagate fault injection flags to stresstest for durability testing.
@@ -393,6 +397,11 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 	}
 	if *stressDisableWAL {
 		stressArgs = append(stressArgs, "-disable-wal")
+		// Pass durable state file for DisableWAL verification.
+		// This allows the verifier to compare against the last flush barrier
+		// instead of the full expected state (unflushed writes may be lost).
+		durableStateFile := expectedStateFile + ".durable"
+		stressArgs = append(stressArgs, "-durable-state", durableStateFile)
 	}
 
 	// Propagate fault injection flags for verification as well.

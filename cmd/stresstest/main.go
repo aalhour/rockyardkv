@@ -71,6 +71,7 @@ var (
 	saveExpectedInterval = flag.Duration("save-expected-interval", 1*time.Second, "Interval to persist expected state during the run (0 to disable)")
 	verifyOnly           = flag.Bool("verify-only", false, "Verify database state using expected state file, without running operations")
 	allowDBAhead         = flag.Bool("allow-db-ahead", false, "Allow DB to have more data than expected state (for crash testing with race conditions)")
+	durableState         = flag.String("durable-state", "", "Path to durable state file (for DisableWAL verification - tracks flush barriers)")
 
 	// Operation weights (sum to 100)
 	putWeight            = flag.Int("put", 30, "Put operation weight")
@@ -294,8 +295,24 @@ func main() {
 		}
 		defer database.Close()
 
+		// When DisableWAL was used, we should verify against durable state (flush barriers)
+		// instead of the full expected state. This is because unflushed writes are not
+		// guaranteed to survive a crash with DisableWAL=true.
+		verifyState := expState
+		if *durableState != "" {
+			durState, err := testutil.LoadExpectedStateV2FromFile(*durableState)
+			if err == nil {
+				if *verbose {
+					fmt.Printf("📂 Using durable state for verification (seqno: %d)\n", durState.GetPersistedSeqno())
+				}
+				verifyState = durState
+			} else if *verbose {
+				fmt.Printf("⚠️  Could not load durable state from %s: %v (using expected state)\n", *durableState, err)
+			}
+		}
+
 		fmt.Println("\n🔍 Running final verification...")
-		if err := verifyAll(database, expState, stats); err != nil {
+		if err := verifyAll(database, verifyState, stats); err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: final verification failed: %v\n", err)
 			exitWithFailure(err, testDir)
 		}
@@ -564,7 +581,7 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	// Start flush thread if enabled
 	if *flushPeriod > 0 {
 		wg.Go(func() {
-			runFlusher(holder, stats, stop)
+			runFlusher(holder, expected, stats, stop)
 		})
 	}
 
@@ -1922,7 +1939,7 @@ func runReopener(holder *dbHolder, stats *Stats, stop chan struct{}) {
 	}
 }
 
-func runFlusher(holder *dbHolder, stats *Stats, stop chan struct{}) {
+func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats, stop chan struct{}) {
 	ticker := time.NewTicker(*flushPeriod)
 	defer ticker.Stop()
 
@@ -1939,6 +1956,18 @@ func runFlusher(holder *dbHolder, stats *Stats, stop chan struct{}) {
 					}
 				} else {
 					stats.flushes.Add(1)
+
+					// When DisableWAL is enabled, save durable state after successful flush.
+					// This creates a "durability barrier" - the expected state at this point
+					// is guaranteed to be durable on disk. After a crash, verification should
+					// use this durable state instead of the full expected state.
+					if *disableWAL && *durableState != "" {
+						if err := expected.SaveToFile(*durableState); err != nil {
+							if *verbose {
+								fmt.Printf("Durable state save error: %v\n", err)
+							}
+						}
+					}
 				}
 			}
 			holder.mu.RUnlock()
