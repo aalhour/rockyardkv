@@ -249,9 +249,25 @@ func (db *DBImpl) doFlush() error {
 	// If/when we implement WAL rotation (like RocksDB), the immutable memtable's
 	// nextLogNumber should be used here to advance LogNumber.
 	// Reference: RocksDB v10.7.5 db/flush_job.cc:206 (SetLogNumber)
+	//
+	// CRITICAL FIX (C02): Use the largest sequence from the flushed SST, not db.seq.
+	// Between memtable switch and flush completion, new writes to the active memtable
+	// increment db.seq. If we use db.seq here, LastSequence will include sequences
+	// that are NOT in the flushed SST. With DisableWAL, those sequences are lost on
+	// crash but LastSequence preserves them, causing sequence reuse and collisions.
+	//
+	// LastSequence must be MONOTONIC (never decrease). Use max of flushed SST's
+	// largest sequence and the previous LastSequence to ensure this property.
+	// Reference: docs/redteam/ISSUES/C02.md
+	newLastSeq := meta.FD.LargestSeqno
+	prevLastSeq := manifest.SequenceNumber(db.versions.LastSequence())
+	if prevLastSeq > newLastSeq {
+		newLastSeq = prevLastSeq
+	}
+
 	edit := &manifest.VersionEdit{
 		HasLastSequence: true,
-		LastSequence:    manifest.SequenceNumber(db.seq),
+		LastSequence:    newLastSeq,
 		// HasLogNumber intentionally NOT set - don't advance LogNumber during flush
 	}
 	edit.NewFiles = append(edit.NewFiles, manifest.NewFileEntry{
@@ -267,6 +283,10 @@ func (db *DBImpl) doFlush() error {
 		db.mu.Unlock()
 		return fmt.Errorf("failed to log version edit: %w", err)
 	}
+
+	// CRITICAL (C02): LogAndApply writes to MANIFEST but doesn't update in-memory lastSequence.
+	// We must update it here to ensure subsequent flushes use the correct base value.
+	db.versions.SetLastSequence(uint64(newLastSeq))
 
 	// Whitebox [crashtest]: crash after manifest update — flush complete
 	testutil.MaybeKill(testutil.KPFlushUpdateManifest1)

@@ -24,6 +24,9 @@ import (
 // logFileRegex matches log file names like "000001.log"
 var logFileRegex = regexp.MustCompile(`^(\d{6})\.log$`)
 
+// sstFileRegex matches SST file names like "000001.sst"
+var sstFileRegex = regexp.MustCompile(`^(\d{6})\.sst$`)
+
 // replayWAL replays all WAL files that haven't been flushed yet.
 // This recovers any writes that were made but not yet persisted to SST files.
 func (db *DBImpl) replayWAL() error {
@@ -156,6 +159,68 @@ func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
 	}
 
 	return maxSeq, nil
+}
+
+// deleteOrphanedSSTFiles removes SST files that aren't referenced in the MANIFEST.
+// This is critical for preventing internal key collisions after crash recovery.
+//
+// Scenario:
+//  1. Flush writes SST file and syncs it
+//  2. Crash occurs before MANIFEST update is synced
+//  3. faultfs drops unsynced MANIFEST write
+//  4. SST file exists but isn't in MANIFEST (orphaned)
+//  5. On recovery, LastSequence from old MANIFEST is used
+//  6. New writes reuse sequence numbers from orphaned SST → COLLISION
+//
+// Reference: RocksDB db/db_impl/db_impl_files.cc DeleteObsoleteFiles
+func (db *DBImpl) deleteOrphanedSSTFiles() error {
+	// Get all SST file numbers referenced in the current version
+	liveFiles := make(map[uint64]bool)
+	version := db.versions.Current()
+	if version != nil {
+		for level := range version.NumLevels() {
+			files := version.Files(level)
+			for _, f := range files {
+				liveFiles[f.FD.GetNumber()] = true
+			}
+		}
+	}
+
+	// Find all SST files in the directory
+	entries, err := db.fs.ListDir(db.name)
+	if err != nil {
+		return fmt.Errorf("failed to list directory: %w", err)
+	}
+
+	orphanCount := 0
+	for _, entry := range entries {
+		matches := sstFileRegex.FindStringSubmatch(entry)
+		if matches == nil {
+			continue
+		}
+
+		num, err := strconv.ParseUint(matches[1], 10, 64)
+		if err != nil {
+			continue
+		}
+
+		// If not in live files, it's orphaned - delete it
+		if !liveFiles[num] {
+			sstPath := db.sstFilePath(num)
+			if err := db.fs.Remove(sstPath); err != nil {
+				// Log but don't fail - orphan cleanup is best-effort
+				continue
+			}
+			orphanCount++
+		}
+	}
+
+	if orphanCount > 0 {
+		// This is expected behavior in faultfs testing
+		_ = orphanCount // Could log if we had a logger
+	}
+
+	return nil
 }
 
 // RecoverLogFile is a helper to parse a log file for testing.
