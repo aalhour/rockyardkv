@@ -77,4 +77,8 @@ const (
 	// Generic file kill points
 	KPFileSync0 = "File.Sync:0"
 	KPFileSync1 = "File.Sync:1"
+
+	// Directory sync kill points
+	KPDirSync0 = "Dir.Sync:0"
+	KPDirSync1 = "Dir.Sync:1"
 )
