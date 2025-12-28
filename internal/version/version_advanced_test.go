@@ -240,9 +240,9 @@ func TestVersionSetSequenceNumbers(t *testing.T) {
 		t.Fatalf("LogAndApply() error = %v", err)
 	}
 
-	// In-memory sequence unchanged (caller is responsible for updating)
-	if vs.LastSequence() != 200 {
-		t.Errorf("LastSequence() after edit = %d, want 200 (LogAndApply doesn't update in-memory seq)", vs.LastSequence())
+	// In-memory sequence is advanced so future MANIFEST snapshots can't regress seqno.
+	if vs.LastSequence() != 300 {
+		t.Errorf("LastSequence() after edit = %d, want 300", vs.LastSequence())
 	}
 }
 

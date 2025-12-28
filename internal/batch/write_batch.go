@@ -119,6 +119,112 @@ func (wb *WriteBatch) Count() uint32 {
 	return binary.LittleEndian.Uint32(wb.data[8:12])
 }
 
+// EffectiveCount returns the number of sequence-consuming records present in the
+// batch payload, derived from the record bytes (not the header count field).
+//
+// This excludes marker-like records that do not consume sequence numbers:
+// - LogData
+// - Noop
+// - 2PC markers (begin/end prepare, commit, rollback)
+//
+// It mirrors what Iterate() would apply to a batch.Handler in terms of which
+// record types represent database mutations.
+func (wb *WriteBatch) EffectiveCount() (uint32, error) {
+	if len(wb.data) < HeaderSize {
+		return 0, ErrTooSmall
+	}
+
+	data := wb.data[HeaderSize:]
+	var count uint32
+
+	for len(data) > 0 {
+		tag := data[0]
+		data = data[1:]
+
+		var cfID uint32
+		var err error
+
+		switch tag {
+		case TypeColumnFamilyValue, TypeColumnFamilyMerge, TypeColumnFamilyRangeDeletion,
+			TypeColumnFamilyDeletion, TypeColumnFamilySingleDeletion:
+			cfID, data, err = decodeVarint32(data)
+			_ = cfID // We only need to consume it for counting/parsing.
+			if err != nil {
+				return 0, err
+			}
+		}
+
+		switch tag {
+		case TypeValue, TypeColumnFamilyValue,
+			TypeMerge, TypeColumnFamilyMerge,
+			TypeRangeDeletion, TypeColumnFamilyRangeDeletion:
+			// key
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+			// value
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+			count++
+
+		case TypeDeletion, TypeColumnFamilyDeletion,
+			TypeSingleDeletion, TypeColumnFamilySingleDeletion:
+			// key only
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+			count++
+
+		case TypeLogData:
+			// blob (ignored)
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+
+		case TypeNoop:
+			// nothing to consume
+
+		// 2PC markers (non-counted)
+		case TypeBeginPrepareXID, TypeBeginPersistedPrepareXID, TypeBeginUnprepareXID:
+			// nothing to consume
+
+		case TypeEndPrepareXID:
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+
+		case TypeCommitXID, TypeCommitXIDAndTimestamp:
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+			if tag == TypeCommitXIDAndTimestamp {
+				if len(data) < 8 {
+					return 0, ErrCorrupted
+				}
+				data = data[8:]
+			}
+
+		case TypeRollbackXID:
+			_, data, err = decodeLengthPrefixed(data)
+			if err != nil {
+				return 0, err
+			}
+
+		default:
+			return 0, ErrCorrupted
+		}
+	}
+
+	return count, nil
+}
+
 // SetCount sets the count field.
 func (wb *WriteBatch) SetCount(count uint32) {
 	binary.LittleEndian.PutUint32(wb.data[8:12], count)

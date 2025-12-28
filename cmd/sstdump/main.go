@@ -15,18 +15,23 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/internal/wal"
 )
 
 var (
@@ -34,6 +39,7 @@ var (
 	command         = flag.String("command", "scan", "Command: scan, properties, check, raw, collision-check")
 	dirPath         = flag.String("dir", "", "Directory containing SST files (required for command=collision-check)")
 	maxCollisions   = flag.Int("max-collisions", 1, "Stop after finding N collisions (command=collision-check)")
+	dbDir           = flag.String("db", "", "DB directory containing CURRENT/MANIFEST and SSTs (for command=collision-check; scans only LIVE files)")
 	hexOutput       = flag.Bool("hex", false, "Output keys and values in hex format")
 	limit           = flag.Int("limit", 0, "Limit number of entries (0 = unlimited)")
 	fromKey         = flag.String("from", "", "Start key for scan")
@@ -84,8 +90,8 @@ func main() {
 		}
 		err = cmdRaw()
 	case "collision-check":
-		if *dirPath == "" {
-			fmt.Fprintln(os.Stderr, "Error: --dir flag is required for --command=collision-check")
+		if *dbDir == "" && *dirPath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --db or --dir is required for --command=collision-check")
 			printUsage()
 			os.Exit(1)
 		}
@@ -101,6 +107,11 @@ func main() {
 	}
 
 	if err != nil {
+		var ce *collisionError
+		if errors.As(err, &ce) {
+			fmt.Fprintln(os.Stderr, ce.Error())
+			os.Exit(2)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -116,7 +127,7 @@ func printUsage() {
 	fmt.Println("  properties  Show SST file properties")
 	fmt.Println("  check       Verify SST file integrity")
 	fmt.Println("  raw         Show raw block information")
-	fmt.Println("  collision-check  Scan a directory of SSTs for internal-key collisions (same internal key, different values)")
+	fmt.Println("  collision-check  Scan for internal-key collisions (supports --db or --dir)")
 	fmt.Println()
 	fmt.Println("Options:")
 	flag.PrintDefaults()
@@ -432,7 +443,7 @@ type seenEntry struct {
 	len  int
 }
 
-func cmdCollisionCheck() error {
+func cmdCollisionCheckDir() error {
 	fs := vfs.Default()
 
 	entries, err := fs.ListDir(*dirPath)
@@ -533,4 +544,138 @@ func extractUserKey(internalKey []byte) []byte {
 // Note: Reserved for future hex key parsing support.
 func isHexString(s string) bool { //nolint:unused // reserved for future use
 	return strings.HasPrefix(s, "0x")
+}
+
+// =============================================================================
+// collision-check
+// =============================================================================
+
+type collisionError struct {
+	internalKeyHex string
+	file1          string
+	value1Hex      string
+	file2          string
+	value2Hex      string
+}
+
+func (e *collisionError) Error() string {
+	return fmt.Sprintf(
+		"internal_key_hex=%s\nsst1=%s value1_hex=%s\nsst2=%s value2_hex=%s",
+		e.internalKeyHex, e.file1, e.value1Hex, e.file2, e.value2Hex,
+	)
+}
+
+func cmdCollisionCheck() error {
+	// Prefer the live-set check when --db is provided, otherwise fall back
+	// to directory scan mode.
+	if *dbDir != "" {
+		return cmdCollisionCheckDB()
+	}
+	return cmdCollisionCheckDir()
+}
+
+func cmdCollisionCheckDB() error {
+	if *dbDir == "" {
+		return fmt.Errorf("--db is required for --command=collision-check (db mode)")
+	}
+
+	fs := vfs.Default()
+
+	live, err := liveSSTFilesFromCurrent(*dbDir)
+	if err != nil {
+		return err
+	}
+	sort.Strings(live)
+
+	type seen struct {
+		valueHex string
+		file     string
+	}
+	byKey := make(map[string]seen, 1024)
+
+	for _, sstPath := range live {
+		file, err := fs.OpenRandomAccess(sstPath)
+		if err != nil {
+			return fmt.Errorf("open sst %s: %w", sstPath, err)
+		}
+		reader, err := table.Open(file, table.ReaderOptions{})
+		if err != nil {
+			_ = file.Close()
+			return fmt.Errorf("open table %s: %w", sstPath, err)
+		}
+
+		it := reader.NewIterator()
+		for it.SeekToFirst(); it.Valid(); it.Next() {
+			khex := hex.EncodeToString(it.Key())
+			vhex := hex.EncodeToString(it.Value())
+			if prev, ok := byKey[khex]; ok {
+				if prev.valueHex != vhex {
+					_ = file.Close()
+					return &collisionError{
+						internalKeyHex: khex,
+						file1:          filepath.Base(prev.file),
+						value1Hex:      prev.valueHex,
+						file2:          filepath.Base(sstPath),
+						value2Hex:      vhex,
+					}
+				}
+				continue
+			}
+			byKey[khex] = seen{valueHex: vhex, file: sstPath}
+		}
+		if err := it.Error(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("iterate %s: %w", sstPath, err)
+		}
+		_ = file.Close()
+	}
+
+	fmt.Println("NO_COLLISIONS_FOUND")
+	return nil
+}
+
+func liveSSTFilesFromCurrent(dbDir string) ([]string, error) {
+	currentPath := filepath.Join(dbDir, "CURRENT")
+	curBytes, err := os.ReadFile(currentPath)
+	if err != nil {
+		return nil, fmt.Errorf("read CURRENT: %w", err)
+	}
+	manifestName := strings.TrimSpace(string(curBytes))
+	if manifestName == "" {
+		return nil, fmt.Errorf("CURRENT is empty")
+	}
+	manifestPath := filepath.Join(dbDir, manifestName)
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read MANIFEST %s: %w", manifestName, err)
+	}
+
+	reader := wal.NewStrictReader(bytes.NewReader(manifestData), nil, 0)
+	live := make(map[uint64]bool)
+	for {
+		rec, err := reader.ReadRecord()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// Partial manifest is possible in crash tests; treat it as fatal for this tool.
+			return nil, fmt.Errorf("read MANIFEST record: %w", err)
+		}
+		var ve manifest.VersionEdit
+		if err := ve.DecodeFrom(rec); err != nil {
+			return nil, fmt.Errorf("decode VersionEdit: %w", err)
+		}
+		for _, nf := range ve.NewFiles {
+			live[nf.Meta.FD.GetNumber()] = true
+		}
+		for _, df := range ve.DeletedFiles {
+			delete(live, df.FileNumber)
+		}
+	}
+
+	out := make([]string, 0, len(live))
+	for num := range live {
+		out = append(out, filepath.Join(dbDir, fmt.Sprintf("%06d.sst", num)))
+	}
+	return out, nil
 }

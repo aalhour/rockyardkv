@@ -281,6 +281,14 @@ func (fs *GoroutineLocalFaultInjectionFS) Create(name string) (WritableFile, err
 	return fs.FaultInjectionFS.Create(name)
 }
 
+// OpenAppend opens a file for appending with goroutine-local fault injection.
+func (fs *GoroutineLocalFaultInjectionFS) OpenAppend(name string) (WritableFile, error) {
+	if fs.faultManager.ShouldInjectWriteError() {
+		return nil, ErrInjectedWriteError
+	}
+	return fs.FaultInjectionFS.OpenAppend(name)
+}
+
 // Open opens a file with goroutine-local fault injection.
 func (fs *GoroutineLocalFaultInjectionFS) Open(name string) (SequentialFile, error) {
 	if fs.faultManager.ShouldInjectReadError() {

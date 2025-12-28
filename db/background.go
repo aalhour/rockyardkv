@@ -410,7 +410,14 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 	// Get merge operator from database options
 	var mergeOp compaction.MergeOperator
 	if bg.db.options.MergeOperator != nil {
-		mergeOp = &mergeOperatorAdapter{op: bg.db.options.MergeOperator}
+		// IMPORTANT: Do not perform merge operand consolidation during compaction.
+		// Correctness does not require compaction-time merges (reads can resolve
+		// merges), and doing so requires careful snapshot/sequence semantics.
+		// We keep compaction-time merge disabled to avoid rewriting values under
+		// identical internal keys across SSTs.
+		//
+		// Reference: RocksDB supports merge during compaction, but it's optional.
+		mergeOp = nil
 	}
 
 	if bg.maxSubcompactions > 1 && c.NumInputFiles() >= 4 {
@@ -431,9 +438,7 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 		if compFilter != nil {
 			job.SetFilter(compFilter)
 		}
-		if mergeOp != nil {
-			job.SetMergeOperator(mergeOp)
-		}
+		// Merge operator intentionally not set: compaction-time merges disabled
 		outputFiles, err = job.Run()
 	}
 	if err != nil {
