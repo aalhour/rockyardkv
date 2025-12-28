@@ -1,0 +1,31 @@
+# Dockerfile.ci - CI test container for RockyardKV
+#
+# Reproduces the GitHub Actions Linux test environment locally.
+#
+# Usage:
+#   docker build -f Dockerfile.ci -t rockyardkv-test .
+#   docker run --rm rockyardkv-test
+#
+# Or use: make test-linux
+
+FROM golang:1.25-bookworm
+
+# Install dependencies for race detector and debugging
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Default command: run tests with race detector (matches CI)
+CMD ["go", "test", "-v", "-race", "-timeout", "10m", "./..."]
+
