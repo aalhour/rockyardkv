@@ -39,7 +39,7 @@
   two_write_queues=false
   avoid_flush_during_recovery=false
   dump_malloc_stats=false
-  info_log_level=DEBUG_LEVEL
+  info_log_level=INFO_LEVEL
   write_thread_slow_yield_usec=3
   unordered_write=false
   follower_refresh_catchup_period_ms=10000
@@ -85,7 +85,7 @@
   use_adaptive_mutex=false
   prefix_seek_opt_in_only=false
   wal_filter=nullptr
-  create_if_missing=false
+  create_if_missing=true
   enforce_single_del_contracts=true
   allow_mmap_writes=false
   verify_sst_unique_id_in_manifest=true
@@ -124,7 +124,7 @@
   strict_max_successive_merges=false
   max_successive_merges=0
   enable_blob_garbage_collection=false
-  arena_block_size=1048576
+  arena_block_size=131072
   bottommost_compression_opts={use_zstd_dict_trainer=true;enabled=false;zstd_max_train_bytes=0;parallel_threads=1;max_compressed_bytes_per_kb=896;checksum=false;max_dict_bytes=0;strategy=0;max_dict_buffer_bytes=0;level=32767;window_bits=-14;}
   target_file_size_multiplier=1
   max_bytes_for_level_multiplier_additional=1:1:1:1:1:1:1
@@ -141,9 +141,9 @@
   block_protection_bytes_per_key=0
   prefix_extractor=nullptr
   max_bytes_for_level_multiplier=10.000000
-  write_buffer_size=67108864
+  write_buffer_size=1048576
   uncache_aggressiveness=0
-  disable_auto_compactions=false
+  disable_auto_compactions=true
   max_compaction_bytes=1677721600
   inplace_update_num_locks=10000
   periodic_compaction_seconds=0
@@ -174,7 +174,7 @@
   optimize_filters_for_hits=false
   default_temperature=kUnknown
   force_consistency_checks=true
-  merge_operator={id=StringAppendOperator;delimiter=\:;}
+  merge_operator=nullptr
   num_levels=7
   memtable_insert_with_hint_prefix_extractor=nullptr
   level_compaction_dynamic_level_bytes=true

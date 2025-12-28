@@ -303,8 +303,13 @@ status-adversarial-corruption: build ## Status: Run adversarial corruption suite
 	@echo "🧨 Running adversarial corruption suite ..."
 	@bash scripts/status/run_durability_repros.sh adversarial-corruption "$(STATUS_RUN_ROOT)/adversarial-corruption"
 
+.PHONY: status-durability-internal-key-collision
+status-durability-internal-key-collision: build ## Status: Repro + detect internal-key collisions across SSTs (writes artifacts)
+	@echo "🧪 Running internal-key collision repro/check ..."
+	@bash scripts/status/run_durability_repros.sh internal-key-collision "$(STATUS_RUN_ROOT)/internal-key-collision"
+
 .PHONY: status-durability
-status-durability: status-durability-wal-sync status-durability-wal-sync-sweep status-durability-disablewal-faultfs status-durability-disablewal-faultfs-minimize ## Status: Run durability repros (writes artifacts)
+status-durability: status-durability-wal-sync status-durability-wal-sync-sweep status-durability-disablewal-faultfs status-durability-disablewal-faultfs-minimize status-durability-internal-key-collision ## Status: Run durability repros (writes artifacts)
 	@echo "✅ Durability repros complete"
 
 .PHONY: status-check

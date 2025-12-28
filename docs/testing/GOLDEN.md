@@ -46,22 +46,45 @@ go test -v ./cmd/goldentest/...
 
 ## Prerequisites
 
-Build RocksDB tools before running tests that invoke C++ verification:
+Golden tests include **C++ oracle verification**. To run the full suite (including
+Go-writes → C++-verifies tests), you must build the RocksDB v10.7.5 CLI tools:
+`ldb` and `sst_dump`.
+
+### 1) Build C++ oracle tools (RocksDB v10.7.5)
 
 ```bash
-cd /path/to/rocksdb
-make ldb sst_dump
+export ROCKSDB_PATH="/path/to/rocksdb"   # repo root containing ./ldb and ./sst_dump
+( cd "$ROCKSDB_PATH" && make shared_lib ldb sst_dump )
 ```
 
-Set library path if needed:
+Notes:
+- `shared_lib` is required on macOS so `ldb` / `sst_dump` can locate `librocksdb*.dylib`.
+- Some environments may need additional shared libraries (snappy/lz4/zstd) available
+  to the dynamic linker (see below).
+
+### 2) Dynamic linker setup (macOS/Linux)
+
+The golden tests execute `ldb` / `sst_dump` and set `DYLD_LIBRARY_PATH` /
+`LD_LIBRARY_PATH` to the directory containing those binaries. If your RocksDB build
+or compression deps are not in default linker locations, export:
 
 ```bash
 # macOS
-export DYLD_LIBRARY_PATH=/path/to/rocksdb
+export DYLD_LIBRARY_PATH="$ROCKSDB_PATH${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
 # Linux
-export LD_LIBRARY_PATH=/path/to/rocksdb
+export LD_LIBRARY_PATH="$ROCKSDB_PATH${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
+
+If RocksDB depends on external shared libraries (snappy/lz4/zstd) that are not in
+standard linker paths, you may need to extend the variables above to include that
+directory too (e.g., a Homebrew/Conda lib directory).
+
+### 3) What happens if tools are missing?
+
+- Some tests may **skip** if `ldb` / `sst_dump` are not found.
+- For compatibility verification (CI and local “oracle-locked” runs), treat missing
+  tools as a setup error and install/build them as described above.
 
 ## Fixtures
 

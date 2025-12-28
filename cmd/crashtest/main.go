@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -43,6 +44,15 @@ var (
 	killMode         = flag.String("kill-mode", "random", "Kill mode: random, sigkill, sigterm")
 	minInterval      = flag.Duration("min-interval", 5*time.Second, "Minimum time before crash")
 
+	// Deterministic crash schedule (optional; default is random).
+	// If set, overrides the random crash timing for the stress phase.
+	//
+	// Example:
+	//   -crash-schedule="1s,250ms,5s"
+	// By default, the schedule is strict: if cycles > entries, the run fails.
+	crashSchedule       = flag.String("crash-schedule", "", "Comma-separated list of crash-after durations (per cycle) overriding random crash timing (e.g. \"1s,250ms,5s\")")
+	crashScheduleRepeat = flag.Bool("crash-schedule-repeat", false, "When -crash-schedule is shorter than cycles, repeat the last entry instead of failing")
+
 	// Fault injection flags (propagated to stresstest)
 	faultFS           = flag.Bool("faultfs", false, "Enable FaultInjectionFS for durability testing")
 	faultDropUnsynced = flag.Bool("faultfs-drop-unsynced", false, "Drop unsynced data on simulated crash (requires -faultfs)")
@@ -50,6 +60,9 @@ var (
 
 	// Artifact collection
 	runDir = flag.String("run-dir", "", "Directory for artifact collection on failure (default: auto-generated)")
+
+	// Trace collection (propagated to stresstest)
+	traceDir = flag.String("trace-dir", "", "Directory to write stresstest operation traces (one per crash cycle)")
 )
 
 // TestMode represents the test execution mode
@@ -199,6 +212,15 @@ func runCrashTestCycles(ctx context.Context, testDir string, stats *Stats) error
 	deadline := time.Now().Add(*duration)
 	expectedStateFile := filepath.Join(testDir, "expected_state.bin")
 
+	var schedule []time.Duration
+	if *crashSchedule != "" {
+		var err error
+		schedule, err = parseCrashSchedule(*crashSchedule)
+		if err != nil {
+			return fmt.Errorf("invalid -crash-schedule: %w", err)
+		}
+	}
+
 	for {
 		// Check if we should stop
 		select {
@@ -225,12 +247,19 @@ func runCrashTestCycles(ctx context.Context, testDir string, stats *Stats) error
 			time.Until(deadline).Round(time.Second))
 		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
-		// Calculate random crash interval
-		crashAt := calculateCrashInterval()
-		fmt.Printf("🎲 Will crash after %s\n", crashAt.Round(time.Millisecond))
+		// Choose crash interval (scheduled or random).
+		crashAt, err := chooseCrashAfter(stats.cycles, schedule)
+		if err != nil {
+			return err
+		}
+		if len(schedule) > 0 {
+			fmt.Printf("🧭 Will crash after %s (schedule)\n", crashAt.Round(time.Millisecond))
+		} else {
+			fmt.Printf("🎲 Will crash after %s\n", crashAt.Round(time.Millisecond))
+		}
 
 		// Run stress test for a random interval, then kill
-		err := runStressAndCrash(ctx, testDir, expectedStateFile, crashAt, stats)
+		err = runStressAndCrash(ctx, testDir, expectedStateFile, crashAt, stats)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil // Context cancelled
@@ -296,6 +325,47 @@ func calculateCrashInterval() time.Duration {
 	return interval
 }
 
+func parseCrashSchedule(s string) ([]time.Duration, error) {
+	parts := strings.Split(s, ",")
+	out := make([]time.Duration, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		d, err := time.ParseDuration(p)
+		if err != nil {
+			return nil, fmt.Errorf("parse %q: %w", p, err)
+		}
+		if d <= 0 {
+			return nil, fmt.Errorf("duration must be > 0: %q", p)
+		}
+		out = append(out, d)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty schedule")
+	}
+	return out, nil
+}
+
+func chooseCrashAfter(cycle int, schedule []time.Duration) (time.Duration, error) {
+	if len(schedule) == 0 {
+		return calculateCrashInterval(), nil
+	}
+	// cycle is 1-based.
+	idx := cycle - 1
+	if idx < 0 {
+		return 0, fmt.Errorf("internal: invalid cycle %d", cycle)
+	}
+	if idx < len(schedule) {
+		return schedule[idx], nil
+	}
+	if *crashScheduleRepeat {
+		return schedule[len(schedule)-1], nil
+	}
+	return 0, fmt.Errorf("crash schedule exhausted: cycle=%d schedule_len=%d (set -crash-schedule-repeat to repeat last)", cycle, len(schedule))
+}
+
 func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, crashAfter time.Duration, stats *Stats) error {
 	// Derive a reproducible seed for this cycle.
 	// Using the base seed + cycle number ensures each cycle is deterministic
@@ -315,6 +385,19 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 		"-save-expected",                   // Save state after operations
 		"-save-expected-interval", "100ms", // Frequent saves to minimize race window
 		"-v",
+	}
+
+	// Optional trace emission for post-mortem analysis.
+	// This is strictly a tooling feature (no DB behavior changes).
+	if *traceDir != "" {
+		if err := os.MkdirAll(*traceDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create trace dir: %w", err)
+		}
+		tracePath := filepath.Join(*traceDir, fmt.Sprintf("cycle_%02d_seed_%d.trace", stats.cycles, cycleSeed))
+		stressArgs = append(stressArgs, "-trace-out", tracePath)
+		if *verbose {
+			fmt.Printf("📝 Trace: %s\n", tracePath)
+		}
 	}
 
 	if *stressSync {
