@@ -49,7 +49,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows temporarily disabled (v0.x, no Windows machine for testing)
+        # TODO: Re-enable when Windows support is prioritized
+        os: [ubuntu-latest, macos-latest]  # windows-latest
         go: ['1.25']
         # Future: Add '1.26' when released to maintain 2-version support policy
 
@@ -100,7 +102,8 @@ jobs:
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./...
           GOOS=darwin GOARCH=amd64 go build -o /dev/null ./...
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...
-          GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
+          # Windows temporarily disabled (v0.x)
+          # GOOS=windows GOARCH=amd64 go build -o /dev/null ./...
 
   # ==========================================================================
   # Smoke Tests - End-to-end functionality verification

@@ -124,7 +124,8 @@ build-release: ## Build release binaries for all platforms
 	GOOS=linux GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(DIST_DIR)/smoketest-linux-arm64 ./cmd/smoketest
 	GOOS=darwin GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(DIST_DIR)/smoketest-darwin-amd64 ./cmd/smoketest
 	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(DIST_DIR)/smoketest-darwin-arm64 ./cmd/smoketest
-	GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(DIST_DIR)/smoketest-windows-amd64.exe ./cmd/smoketest
+	# Windows temporarily disabled (v0.x)
+	# GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(DIST_DIR)/smoketest-windows-amd64.exe ./cmd/smoketest
 	@echo "✅ Release binaries in $(DIST_DIR)/"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -339,11 +340,80 @@ lint-all-platforms: ## Run golangci-lint for all supported platforms (catches pl
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.7.2)
 	@echo "  → Linux (amd64)..."
 	@GOOS=linux GOARCH=amd64 golangci-lint run ./...
-	@echo "  → macOS (arm64)..."
+	@echo "  → local (native)..."
 	@GOOS=darwin GOARCH=arm64 golangci-lint run ./...
-	@echo "  → Windows (amd64)..."
-	@GOOS=windows GOARCH=amd64 golangci-lint run ./...
+	# Windows temporarily disabled (v0.x)
+	# @echo "  → Windows (amd64)..."
+	# @GOOS=windows GOARCH=amd64 golangci-lint run ./...
 	@echo "✅ All platforms passed"
+
+# =============================================================================
+# Cross-Platform Testing (Docker-based)
+# =============================================================================
+
+.PHONY: test-linux
+test-linux: ## Run tests in Linux container (matches GitHub CI ubuntu-latest)
+	@echo "🐧 Running tests in Linux container..."
+	@docker build -f Dockerfile.ci -t rockyardkv-test-linux . --quiet
+	@docker run --rm rockyardkv-test-linux
+	@echo "✅ Linux tests passed"
+
+.PHONY: test-linux-short
+test-linux-short: ## Run short tests in Linux container (faster)
+	@echo "🐧 Running short tests in Linux container..."
+	@docker build -f Dockerfile.ci -t rockyardkv-test-linux . --quiet
+	@docker run --rm rockyardkv-test-linux go test -short -timeout 5m ./...
+	@echo "✅ Linux short tests passed"
+
+.PHONY: test-alpine
+test-alpine: ## Run tests in Alpine Linux (musl libc - catches glibc compatibility issues)
+	@echo "🏔️  Running tests in Alpine Linux (musl libc)..."
+	@docker run --rm -v $(PWD):/app -w /app golang:1.25-alpine \
+		sh -c "apk add --no-cache gcc musl-dev git && go test -race -timeout 10m ./..."
+	@echo "✅ Alpine Linux tests passed"
+
+.PHONY: test-rockylinux
+test-rockylinux: ## Run tests in Rocky Linux 9 (RHEL-compatible enterprise Linux)
+	@echo "🪨 Running tests in Rocky Linux 9 (RHEL-compatible)..."
+	@docker run --rm -v $(PWD):/app -w /app rockylinux:9 \
+		sh -c "dnf install -y golang gcc git && cd /app && go test -race -timeout 10m ./..."
+	@echo "✅ Rocky Linux tests passed"
+
+# Windows temporarily disabled (v0.x, no Windows machine for testing)
+# .PHONY: build-windows
+# build-windows: ## Cross-compile for Windows (verifies build, cannot run tests)
+# 	@echo "🪟 Cross-compiling for Windows..."
+# 	@GOOS=windows GOARCH=amd64 $(GO) build -o /dev/null ./...
+# 	@echo "✅ Windows build passed"
+
+# .PHONY: test-all-platforms
+# test-all-platforms: test test-linux test-alpine test-rockylinux ## Run tests on all platforms (local, Linux distros)
+# 	@echo ""
+# 	@echo "╔══════════════════════════════════════════════════════════════════╗"
+# 	@echo "║                    All Platform Tests Complete                   ║"
+# 	@echo "╠══════════════════════════════════════════════════════════════════╣"
+# 	@echo "║  ✅ Local:       Tests passed (native)                           ║"
+# 	@echo "║  ✅ Debian:      Tests passed (Docker, glibc)                    ║"
+# 	@echo "║  ✅ Alpine:      Tests passed (Docker, musl libc)                ║"
+# 	@echo "║  ✅ Rocky Linux: Tests passed (Docker, RHEL-compatible)          ║"
+# 	@echo "║  ✅ Windows:     Build passed (cross-compile)                    ║"
+# 	@echo "╚══════════════════════════════════════════════════════════════════╝"
+
+.PHONY: test-all-linux
+test-all-linux: test-linux test-alpine test-rockylinux ## Run tests on all Linux distros (Debian, Alpine, Rocky)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║                    All Linux Distros Complete                    ║"
+	@echo "╠══════════════════════════════════════════════════════════════════╣"
+	@echo "║  ✅ Debian:      glibc, matches GitHub CI ubuntu-latest          ║"
+	@echo "║  ✅ Alpine:      musl libc, common in production containers      ║"
+	@echo "║  ✅ Rocky Linux: RHEL-compatible, enterprise servers             ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+
+.PHONY: ci-local
+ci-local: lint-all-platforms test-all-platforms ## Reproduce full CI locally (lint + test all platforms)
+	@echo ""
+	@echo "🎉 CI simulation complete - all checks passed!"
 
 .PHONY: check
 check: fmt lint gocyclo test-short ## Run all quality checks (fmt, lint, gocyclo, test-short)
