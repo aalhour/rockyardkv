@@ -8,7 +8,7 @@ This guide describes the testing infrastructure and how to use it.
 ```bash
 make check              # Lint + short tests
 make test               # Full test suite with race detection
-make test-e2e-golden    # C++ compatibility verification
+make test-e2e-golden    # C++ compatibility verification (requires RocksDB ldb + sst_dump)
 make test-e2e-crash     # Crash recovery tests
 make test-e2e-stress    # Concurrency tests
 ```
