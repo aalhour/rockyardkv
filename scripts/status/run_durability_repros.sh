@@ -22,6 +22,10 @@ Scenarios:
   adversarial-corruption
     Targeted corruption suite (no crash loop): runs cmd/adversarialtest with category=corruption.
 
+  internal-key-collision
+    Deterministic-ish repro + smoking-gun check: runs a fixed crash schedule and then scans SSTs
+    for internal-key collisions (same internal key bytes, different value bytes across SSTs).
+
 Examples:
   make build
   scripts/status/run_durability_repros.sh wal-sync /path/to/run/wal-sync
@@ -29,6 +33,7 @@ Examples:
   scripts/status/run_durability_repros.sh wal-sync-sweep /path/to/run/wal-sync-sweep
   scripts/status/run_durability_repros.sh disablewal-faultfs-minimize /path/to/run/disablewal-faultfs-minimize
   scripts/status/run_durability_repros.sh adversarial-corruption /path/to/run/adversarial-corruption
+  scripts/status/run_durability_repros.sh internal-key-collision /path/to/run/internal-key-collision
 
 Notes:
   - This script writes logs and artifacts into <run_dir>.
@@ -46,6 +51,7 @@ RUN_DIR="$2"
 
 CRASHTEST_BIN="${CRASHTEST_BIN:-./bin/crashtest}"
 ADVERSARIAL_BIN="${ADVERSARIAL_BIN:-./bin/adversarialtest}"
+SSTDUMP_BIN="${SSTDUMP_BIN:-./bin/sstdump}"
 
 require_bin() {
   local p="$1"
@@ -70,7 +76,7 @@ run_crashtest() {
   local log="$1"
   shift
   set +e
-  "$CRASHTEST_BIN" "$@" > >(tee "$log") 2>&1
+  "$CRASHTEST_BIN" "$@" 2>&1 | tee "$log"
   local rc=$?
   set -e
   return "$rc"
@@ -137,7 +143,7 @@ case "$SCENARIO" in
       "$CRASHTEST_BIN" -seed="$s" -cycles="$WAL_SYNC_CYCLES" -duration="$WAL_SYNC_DURATION" \
         -interval="$WAL_SYNC_INTERVAL" -min-interval="$WAL_SYNC_MIN_INTERVAL" -kill-mode=sigkill \
         -sync -db "$case_dir/db_sync" -run-dir "$case_art" -keep -v \
-        > >(tee "$case_log") 2>&1
+        2>&1 | tee "$case_log"
       rc=$?
       set -e
 
@@ -232,7 +238,7 @@ case "$SCENARIO" in
       fi
 
       set +e
-      "$CRASHTEST_BIN" "${args[@]}" > >(tee "$case_log") 2>&1
+      "$CRASHTEST_BIN" "${args[@]}" 2>&1 | tee "$case_log"
       rc=$?
       set -e
 
@@ -269,9 +275,62 @@ case "$SCENARIO" in
 
     set +e
     "$ADVERSARIAL_BIN" -category=corruption -seed="$ADV_SEED" -duration="$ADV_DURATION" -run-dir "$ARTIFACTS" -keep \
-      > >(tee "$LOG") 2>&1
+      2>&1 | tee "$LOG"
     RC=$?
     set -e
+    ;;
+
+  internal-key-collision)
+    require_bin "$CRASHTEST_BIN" "crashtest"
+    require_bin "$SSTDUMP_BIN" "sstdump"
+
+    # Deterministic-ish crash schedule from known repro. Override via env if needed.
+    IKC_SEED="${IKC_SEED:-8201}"
+    IKC_CYCLES="${IKC_CYCLES:-4}"
+    IKC_DURATION="${IKC_DURATION:-3m}"
+    IKC_INTERVAL="${IKC_INTERVAL:-6s}"
+    IKC_MIN_INTERVAL="${IKC_MIN_INTERVAL:-0.5s}"
+    IKC_SCHEDULE="${IKC_SCHEDULE:-5.327s,10.839s,10.547s,10.065s}"
+
+    echo "Seed: $IKC_SEED" | tee -a "$RUN_DIR/meta.txt"
+    echo "Params: cycles=$IKC_CYCLES duration=$IKC_DURATION interval=$IKC_INTERVAL min_interval=$IKC_MIN_INTERVAL kill_mode=sigterm schedule=$IKC_SCHEDULE" \
+      | tee -a "$RUN_DIR/meta.txt"
+
+    # Step 1: reproduce crash/recovery state.
+    set +e
+    "$CRASHTEST_BIN" -seed="$IKC_SEED" -cycles="$IKC_CYCLES" -duration="$IKC_DURATION" -interval="$IKC_INTERVAL" -min-interval="$IKC_MIN_INTERVAL" \
+      -kill-mode=sigterm -crash-schedule="$IKC_SCHEDULE" \
+      -disable-wal -faultfs -faultfs-drop-unsynced -faultfs-delete-unsynced \
+      -db "$RUN_DIR/db" -run-dir "$ARTIFACTS" -trace-dir "$RUN_DIR/traces" -keep -v \
+      2>&1 | tee "$LOG"
+    rc_crash=$?
+    set -e
+
+    # Step 2: smoking-gun check (independent of verifier result).
+    # This should FAIL (exit non-zero) when internal-key collisions exist.
+    DB_DIR="$RUN_DIR/db"
+    if [[ -d "$RUN_DIR/db/db" ]]; then
+      DB_DIR="$RUN_DIR/db/db"
+    fi
+
+    set +e
+    "$SSTDUMP_BIN" --command=collision-check --dir "$DB_DIR" --max-collisions=1 \
+      2>&1 | tee "$RUN_DIR/collision_check.log"
+    rc_collision=$?
+    set -e
+
+    # Overall: fail if either the crash test failed or collision check failed.
+    if [[ "$rc_crash" -ne 0 || "$rc_collision" -ne 0 ]]; then
+      RC=1
+    else
+      RC=0
+    fi
+
+    # Include the component return codes in run.log for quick triage.
+    {
+      echo ""
+      echo "internal-key-collision: rc_crash=$rc_crash rc_collision=$rc_collision"
+    } | tee -a "$LOG"
     ;;
 
   *)

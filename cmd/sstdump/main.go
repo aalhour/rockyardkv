@@ -15,11 +15,14 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/aalhour/rockyardkv/internal/table"
@@ -28,7 +31,9 @@ import (
 
 var (
 	filePath        = flag.String("file", "", "Path to the SST file (required)")
-	command         = flag.String("command", "scan", "Command: scan, properties, check, raw")
+	command         = flag.String("command", "scan", "Command: scan, properties, check, raw, collision-check")
+	dirPath         = flag.String("dir", "", "Directory containing SST files (required for command=collision-check)")
+	maxCollisions   = flag.Int("max-collisions", 1, "Stop after finding N collisions (command=collision-check)")
 	hexOutput       = flag.Bool("hex", false, "Output keys and values in hex format")
 	limit           = flag.Int("limit", 0, "Limit number of entries (0 = unlimited)")
 	fromKey         = flag.String("from", "", "Start key for scan")
@@ -48,22 +53,47 @@ func main() {
 		return
 	}
 
-	if *filePath == "" {
-		fmt.Fprintln(os.Stderr, "Error: --file flag is required")
-		printUsage()
-		os.Exit(1)
-	}
-
 	var err error
 	switch *command {
 	case "scan":
+		if *filePath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --file flag is required for --command=scan")
+			printUsage()
+			os.Exit(1)
+		}
 		err = cmdScan()
 	case "properties":
+		if *filePath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --file flag is required for --command=properties")
+			printUsage()
+			os.Exit(1)
+		}
 		err = cmdProperties()
 	case "check":
+		if *filePath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --file flag is required for --command=check")
+			printUsage()
+			os.Exit(1)
+		}
 		err = cmdCheck()
 	case "raw":
+		if *filePath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --file flag is required for --command=raw")
+			printUsage()
+			os.Exit(1)
+		}
 		err = cmdRaw()
+	case "collision-check":
+		if *dirPath == "" {
+			fmt.Fprintln(os.Stderr, "Error: --dir flag is required for --command=collision-check")
+			printUsage()
+			os.Exit(1)
+		}
+		if *maxCollisions <= 0 {
+			fmt.Fprintln(os.Stderr, "Error: --max-collisions must be > 0")
+			os.Exit(1)
+		}
+		err = cmdCollisionCheck()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
 		printUsage()
@@ -86,6 +116,7 @@ func printUsage() {
 	fmt.Println("  properties  Show SST file properties")
 	fmt.Println("  check       Verify SST file integrity")
 	fmt.Println("  raw         Show raw block information")
+	fmt.Println("  collision-check  Scan a directory of SSTs for internal-key collisions (same internal key, different values)")
 	fmt.Println()
 	fmt.Println("Options:")
 	flag.PrintDefaults()
@@ -392,6 +423,101 @@ func cmdRaw() error {
 	fmt.Printf("Total entries: %d\n", count)
 	fmt.Printf("Estimated blocks: %d\n", blockCount+1)
 
+	return nil
+}
+
+type seenEntry struct {
+	file string
+	sha  [32]byte
+	len  int
+}
+
+func cmdCollisionCheck() error {
+	fs := vfs.Default()
+
+	entries, err := fs.ListDir(*dirPath)
+	if err != nil {
+		return fmt.Errorf("list dir: %w", err)
+	}
+
+	var sstFiles []string
+	for _, name := range entries {
+		if strings.HasSuffix(name, ".sst") {
+			sstFiles = append(sstFiles, filepath.Join(*dirPath, name))
+		}
+	}
+	sort.Strings(sstFiles)
+
+	if len(sstFiles) == 0 {
+		return fmt.Errorf("no .sst files found in dir: %s", *dirPath)
+	}
+
+	fmt.Printf("Collision check: dir=%s sst_files=%d\n", *dirPath, len(sstFiles))
+
+	seen := make(map[string]seenEntry, 4096)
+	found := 0
+
+	for _, p := range sstFiles {
+		file, err := fs.OpenRandomAccess(p)
+		if err != nil {
+			return fmt.Errorf("open sst: %s: %w", p, err)
+		}
+		reader, err := table.Open(file, table.ReaderOptions{VerifyChecksums: false})
+		if err != nil {
+			_ = file.Close()
+			return fmt.Errorf("open table: %s: %w", p, err)
+		}
+
+		iter := reader.NewIterator()
+		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+			k := iter.Key()
+			v := iter.Value()
+
+			kCopy := append([]byte(nil), k...)
+			keyStr := string(kCopy)
+			sum := sha256.Sum256(v)
+
+			if prev, ok := seen[keyStr]; ok {
+				if prev.len != len(v) || prev.sha != sum {
+					found++
+
+					user := extractUserKey(kCopy)
+					var seq uint64
+					var typ uint64
+					if len(kCopy) >= 8 {
+						packed := binary.LittleEndian.Uint64(kCopy[len(kCopy)-8:])
+						seq = packed >> 8
+						typ = packed & 0xff
+					}
+
+					fmt.Printf("COLLISION #%d\n", found)
+					fmt.Printf("  user_key=%s\n", formatOutput(user))
+					fmt.Printf("  internal_key_hex=%s\n", hex.EncodeToString(kCopy))
+					fmt.Printf("  seq=%d type=%d\n", seq, typ)
+					fmt.Printf("  first_file=%s\n", filepath.Base(prev.file))
+					fmt.Printf("  second_file=%s\n", filepath.Base(p))
+					fmt.Printf("  first_value_sha256=%x len=%d\n", prev.sha, prev.len)
+					fmt.Printf("  second_value_sha256=%x len=%d\n", sum, len(v))
+
+					if found >= *maxCollisions {
+						if err := iter.Error(); err != nil {
+							return fmt.Errorf("iterator error: %s: %w", p, err)
+						}
+						return fmt.Errorf("internal-key collision detected (count=%d)", found)
+					}
+				}
+				continue
+			}
+
+			seen[keyStr] = seenEntry{file: p, sha: sum, len: len(v)}
+		}
+
+		if err := iter.Error(); err != nil {
+			return fmt.Errorf("iterator error: %s: %w", p, err)
+		}
+	}
+
+	fmt.Println("OK: no internal-key collisions detected")
 	return nil
 }
 
