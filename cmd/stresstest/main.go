@@ -1950,24 +1950,31 @@ func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Sta
 		case <-ticker.C:
 			holder.mu.RLock()
 			if holder.db != nil {
+				// When DisableWAL is enabled, save durable state BEFORE flush.
+				// This captures the expected state of what's about to become durable.
+				//
+				// IMPORTANT: We save BEFORE flush, not after, because:
+				// 1. Flush() moves current memtable to immutable and creates a new one
+				// 2. New writes during flush go to the NEW memtable
+				// 3. If we save after flush, we'd include writes that aren't flushed yet
+				// 4. By saving before, we capture exactly what's in the memtable being flushed
+				//
+				// The durable state may include some pending operations, but those are
+				// skipped during verification (keys with pending flags are ignored).
+				if *disableWAL && *durableState != "" {
+					if err := expected.SaveToFile(*durableState); err != nil {
+						if *verbose {
+							fmt.Printf("Durable state save error: %v\n", err)
+						}
+					}
+				}
+
 				if err := holder.db.Flush(nil); err != nil {
 					if *verbose {
 						fmt.Printf("Flush error: %v\n", err)
 					}
 				} else {
 					stats.flushes.Add(1)
-
-					// When DisableWAL is enabled, save durable state after successful flush.
-					// This creates a "durability barrier" - the expected state at this point
-					// is guaranteed to be durable on disk. After a crash, verification should
-					// use this durable state instead of the full expected state.
-					if *disableWAL && *durableState != "" {
-						if err := expected.SaveToFile(*durableState); err != nil {
-							if *verbose {
-								fmt.Printf("Durable state save error: %v\n", err)
-							}
-						}
-					}
 				}
 			}
 			holder.mu.RUnlock()
