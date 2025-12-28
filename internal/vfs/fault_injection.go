@@ -200,6 +200,43 @@ func (fs *FaultInjectionFS) Create(name string) (WritableFile, error) {
 	}, nil
 }
 
+// OpenAppend opens an existing file for appending with fault injection tracking.
+func (fs *FaultInjectionFS) OpenAppend(name string) (WritableFile, error) {
+	fs.mu.RLock()
+	if !fs.filesystemActive {
+		fs.mu.RUnlock()
+		return nil, ErrInjectedWriteError
+	}
+	if fs.injectWriteError && (fs.writeErrorPath == "" || fs.writeErrorPath == name) {
+		fs.mu.RUnlock()
+		return nil, ErrInjectedWriteError
+	}
+	fs.mu.RUnlock()
+
+	baseFile, err := fs.base.OpenAppend(name)
+	if err != nil {
+		return nil, err
+	}
+
+	absPath, _ := filepath.Abs(name)
+	size, _ := baseFile.Size()
+
+	fs.mu.Lock()
+	// Existing file: directory entry already exists, so mark as dirSynced.
+	fs.fileState[absPath] = &fileState{
+		pos:       size,
+		syncedPos: size,
+		dirSynced: true,
+	}
+	fs.mu.Unlock()
+
+	return &faultWritableFile{
+		base: baseFile,
+		fs:   fs,
+		path: absPath,
+	}, nil
+}
+
 // Open opens an existing file for sequential reading.
 func (fs *FaultInjectionFS) Open(name string) (SequentialFile, error) {
 	fs.mu.RLock()

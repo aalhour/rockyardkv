@@ -133,25 +133,22 @@ func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
 			return maxSeq, fmt.Errorf("failed to decode batch: %w", err)
 		}
 
-		// Get the sequence number from the batch
-		batchSeq := wb.Sequence()
-		batchCount := wb.Count()
-
-		// Update sequence number
-		if batchSeq+uint64(batchCount) > maxSeq {
-			maxSeq = batchSeq + uint64(batchCount)
-		}
-
 		// Apply the batch to memtable
 		// Note: lockHeld=true because we're called from recover() which holds db.mu
 		handler := &memtableInserter{
 			db:         db,
-			sequence:   batchSeq,
+			sequence:   wb.Sequence(),
 			defaultMem: db.mem,
 			lockHeld:   true,
 		}
 		if err := wb.Iterate(handler); err != nil {
 			return maxSeq, fmt.Errorf("failed to apply batch: %w", err)
+		}
+
+		// Advance max sequence based on what was actually applied.
+		// handler.sequence points to the *next* seqno after the last applied entry.
+		if handler.sequence > 0 && handler.sequence-1 > maxSeq {
+			maxSeq = handler.sequence - 1
 		}
 	}
 

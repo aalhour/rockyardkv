@@ -389,6 +389,16 @@ func (vs *VersionSet) Recover() error {
 	vs.current.Ref()
 	vs.appendVersion(vs.current)
 
+	// Open the recovered MANIFEST for appends so LogAndApply can reuse it.
+	// This avoids creating a brand new MANIFEST (and forcing a CURRENT update)
+	// on every reopen, which widens crash windows under fault injection.
+	appendFile, err := vs.opts.FS.OpenAppend(manifestPath)
+	if err != nil {
+		return err
+	}
+	vs.manifestFile = appendFile
+	vs.manifestWriter = wal.NewWriter(appendFile, manifestNum, false /* not recyclable */)
+
 	return nil
 }
 
@@ -457,6 +467,13 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		}
 	}
 
+	// Sync the DB directory so the MANIFEST update is durable on filesystems
+	// where directory fsync is required for durability guarantees.
+	// This also keeps FaultInjectionFS' durability model conservative.
+	if err := vs.opts.FS.SyncDir(vs.opts.DBName); err != nil {
+		return err
+	}
+
 	// Whitebox [crashtest]: crash after MANIFEST sync — CURRENT not yet updated
 	testutil.MaybeKill(testutil.KPManifestSync1)
 
@@ -480,6 +497,17 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		vs.current.Unref()
 	}
 	vs.current = newVersion
+
+	// Update in-memory last sequence so future MANIFEST snapshots (writeSnapshot)
+	// cannot regress the seqno domain after a MANIFEST rotation/reopen.
+	// This must be monotonic.
+	if edit.HasLastSequence {
+		prev := atomic.LoadUint64(&vs.lastSequence)
+		next := uint64(edit.LastSequence)
+		if next > prev {
+			atomic.StoreUint64(&vs.lastSequence, next)
+		}
+	}
 
 	return nil
 }

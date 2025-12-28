@@ -25,6 +25,8 @@ func main() {
 
 	reader := wal.NewStrictReader(bytes.NewReader(data), nil, 0)
 	editCount := 0
+	var lastSeq uint64
+	hasLastSeq := false
 	// Track files per level: level -> fileNum -> exists
 	liveFiles := make(map[int]map[uint64]bool)
 	for i := range 7 {
@@ -48,6 +50,10 @@ func main() {
 		}
 
 		editCount++
+		if ve.HasLastSequence {
+			lastSeq = uint64(ve.LastSequence)
+			hasLastSeq = true
+		}
 		for _, nf := range ve.NewFiles {
 			fileNum := nf.Meta.FD.GetNumber()
 			liveFiles[nf.Level][fileNum] = true
@@ -58,6 +64,11 @@ func main() {
 	}
 
 	fmt.Printf("Total edits: %d\n", editCount)
+	if hasLastSeq {
+		fmt.Printf("LastSequence (from MANIFEST): %d\n", lastSeq)
+	} else {
+		fmt.Printf("LastSequence (from MANIFEST): <absent>\n")
+	}
 	fmt.Printf("\nFinal live files by level:\n")
 	totalLive := 0
 	for level := range 7 {

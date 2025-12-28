@@ -463,6 +463,17 @@ func (db *DBImpl) recover() error {
 		return fmt.Errorf("WAL replay failed: %w", err)
 	}
 
+	// Defensive: ensure db.seq never goes backwards relative to any on-disk SST.
+	// Under fault-injection crash windows, we can end up with SST files that are
+	// present on disk but not referenced by the CURRENT MANIFEST. If we restart
+	// with a lower LastSequence, we can reuse sequence numbers and create
+	// internal-key collisions across SSTs.
+	if maxSSTSeq, err := db.maxSequenceInSSTFilesLocked(); err != nil {
+		return fmt.Errorf("scan SSTs for max sequence: %w", err)
+	} else if maxSSTSeq > db.seq {
+		db.seq = maxSSTSeq
+	}
+
 	// Create a new WAL for new writes
 	logNumber := db.versions.NextFileNumber()
 	logPath := db.logFilePath(logNumber)
@@ -484,12 +495,59 @@ func (db *DBImpl) recover() error {
 	edit := &manifest.VersionEdit{
 		// Only update NextFileNumber, NOT LogNumber
 		// LogNumber stays at the old value so older logs are replayed
+		HasLastSequence: true,
+		LastSequence:    manifest.SequenceNumber(db.seq),
 	}
 	if err := db.versions.LogAndApply(edit); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// maxSequenceInSSTFilesLocked returns the maximum sequence number observed across
+// all SST files currently present in the DB directory (including non-live files).
+//
+// It must be called with db.mu held.
+func (db *DBImpl) maxSequenceInSSTFilesLocked() (uint64, error) {
+	entries, err := db.fs.ListDir(db.name)
+	if err != nil {
+		return 0, err
+	}
+
+	var maxSeq uint64
+	for _, name := range entries {
+		if !strings.HasSuffix(name, ".sst") {
+			continue
+		}
+		path := filepath.Join(db.name, name)
+
+		f, err := db.fs.OpenRandomAccess(path)
+		if err != nil {
+			return 0, err
+		}
+
+		reader, err := table.Open(f, table.ReaderOptions{})
+		if err != nil {
+			_ = f.Close()
+			return 0, err
+		}
+
+		it := reader.NewIterator()
+		for it.SeekToFirst(); it.Valid(); it.Next() {
+			seq := uint64(dbformat.ExtractSequenceNumber(it.Key()))
+			if seq > maxSeq {
+				maxSeq = seq
+			}
+		}
+		iterErr := it.Error()
+		_ = f.Close()
+		if iterErr != nil {
+			return 0, iterErr
+		}
+	}
+
+	return maxSeq, nil
 }
 
 // Put sets the value for the given key in the default column family.
@@ -1062,11 +1120,12 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 		return err
 	}
 
-	// Assign sequence numbers
-	count := wb.Count()
+	// Assign the starting sequence number.
+	// We advance db.seq *after* applying the batch based on what was actually applied.
+	// This avoids seq reuse if any path applies a different number of entries than
+	// the batch header count suggests.
 	firstSeq := db.seq + 1
 	wb.SetSequence(firstSeq)
-	db.seq += uint64(count)
 
 	// Write to WAL (unless disabled)
 	if opts.DisableWAL {
@@ -1102,20 +1161,33 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	// Whitebox [synctest]: barrier before memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtable)
 
-	// Capture memtable reference while holding lock to avoid race with Flush
+	// Apply to memtables while holding db.mu so the batch's sequence allocation
+	// and memtable insertion are atomic relative to other writes.
 	seq := firstSeq
 	mem := db.mem
 	handler := &memtableInserter{
 		db:         db,
 		sequence:   seq,
 		defaultMem: mem,
+		lockHeld:   true,
 	}
-	db.mu.Unlock()
 
 	// Iterate through the batch and apply to memtables
 	if err := wb.Iterate(handler); err != nil {
+		db.mu.Unlock()
 		return err
 	}
+
+	// Update the batch count to match what was actually applied (seq-consuming ops),
+	// and advance db.seq accordingly.
+	applied := handler.sequence - firstSeq
+	if applied > uint64(^uint32(0)) {
+		db.mu.Unlock()
+		return fmt.Errorf("db: batch too large: applied=%d", applied)
+	}
+	wb.SetCount(uint32(applied))
+	db.seq += applied
+	db.mu.Unlock()
 
 	// Whitebox [synctest]: barrier after memtable insert
 	_ = testutil.SP(testutil.SPDBWriteMemtableComplete)

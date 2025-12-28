@@ -15,20 +15,26 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/internal/wal"
 )
 
 var (
 	filePath        = flag.String("file", "", "Path to the SST file (required)")
-	command         = flag.String("command", "scan", "Command: scan, properties, check, raw")
+	dbDir           = flag.String("db", "", "Path to DB directory containing CURRENT/MANIFEST and SSTs (for --command=collision-check)")
+	command         = flag.String("command", "scan", "Command: scan, properties, check, raw, collision-check")
 	hexOutput       = flag.Bool("hex", false, "Output keys and values in hex format")
 	limit           = flag.Int("limit", 0, "Limit number of entries (0 = unlimited)")
 	fromKey         = flag.String("from", "", "Start key for scan")
@@ -48,7 +54,7 @@ func main() {
 		return
 	}
 
-	if *filePath == "" {
+	if *command != "collision-check" && *filePath == "" {
 		fmt.Fprintln(os.Stderr, "Error: --file flag is required")
 		printUsage()
 		os.Exit(1)
@@ -64,6 +70,8 @@ func main() {
 		err = cmdCheck()
 	case "raw":
 		err = cmdRaw()
+	case "collision-check":
+		err = cmdCollisionCheck()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", *command)
 		printUsage()
@@ -71,6 +79,11 @@ func main() {
 	}
 
 	if err != nil {
+		var ce *collisionError
+		if errorsAs(err, &ce) {
+			fmt.Fprintln(os.Stderr, ce.Error())
+			os.Exit(2)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -86,6 +99,7 @@ func printUsage() {
 	fmt.Println("  properties  Show SST file properties")
 	fmt.Println("  check       Verify SST file integrity")
 	fmt.Println("  raw         Show raw block information")
+	fmt.Println("  collision-check  Scan live SSTs (from CURRENT/MANIFEST) for internal-key collisions")
 	fmt.Println()
 	fmt.Println("Options:")
 	flag.PrintDefaults()
@@ -407,4 +421,153 @@ func extractUserKey(internalKey []byte) []byte {
 // Note: Reserved for future hex key parsing support.
 func isHexString(s string) bool { //nolint:unused // reserved for future use
 	return strings.HasPrefix(s, "0x")
+}
+
+// =============================================================================
+// collision-check
+// =============================================================================
+
+type collisionError struct {
+	internalKeyHex string
+	file1          string
+	value1Hex      string
+	file2          string
+	value2Hex      string
+}
+
+func (e *collisionError) Error() string {
+	return fmt.Sprintf(
+		"internal_key_hex=%s\nsst1=%s value1_hex=%s\nsst2=%s value2_hex=%s",
+		e.internalKeyHex, e.file1, e.value1Hex, e.file2, e.value2Hex,
+	)
+}
+
+// errorsAs is a tiny wrapper to avoid importing errors just for As in older Go toolchains.
+func errorsAs(err error, target interface{}) bool { //nolint:unparam
+	// Go stdlib errors.As is fine; keep this wrapper so callers above stay small.
+	type aser interface{ As(target interface{}) bool }
+	if err == nil {
+		return false
+	}
+	// If the error implements As, try it first.
+	if a, ok := err.(aser); ok && a.As(target) {
+		return true
+	}
+	// Fallback: direct type assertion for *collisionError.
+	ce, ok := err.(*collisionError)
+	if !ok {
+		return false
+	}
+	ptr, ok := target.(**collisionError)
+	if !ok {
+		return false
+	}
+	*ptr = ce
+	return true
+}
+
+func cmdCollisionCheck() error {
+	if *dbDir == "" {
+		return fmt.Errorf("--db is required for --command=collision-check")
+	}
+
+	fs := vfs.Default()
+
+	live, err := liveSSTFilesFromCurrent(*dbDir)
+	if err != nil {
+		return err
+	}
+	sort.Strings(live)
+
+	type seen struct {
+		valueHex string
+		file     string
+	}
+	byKey := make(map[string]seen, 1024)
+
+	for _, sstPath := range live {
+		file, err := fs.OpenRandomAccess(sstPath)
+		if err != nil {
+			return fmt.Errorf("open sst %s: %w", sstPath, err)
+		}
+		reader, err := table.Open(file, table.ReaderOptions{})
+		if err != nil {
+			_ = file.Close()
+			return fmt.Errorf("open table %s: %w", sstPath, err)
+		}
+
+		it := reader.NewIterator()
+		for it.SeekToFirst(); it.Valid(); it.Next() {
+			khex := hex.EncodeToString(it.Key())
+			vhex := hex.EncodeToString(it.Value())
+			if prev, ok := byKey[khex]; ok {
+				if prev.valueHex != vhex {
+					_ = file.Close()
+					return &collisionError{
+						internalKeyHex: khex,
+						file1:          filepath.Base(prev.file),
+						value1Hex:      prev.valueHex,
+						file2:          filepath.Base(sstPath),
+						value2Hex:      vhex,
+					}
+				}
+				continue
+			}
+			byKey[khex] = seen{valueHex: vhex, file: sstPath}
+		}
+		if err := it.Error(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("iterate %s: %w", sstPath, err)
+		}
+		_ = file.Close()
+	}
+
+	fmt.Println("NO_COLLISIONS_FOUND")
+	return nil
+}
+
+func liveSSTFilesFromCurrent(dbDir string) ([]string, error) {
+	currentPath := filepath.Join(dbDir, "CURRENT")
+	curBytes, err := os.ReadFile(currentPath)
+	if err != nil {
+		return nil, fmt.Errorf("read CURRENT: %w", err)
+	}
+	manifestName := strings.TrimSpace(string(curBytes))
+	if manifestName == "" {
+		return nil, fmt.Errorf("CURRENT is empty")
+	}
+	manifestPath := filepath.Join(dbDir, manifestName)
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read MANIFEST %s: %w", manifestName, err)
+	}
+
+	reader := wal.NewStrictReader(bytes.NewReader(manifestData), nil, 0)
+	live := make(map[uint64]bool)
+	for {
+		rec, err := reader.ReadRecord()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// Partial manifest is possible in crash tests; treat it as fatal for this tool.
+			return nil, fmt.Errorf("read MANIFEST record: %w", err)
+		}
+		var ve manifest.VersionEdit
+		if err := ve.DecodeFrom(rec); err != nil {
+			return nil, fmt.Errorf("decode VersionEdit: %w", err)
+		}
+		for _, nf := range ve.NewFiles {
+			live[nf.Meta.FD.GetNumber()] = true
+		}
+		for _, df := range ve.DeletedFiles {
+			delete(live, df.FileNumber)
+		}
+	}
+
+	out := make([]string, 0, len(live))
+	for num := range live {
+		out = append(out, filepath.Join(dbDir, fmt.Sprintf("%06d.sst", num)))
+	}
+	return out, nil
 }

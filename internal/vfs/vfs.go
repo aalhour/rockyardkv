@@ -19,6 +19,10 @@ type FS interface {
 	// If the file already exists, it is truncated.
 	Create(name string) (WritableFile, error)
 
+	// OpenAppend opens an existing file for appending.
+	// Writes must append to the end of the file without truncation.
+	OpenAppend(name string) (WritableFile, error)
+
 	// Open opens an existing file for reading.
 	Open(name string) (SequentialFile, error)
 
@@ -103,6 +107,15 @@ func Default() FS {
 
 func (fs *osFS) Create(name string) (WritableFile, error) {
 	f, err := os.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	return &osWritableFile{f: f}, nil
+}
+
+func (fs *osFS) OpenAppend(name string) (WritableFile, error) {
+	// Open in append mode without truncation.
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, err
 	}
