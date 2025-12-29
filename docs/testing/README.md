@@ -18,6 +18,7 @@ make test-e2e-stress    # Concurrency tests
 | Document | Description |
 |----------|-------------|
 | [PHILOSOPHY.md](PHILOSOPHY.md) | Testing principles and when to use each approach |
+| [JEPSEN_STYLE.md](JEPSEN_STYLE.md) | Jepsen-style test classes and capability matrix |
 | [WHITEBOX.md](WHITEBOX.md) | Deterministic crash testing with kill points |
 | [BLACKBOX.md](BLACKBOX.md) | Chaos testing: crash, stress, adversarial |
 | [GOLDEN.md](GOLDEN.md) | C++ oracle compatibility testing |

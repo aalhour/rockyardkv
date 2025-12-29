@@ -813,16 +813,15 @@ outerLoop:
 }
 
 // findNewestVersionInIterator seeks to find the newest version of userKey in the given iterator.
-// It restores the iterator position after checking.
+// After this call, the iterator is positioned at the newest version of userKey (if it exists).
+// The caller is responsible for calling Prev() to move past all versions of this key.
+//
+// Note: This function intentionally does NOT restore the iterator position. The previous
+// "restore" logic was buggy and could leave the iterator before the target key, causing
+// the subsequent skip loop to miss keys. Instead, we leave the iterator at the newest
+// version, and the caller's skip loop handles moving past all versions correctly.
 func (it *dbIterator) findNewestVersionInIterator(iter internalIterator, userKey []byte) (dbformat.ValueType, uint64, []byte) {
-	// Save current position
-	var savedKey []byte
-	if iter.Valid() {
-		savedKey = make([]byte, len(iter.Key()))
-		copy(savedKey, iter.Key())
-	}
-
-	// Seek to find newest version
+	// Seek to find newest version (highest sequence number for this user key)
 	seekKey := makeInternalKey(userKey, uint64(dbformat.MaxSequenceNumber), dbformat.ValueTypeForSeek)
 	iter.Seek(seekKey)
 
@@ -839,14 +838,8 @@ func (it *dbIterator) findNewestVersionInIterator(iter internalIterator, userKey
 		}
 	}
 
-	// Restore position by seeking back
-	if savedKey != nil {
-		iter.Seek(savedKey)
-		// If we landed past the saved position, back up
-		if iter.Valid() && bytes.Compare(iter.Key(), savedKey) > 0 {
-			iter.Prev()
-		}
-	}
+	// Don't restore position - leave iterator at newest version of userKey.
+	// The caller's skip loop will move past all versions of this key.
 
 	return resultType, resultSeq, resultValue
 }

@@ -47,7 +47,7 @@ func main() {
 	}
 
 	fmt.Println("╔════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                    RockyardKV Smoke Test                      ║")
+	fmt.Println("║                    RockyardKV Smoke Test                       ║")
 	fmt.Println("╠════════════════════════════════════════════════════════════════╣")
 	fmt.Printf("║ Keys: %-8d  Value Size: %-6d bytes                       ║\n", *numKeys, *valueSize)
 	fmt.Println("╚════════════════════════════════════════════════════════════════╝")
