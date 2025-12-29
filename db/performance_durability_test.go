@@ -50,11 +50,10 @@ func BenchmarkRecovery_WithOrphanCleanup(b *testing.B) {
 
 			database.Close()
 
-			// Create orphaned SSTs
-			dbPath := filepath.Join(dir, "db")
+			// Create orphaned SSTs (SST files are in dir directly, not dir/db)
 
 			// Get a template SST to copy
-			entries, err := fs.ListDir(dbPath)
+			entries, err := fs.ListDir(dir)
 			if err != nil {
 				b.Fatalf("Failed to list directory: %v", err)
 			}
@@ -62,7 +61,7 @@ func BenchmarkRecovery_WithOrphanCleanup(b *testing.B) {
 			var templateSST string
 			for _, entry := range entries {
 				if filepath.Ext(entry) == ".sst" {
-					templateSST = filepath.Join(dbPath, entry)
+					templateSST = filepath.Join(dir, entry)
 					break
 				}
 			}
@@ -78,7 +77,7 @@ func BenchmarkRecovery_WithOrphanCleanup(b *testing.B) {
 
 			// Create orphans
 			for i := range orphanCount {
-				orphanPath := filepath.Join(dbPath, fmt.Sprintf("%06d.sst", 900000+i))
+				orphanPath := filepath.Join(dir, fmt.Sprintf("%06d.sst", 900000+i))
 				if err := os.WriteFile(orphanPath, data, 0644); err != nil {
 					b.Fatalf("Failed to create orphan: %v", err)
 				}
@@ -273,9 +272,8 @@ func BenchmarkOrphanCleanup_ScanSpeed(b *testing.B) {
 			database.Close()
 
 			// Create additional non-SST files to increase directory size
-			dbPath := filepath.Join(dir, "db")
 			for i := range fileCount - (fileCount / 10) {
-				dummyPath := filepath.Join(dbPath, fmt.Sprintf("dummy_%06d.log", i))
+				dummyPath := filepath.Join(dir, fmt.Sprintf("dummy_%06d.log", i))
 				if err := os.WriteFile(dummyPath, []byte("dummy"), 0644); err != nil {
 					b.Fatalf("Failed to create dummy file: %v", err)
 				}
