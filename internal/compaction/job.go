@@ -225,6 +225,9 @@ func (j *CompactionJob) Run() ([]*manifest.FileMetaData, error) {
 		return nil, fmt.Errorf("process entries: %w", err)
 	}
 
+	// Whitebox [synctest]: barrier after output files written
+	_ = testutil.SP(testutil.SPCompactionFinishOutput)
+
 	// Whitebox [synctest]: barrier at compaction job complete
 	_ = testutil.SP(testutil.SPCompactionComplete)
 

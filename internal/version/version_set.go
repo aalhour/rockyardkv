@@ -214,6 +214,9 @@ func (vs *VersionSet) MaxColumnFamily() uint32 {
 
 // Recover reads the MANIFEST file and recovers the database state.
 func (vs *VersionSet) Recover() error {
+	// Whitebox [synctest]: barrier at Recover start
+	_ = testutil.SP(testutil.SPVersionSetRecover)
+
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
@@ -394,6 +397,9 @@ func (vs *VersionSet) Recover() error {
 
 // LogAndApply logs a VersionEdit to the MANIFEST and applies it.
 func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
+	// Whitebox [synctest]: barrier at LogAndApply start
+	_ = testutil.SP(testutil.SPVersionSetLogAndApply)
+
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
