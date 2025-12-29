@@ -3,8 +3,6 @@ package db
 import (
 	"errors"
 	"testing"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // =============================================================================
@@ -219,7 +217,7 @@ func TestMergeBatch(t *testing.T) {
 	defer db.Close()
 
 	// Create batch with multiple merge operations
-	wb := batch.New()
+	wb := NewWriteBatch()
 	wb.Put([]byte("key1"), encodeUint64(100))
 	wb.Merge([]byte("key1"), encodeUint64(10))
 	wb.Merge([]byte("key1"), encodeUint64(20))

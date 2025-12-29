@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // =============================================================================
@@ -413,7 +411,7 @@ func TestSingleDeleteWithBatch(t *testing.T) {
 	db.Put(nil, []byte("key3"), []byte("value3"))
 
 	// Create batch with SingleDelete
-	wb := batch.New()
+	wb := NewWriteBatch()
 	wb.SingleDelete([]byte("key1"))
 	wb.SingleDelete([]byte("key2"))
 	// key3 is left alone

@@ -12,8 +12,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // =============================================================================
@@ -257,7 +255,7 @@ func TestConcurrentBatches(t *testing.T) {
 		go func(writer int) {
 			defer wg.Done()
 			for b := range numBatches {
-				wb := batch.New()
+				wb := NewWriteBatch()
 				for j := range 10 {
 					key := fmt.Appendf(nil, "batch_w%d_b%d_j%d", writer, b, j)
 					wb.Put(key, []byte("value"))

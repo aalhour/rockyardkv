@@ -744,3 +744,89 @@ func TestPessimisticTransactionID(t *testing.T) {
 	txn1.Rollback()
 	txn2.Rollback()
 }
+
+// TestPessimisticTransactionSavepointSingleDeletePreservation verifies that
+// SingleDelete entries are preserved (not downgraded to Delete) during
+// savepoint rollback. This is important because SingleDelete has different
+// semantics than Delete in RocksDB.
+func TestPessimisticTransactionSavepointSingleDeletePreservation(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "testdb")
+
+	dbOpts := DefaultOptions()
+	dbOpts.CreateIfMissing = true
+
+	txnDB, err := OpenTransactionDB(dbPath, dbOpts, DefaultTransactionDBOptions())
+	if err != nil {
+		t.Fatalf("Failed to open TransactionDB: %v", err)
+	}
+	defer txnDB.Close()
+
+	txn := txnDB.BeginTransaction(DefaultPessimisticTransactionOptions(), nil)
+
+	// Put a key, set savepoint
+	if err := txn.Put([]byte("key1"), []byte("value1")); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// Set savepoint BEFORE the SingleDelete
+	txn.SetSavePoint()
+
+	// SingleDelete (directly access writeBatch since we're in same package)
+	txn.writeBatch.SingleDelete([]byte("single-key"))
+
+	// Also add SingleDeleteCF
+	txn.writeBatch.SingleDeleteCF(0, []byte("single-key-cf"))
+
+	// Put another key after the SingleDelete
+	if err := txn.Put([]byte("key2"), []byte("value2")); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// Now we have: Put(key1) | SAVEPOINT | SingleDelete(single-key) | SingleDeleteCF(single-key-cf) | Put(key2)
+	// Batch count should be 4 (key1, single-key, single-key-cf, key2)
+	if txn.writeBatch.Count() != 4 {
+		t.Errorf("Expected 4 entries before rollback, got %d", txn.writeBatch.Count())
+	}
+
+	// Rollback to savepoint - should remove entries after savepoint
+	if err := txn.RollbackToSavePoint(); err != nil {
+		t.Fatalf("RollbackToSavePoint failed: %v", err)
+	}
+
+	// After rollback: only Put(key1) should remain
+	// The SingleDelete and second Put should be removed
+	if txn.writeBatch.Count() != 1 {
+		t.Errorf("Expected 1 entry after rollback, got %d", txn.writeBatch.Count())
+	}
+
+	// Now test that SingleDelete IS preserved when it's BEFORE the savepoint
+	// Add SingleDelete before new savepoint
+	txn.writeBatch.SingleDelete([]byte("another-single"))
+
+	// Set savepoint AFTER the SingleDelete
+	txn.SetSavePoint()
+
+	// Add more entries after savepoint
+	if err := txn.Put([]byte("key3"), []byte("value3")); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// Now we have: Put(key1) | SingleDelete(another-single) | SAVEPOINT | Put(key3)
+	// Rollback should keep Put(key1) and SingleDelete(another-single)
+	if err := txn.RollbackToSavePoint(); err != nil {
+		t.Fatalf("RollbackToSavePoint failed: %v", err)
+	}
+
+	// Verify batch has 2 entries and contains SingleDelete (not converted to Delete)
+	if txn.writeBatch.Count() != 2 {
+		t.Errorf("Expected 2 entries after second rollback, got %d", txn.writeBatch.Count())
+	}
+
+	// Verify the batch still has SingleDelete record type (not downgraded to Delete)
+	if !txn.writeBatch.HasSingleDelete() {
+		t.Error("SingleDelete should be preserved in batch after savepoint rollback, but HasSingleDelete() returned false")
+	}
+
+	txn.Rollback()
+}

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // =============================================================================
@@ -111,7 +109,7 @@ func BenchmarkBatchWrite(b *testing.B) {
 
 			b.ResetTimer()
 			for i := range b.N {
-				wb := batch.New()
+				wb := NewWriteBatch()
 				for j := range size {
 					key := fmt.Appendf(nil, "key%016d", i*size+j)
 					wb.Put(key, value)

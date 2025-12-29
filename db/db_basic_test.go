@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // =============================================================================
@@ -380,7 +378,7 @@ func TestWriteBatch(t *testing.T) {
 	db, _ := Open(dir, opts)
 	defer db.Close()
 
-	wb := batch.New()
+	wb := NewWriteBatch()
 	wb.Put([]byte("batch_key1"), []byte("batch_value1"))
 	wb.Put([]byte("batch_key2"), []byte("batch_value2"))
 	wb.Delete([]byte("batch_key3"))
@@ -404,7 +402,7 @@ func TestWriteEmptyBatch(t *testing.T) {
 	db, _ := Open(dir, opts)
 	defer db.Close()
 
-	wb := batch.New()
+	wb := NewWriteBatch()
 	// Empty batch should succeed
 	if err := db.Write(nil, wb); err != nil {
 		t.Errorf("Write empty batch error: %v", err)
@@ -423,7 +421,7 @@ func TestBatchAtomicity(t *testing.T) {
 	db.Put(nil, []byte("key1"), []byte("old1"))
 
 	// Batch with multiple ops
-	wb := batch.New()
+	wb := NewWriteBatch()
 	wb.Delete([]byte("key1"))
 	wb.Put([]byte("key2"), []byte("new2"))
 	wb.Put([]byte("key3"), []byte("new3"))

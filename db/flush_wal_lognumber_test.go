@@ -4,8 +4,6 @@ package db
 
 import (
 	"testing"
-
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // TestFlush_LogNumber_OnlyAdvancesAfterFlush verifies that the MANIFEST's
@@ -299,7 +297,7 @@ func TestFlush_LogNumber_BatchWritesThenFlush(t *testing.T) {
 	writeOpts.Sync = true
 
 	// Write a batch
-	wb := batch.New()
+	wb := NewWriteBatch()
 	for i := range 100 {
 		wb.Put([]byte("batch-key-"+string(rune('A'+i%26))+string(rune('0'+i/26))),
 			[]byte("batch-value"))
@@ -314,7 +312,7 @@ func TestFlush_LogNumber_BatchWritesThenFlush(t *testing.T) {
 	}
 
 	// Write another batch (not flushed)
-	wb = batch.New()
+	wb = NewWriteBatch()
 	for i := range 100 {
 		wb.Put([]byte("batch2-key-"+string(rune('A'+i%26))+string(rune('0'+i/26))),
 			[]byte("batch2-value"))
