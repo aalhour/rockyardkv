@@ -112,10 +112,10 @@ func Compress(t Type, data []byte) ([]byte, error) {
 		return buf.Bytes(), nil
 
 	case LZ4Compression:
-		return compressLZ4(data, lz4.Fast)
+		return compressLZ4(data, false)
 
 	case LZ4HCCompression:
-		return compressLZ4(data, lz4.Level9)
+		return compressLZ4(data, true)
 
 	case ZstdCompression:
 		return compressZstd(data, zstd.SpeedDefault)
@@ -125,21 +125,35 @@ func Compress(t Type, data []byte) ([]byte, error) {
 	}
 }
 
-// compressLZ4 compresses data using LZ4.
-func compressLZ4(data []byte, level lz4.CompressionLevel) ([]byte, error) {
-	var buf bytes.Buffer
-	w := lz4.NewWriter(&buf)
-	if err := w.Apply(lz4.CompressionLevelOption(level)); err != nil {
-		return nil, fmt.Errorf("lz4 apply level: %w", err)
+// compressLZ4 compresses data using LZ4 raw block format.
+// RocksDB uses LZ4_compress_fast() which produces raw block format,
+// NOT the LZ4 Frame format (which has magic bytes and frame headers).
+// The highCompression flag selects LZ4HC (slower but better ratio) vs standard LZ4.
+func compressLZ4(data []byte, highCompression bool) ([]byte, error) {
+	// Allocate buffer for worst-case compressed size
+	dst := make([]byte, lz4.CompressBlockBound(len(data)))
+
+	var n int
+	var err error
+	if highCompression {
+		// LZ4HC - higher compression ratio, slower
+		var ht [1 << 16]int
+		n, err = lz4.CompressBlockHC(data, dst, lz4.CompressionLevel(9), ht[:], nil)
+	} else {
+		// Standard LZ4 - fast compression
+		var ht [1 << 16]int
+		n, err = lz4.CompressBlock(data, dst, ht[:])
 	}
-	_, err := w.Write(data)
+
 	if err != nil {
-		return nil, fmt.Errorf("lz4 write: %w", err)
+		return nil, fmt.Errorf("lz4 compress block: %w", err)
 	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("lz4 close: %w", err)
+	if n == 0 {
+		// Data is incompressible, return nil to signal no compression benefit
+		return nil, nil
 	}
-	return buf.Bytes(), nil
+
+	return dst[:n], nil
 }
 
 // compressZstd compresses data using Zstandard.
@@ -152,7 +166,15 @@ func compressZstd(data []byte, level zstd.EncoderLevel) ([]byte, error) {
 }
 
 // Decompress decompresses data using the specified compression type.
+// For LZ4/LZ4HC, use DecompressWithSize if the uncompressed size is known.
 func Decompress(t Type, data []byte) ([]byte, error) {
+	return DecompressWithSize(t, data, 0)
+}
+
+// DecompressWithSize decompresses data with a known uncompressed size.
+// For LZ4 raw block format, the expectedSize is required for correct decompression.
+// If expectedSize is 0, a fallback strategy is used (may be slower or fail).
+func DecompressWithSize(t Type, data []byte, expectedSize int) ([]byte, error) {
 	switch t {
 	case NoCompression:
 		return data, nil
@@ -177,7 +199,7 @@ func Decompress(t Type, data []byte) ([]byte, error) {
 		return io.ReadAll(r)
 
 	case LZ4Compression, LZ4HCCompression:
-		return decompressLZ4(data)
+		return decompressLZ4(data, expectedSize)
 
 	case ZstdCompression:
 		return decompressZstd(data)
@@ -187,10 +209,34 @@ func Decompress(t Type, data []byte) ([]byte, error) {
 	}
 }
 
-// decompressLZ4 decompresses LZ4 data.
-func decompressLZ4(data []byte) ([]byte, error) {
-	r := lz4.NewReader(bytes.NewReader(data))
-	return io.ReadAll(r)
+// decompressLZ4 decompresses LZ4 raw block data.
+// RocksDB uses LZ4_decompress_safe() which requires the expected uncompressed size.
+func decompressLZ4(data []byte, expectedSize int) ([]byte, error) {
+	if expectedSize > 0 {
+		// Known size - decompress directly
+		dst := make([]byte, expectedSize)
+		n, err := lz4.UncompressBlock(data, dst)
+		if err != nil {
+			return nil, fmt.Errorf("lz4 uncompress block: %w", err)
+		}
+		return dst[:n], nil
+	}
+
+	// Unknown size - try progressively larger buffers
+	// Start with 4x compressed size, then grow exponentially
+	bufSize := max(len(data)*4, 256)
+
+	for range 10 {
+		dst := make([]byte, bufSize)
+		n, err := lz4.UncompressBlock(data, dst)
+		if err == nil {
+			return dst[:n], nil
+		}
+		// Buffer too small - double it and retry
+		bufSize *= 2
+	}
+
+	return nil, fmt.Errorf("lz4 uncompress block: buffer too small after retries")
 }
 
 // decompressZstd decompresses Zstandard data.

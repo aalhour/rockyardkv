@@ -32,6 +32,21 @@ import (
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
+// compressionHasEmbeddedSize returns true if the compression type embeds the
+// uncompressed size in its format and doesn't need an external varint32 prefix.
+// Reference: RocksDB util/compression.h lines 873-874:
+// "Snappy and XPRESS instead extract the decompressed size from the
+// compressed block itself, same as version 1."
+func compressionHasEmbeddedSize(t compression.Type) bool {
+	switch t {
+	case compression.SnappyCompression:
+		return true
+	// Note: XpressCompression also has embedded size but is not supported
+	default:
+		return false
+	}
+}
+
 // BuilderOptions configures the TableBuilder.
 type BuilderOptions struct {
 	// BlockSize is the target size for data blocks (default: 4KB).
@@ -312,11 +327,14 @@ func (tb *TableBuilder) writeBlockWithTrailer(blockData []byte, blockType block.
 
 	if tb.options.Compression != compression.NoCompression && blockType == block.TypeData {
 		compressed, err := compression.Compress(tb.options.Compression, blockData)
-		if err == nil && len(compressed) < len(blockData) {
+		if err == nil && compressed != nil && len(compressed) < len(blockData) {
 			// Only use compression if it actually reduces size
-			// For format_version >= 2, prepend varint32 decompressed size
-			// Reference: table/format.h GetCompressFormatForVersion()
-			if tb.options.FormatVersion >= 2 {
+			// For format_version >= 2, prepend varint32 decompressed size for most algorithms.
+			// Exception: Snappy embeds the uncompressed size in its format, so no prefix needed.
+			// Reference: util/compression.h lines 873-874:
+			// "Snappy and XPRESS instead extract the decompressed size from the
+			// compressed block itself, same as version 1."
+			if tb.options.FormatVersion >= 2 && !compressionHasEmbeddedSize(tb.options.Compression) {
 				prefix := encoding.AppendVarint32(nil, uint32(len(blockData)))
 				compressedData = append(prefix, compressed...)
 			} else {

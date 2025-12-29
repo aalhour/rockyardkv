@@ -620,20 +620,23 @@ func (r *Reader) readBlock(handle block.Handle) (*block.Block, error) {
 
 	// Decompress if needed
 	if compressionType != compression.NoCompression {
-		// For format_version >= 2, compressed blocks have a varint32 prefix
-		// containing the decompressed size. Strip it before decompressing.
-		// Reference: table/format.h GetCompressFormatForVersion()
+		// For format_version >= 2, most compression types have a varint32 prefix
+		// containing the decompressed size. Exception: Snappy embeds the size
+		// in its format, so no external prefix is used.
+		// Reference: RocksDB util/compression.h lines 873-874
 		compressedData := blockData
-		if r.footer.FormatVersion >= 2 {
-			// Read and skip the varint32 decompressed size prefix
-			_, prefixLen, err := encoding.DecodeVarint32(compressedData)
+		expectedSize := 0
+		if r.footer.FormatVersion >= 2 && !compressionHasEmbeddedSize(compressionType) {
+			// Read the varint32 decompressed size prefix
+			size, prefixLen, err := encoding.DecodeVarint32(compressedData)
 			if err != nil {
 				return nil, fmt.Errorf("decode compressed block size prefix: %w", err)
 			}
+			expectedSize = int(size)
 			compressedData = compressedData[prefixLen:]
 		}
 
-		decompressed, err := compression.Decompress(compressionType, compressedData)
+		decompressed, err := compression.DecompressWithSize(compressionType, compressedData, expectedSize)
 		if err != nil {
 			return nil, fmt.Errorf("decompress block: %w", err)
 		}
