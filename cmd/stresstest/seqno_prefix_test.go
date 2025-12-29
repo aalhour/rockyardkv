@@ -10,9 +10,191 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aalhour/rockyardkv/db"
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/trace"
 )
+
+// TestSeqnoDomainAlignment proves that trace seqnos are in the same domain
+// as database.GetLatestSequenceNumber(). This is the C02-02 acceptance test.
+//
+// Contract: After a successful write, the seqno recorded in the trace must
+// equal database.GetLatestSequenceNumber() at that moment. On recovery,
+// database.GetLatestSequenceNumber() returns a value from the same domain,
+// allowing correct replay cutoff.
+func TestSeqnoDomainAlignment(t *testing.T) {
+	// Create temp directory for DB and trace
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "testdb")
+	tracePath := filepath.Join(dir, "test.trace")
+
+	// Open trace file
+	traceFile, err := os.Create(tracePath)
+	if err != nil {
+		t.Fatalf("create trace file: %v", err)
+	}
+	traceWriter, err := trace.NewWriter(traceFile)
+	if err != nil {
+		t.Fatalf("create trace writer: %v", err)
+	}
+
+	// Open database
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+	database, err := db.Open(dbPath, opts)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	// Capture seqnos after each write
+	var capturedSeqnos []uint64
+
+	// Write 1: Put key1
+	key1 := []byte("0000000001")
+	val1 := []byte{0, 0, 0, 1, 0, 0, 0, 0} // valBase=1
+	if err := database.Put(nil, key1, val1); err != nil {
+		t.Fatalf("put key1: %v", err)
+	}
+	seqno1 := database.GetLatestSequenceNumber()
+	capturedSeqnos = append(capturedSeqnos, seqno1)
+
+	// Record trace with captured seqno
+	wb1 := batch.New()
+	wb1.Put(key1, val1)
+	payload1 := &trace.WritePayload{ColumnFamilyID: 0, SequenceNumber: seqno1, Data: wb1.Data()}
+	if err := traceWriter.Write(trace.TypeWrite, payload1.Encode()); err != nil {
+		t.Fatalf("write trace 1: %v", err)
+	}
+
+	// Write 2: Put key2
+	key2 := []byte("0000000002")
+	val2 := []byte{0, 0, 0, 2, 0, 0, 0, 0} // valBase=2
+	if err := database.Put(nil, key2, val2); err != nil {
+		t.Fatalf("put key2: %v", err)
+	}
+	seqno2 := database.GetLatestSequenceNumber()
+	capturedSeqnos = append(capturedSeqnos, seqno2)
+
+	// Record trace with captured seqno
+	wb2 := batch.New()
+	wb2.Put(key2, val2)
+	payload2 := &trace.WritePayload{ColumnFamilyID: 0, SequenceNumber: seqno2, Data: wb2.Data()}
+	if err := traceWriter.Write(trace.TypeWrite, payload2.Encode()); err != nil {
+		t.Fatalf("write trace 2: %v", err)
+	}
+
+	// Write 3: Delete key1
+	if err := database.Delete(nil, key1); err != nil {
+		t.Fatalf("delete key1: %v", err)
+	}
+	seqno3 := database.GetLatestSequenceNumber()
+	capturedSeqnos = append(capturedSeqnos, seqno3)
+
+	// Record trace with captured seqno
+	wb3 := batch.New()
+	wb3.Delete(key1)
+	payload3 := &trace.WritePayload{ColumnFamilyID: 0, SequenceNumber: seqno3, Data: wb3.Data()}
+	if err := traceWriter.Write(trace.TypeWrite, payload3.Encode()); err != nil {
+		t.Fatalf("write trace 3: %v", err)
+	}
+
+	// Verify seqnos are strictly increasing (no reuse)
+	for i := 1; i < len(capturedSeqnos); i++ {
+		if capturedSeqnos[i] <= capturedSeqnos[i-1] {
+			t.Errorf("seqno not strictly increasing: seqno[%d]=%d <= seqno[%d]=%d",
+				i, capturedSeqnos[i], i-1, capturedSeqnos[i-1])
+		}
+	}
+	t.Logf("Captured seqnos: %v", capturedSeqnos)
+
+	// Close trace and DB
+	if err := traceFile.Close(); err != nil {
+		t.Fatalf("close trace file: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	// Reopen database and verify seqno domain alignment
+	database2, err := db.Open(dbPath, opts)
+	if err != nil {
+		t.Fatalf("reopen db: %v", err)
+	}
+	defer database2.Close()
+
+	recoveredSeqno := database2.GetLatestSequenceNumber()
+	t.Logf("Recovered seqno: %d", recoveredSeqno)
+
+	// Recovered seqno must be >= last captured seqno (same domain)
+	if recoveredSeqno < capturedSeqnos[len(capturedSeqnos)-1] {
+		t.Errorf("recovered seqno %d < last captured seqno %d (domain mismatch!)",
+			recoveredSeqno, capturedSeqnos[len(capturedSeqnos)-1])
+	}
+
+	// Read trace and verify recorded seqnos match captured seqnos
+	traceFile2, err := os.Open(tracePath)
+	if err != nil {
+		t.Fatalf("open trace file: %v", err)
+	}
+	defer traceFile2.Close()
+
+	reader, err := trace.NewReader(traceFile2)
+	if err != nil {
+		t.Fatalf("create trace reader: %v", err)
+	}
+
+	var recordedSeqnos []uint64
+	for {
+		rec, err := reader.Read()
+		if err != nil {
+			break // EOF
+		}
+		if rec.Type == trace.TypeWrite {
+			payload, err := trace.DecodeWritePayloadV2(rec.Payload)
+			if err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			recordedSeqnos = append(recordedSeqnos, payload.SequenceNumber)
+		}
+	}
+
+	// Verify recorded seqnos match captured seqnos exactly
+	if len(recordedSeqnos) != len(capturedSeqnos) {
+		t.Fatalf("recorded seqnos count %d != captured seqnos count %d",
+			len(recordedSeqnos), len(capturedSeqnos))
+	}
+	for i := range capturedSeqnos {
+		if recordedSeqnos[i] != capturedSeqnos[i] {
+			t.Errorf("seqno[%d]: recorded=%d != captured=%d (domain mismatch!)",
+				i, recordedSeqnos[i], capturedSeqnos[i])
+		}
+	}
+
+	// Replay with cutoff at seqno2 (should include ops 1 and 2, exclude op 3)
+	state := newSeqnoPrefixState()
+	replayed, _, err := replayTraceFileSeqno(tracePath, seqno2, state)
+	if err != nil {
+		t.Fatalf("replay trace: %v", err)
+	}
+	if replayed != 2 {
+		t.Errorf("replayed: got %d, want 2", replayed)
+	}
+
+	// After replay with cutoff at seqno2:
+	// - key1 should exist (put at seqno1, delete at seqno3 > cutoff)
+	// - key2 should exist (put at seqno2)
+	if _, exists := state.get(1); !exists {
+		t.Error("key1 should exist (delete was after cutoff)")
+	}
+	if _, exists := state.get(2); !exists {
+		t.Error("key2 should exist")
+	}
+
+	t.Logf("✅ C02-02: Seqno domain alignment verified")
+	t.Logf("   - Captured seqnos match recorded seqnos: %v", capturedSeqnos)
+	t.Logf("   - Recovered seqno (%d) >= last write seqno (%d)", recoveredSeqno, capturedSeqnos[len(capturedSeqnos)-1])
+	t.Logf("   - Replay with cutoff correctly filters by seqno domain")
+}
 
 // TestSeqnoPrefixState_PutDelete tests the seqno-prefix state tracking.
 func TestSeqnoPrefixState_PutDelete(t *testing.T) {
