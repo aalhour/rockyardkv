@@ -100,6 +100,7 @@ Refer to the [docs](docs/) directory for detailed guides:
 - [Status](docs/status/README.md) - Compatibility, limitations, and verification
 - [Configuration](docs/configuration.md) - All options, compression, checksums, and C++ compatibility
 - [Integration guide](docs/integration.md) - Add RockyardKV to your application
+- [Examples](examples/README.md) - Working code examples for common use cases
 - [Architecture](docs/architecture.md) - Internal design and package structure
 - [Migration guide](docs/migration.md) - Migrate from C++ RocksDB or CGo wrappers
 - [Performance tuning](docs/performance.md) - Optimize for your workload

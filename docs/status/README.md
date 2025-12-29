@@ -7,6 +7,7 @@ Use these documents to understand what is verified, what is under investigation,
 
 | Document | Description |
 |----------|-------------|
+| [API compatibility](api_compatibility.md) | Public API comparison with C++ RocksDB |
 | [Compatibility](compatibility.md) | File format compatibility claims and verification commands |
 | [Durability report](durability_report.md) | Crash durability status, known limitations, and reproduction commands |
 
