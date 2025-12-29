@@ -23,6 +23,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -46,6 +47,11 @@ var (
 	preserveTime = flag.Bool("preserve-timing", false, "Preserve original timing during replay")
 	dryRun       = flag.Bool("dry-run", false, "Count operations without applying them (default for replay)")
 	createDB     = flag.Bool("create", true, "Create database if it doesn't exist")
+
+	// Verify flags
+	writeDigest   = flag.String("write-digest", "", "Write state digest to file after replay")
+	expectDigest  = flag.String("expect-digest", "", "Verify DB state matches this digest file")
+	digestSamples = flag.Int("digest-samples", 1000, "Number of key samples for state digest")
 )
 
 func main() {
@@ -68,6 +74,8 @@ func main() {
 		err = cmdDump(traceFile)
 	case "replay":
 		err = cmdReplay(traceFile)
+	case "verify":
+		err = cmdVerify(traceFile)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		printUsage()
@@ -90,17 +98,23 @@ Commands:
   stats     Display statistics about the trace file
   dump      Dump trace records
   replay    Replay the trace against a database
+  verify    Replay and verify DB state (acceptance signal)
 
 Options:
-  -v              Verbose output
-  -limit N        Maximum records to dump (dump command)
-  -db PATH        Database path for replay (replay command)
-  -preserve-timing  Preserve original timing during replay
+  -v                 Verbose output
+  -limit N           Maximum records to dump (dump command)
+  -db PATH           Database path for replay/verify (required)
+  -preserve-timing   Preserve original timing during replay
+  -write-digest FILE Write state digest to file after replay
+  -expect-digest FILE Verify DB state matches this digest
+  -digest-samples N  Number of keys to sample for digest (default: 1000)
 
 Examples:
   traceanalyzer stats <TRACE_FILE>
   traceanalyzer dump -limit 100 <TRACE_FILE>
-  traceanalyzer -db <DB_PATH> -create=true -dry-run=false replay <TRACE_FILE>`)
+  traceanalyzer -db <DB_PATH> -create=true -dry-run=false replay <TRACE_FILE>
+  traceanalyzer -db <DB_PATH> -write-digest state.digest verify <TRACE_FILE>
+  traceanalyzer -db <DB_PATH> -expect-digest state.digest verify <TRACE_FILE>`)
 }
 
 func cmdStats(traceFile string) error {
@@ -170,9 +184,10 @@ func cmdDump(traceFile string) error {
 				payloadStr = fmt.Sprintf("cf=%d key=%q", payload.ColumnFamilyID, string(payload.Key))
 			}
 		case trace.TypeWrite:
-			payload, err := trace.DecodeWritePayload(record.Payload)
+			// Use reader's version-aware decoder for v2+ trace formats
+			payload, err := reader.DecodeWritePayload(record.Payload)
 			if err == nil {
-				payloadStr = fmt.Sprintf("cf=%d batch_size=%d", payload.ColumnFamilyID, len(payload.Data))
+				payloadStr = fmt.Sprintf("cf=%d batch_size=%d seqno=%d", payload.ColumnFamilyID, len(payload.Data), payload.SequenceNumber)
 			}
 		case trace.TypeIterSeek:
 			payload, err := trace.DecodeGetPayload(record.Payload)
@@ -294,7 +309,7 @@ func replayWithErrors(reader *trace.Reader, handler trace.ReplayHandler, preserv
 		}
 		lastTimestamp = record.Timestamp
 
-		if execErr := executeRecord(handler, record); execErr != nil {
+		if execErr := executeRecord(reader, handler, record); execErr != nil {
 			stats.FailedOps++
 			if errsPrinted < maxErrorsToPrint {
 				fmt.Fprintf(os.Stderr, "Replay op failed: type=%s ts=%s err=%v\n",
@@ -313,10 +328,11 @@ func replayWithErrors(reader *trace.Reader, handler trace.ReplayHandler, preserv
 	return stats, nil
 }
 
-func executeRecord(handler trace.ReplayHandler, record *trace.Record) error {
+func executeRecord(reader *trace.Reader, handler trace.ReplayHandler, record *trace.Record) error {
 	switch record.Type {
 	case trace.TypeWrite:
-		payload, err := trace.DecodeWritePayload(record.Payload)
+		// Use reader's version-aware decoder for v2+ trace formats
+		payload, err := reader.DecodeWritePayload(record.Payload)
 		if err != nil {
 			return err
 		}
@@ -514,4 +530,195 @@ func (c *writeBatchCopier) MergeCF(cfID uint32, key, value []byte) error {
 
 func (c *writeBatchCopier) DeleteRangeCF(cfID uint32, startKey, endKey []byte) error {
 	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
+}
+
+// =============================================================================
+// Verify Command (UC.T8 - Trace replay acceptance signal)
+// =============================================================================
+
+// cmdVerify replays a trace and produces an acceptance signal.
+// It can optionally write a state digest or verify against an expected digest.
+func cmdVerify(traceFile string) error {
+	if *replayDB == "" {
+		return fmt.Errorf("--db flag is required for verify")
+	}
+
+	// Open trace file
+	file, err := os.Open(traceFile)
+	if err != nil {
+		return fmt.Errorf("open trace: %w", err)
+	}
+	defer file.Close()
+
+	reader, err := trace.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("create reader: %w", err)
+	}
+
+	// Open database
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = *createDB
+	database, err := db.Open(*replayDB, opts)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer database.Close()
+
+	handler := &dbHandler{database: database}
+
+	// Replay the trace
+	fmt.Println("Replaying trace...")
+	stats, err := replayWithErrors(reader, handler, *preserveTime, 5)
+	if err != nil {
+		return fmt.Errorf("replay failed: %w", err)
+	}
+
+	fmt.Println("\nReplay Statistics")
+	fmt.Println("=================")
+	fmt.Printf("Total Records:   %d\n", stats.TotalRecords)
+	fmt.Printf("Successful Ops:  %d\n", stats.SuccessfulOps)
+	fmt.Printf("Failed Ops:      %d\n", stats.FailedOps)
+	fmt.Printf("Duration:        %s\n", stats.Duration)
+
+	if stats.FailedOps > 0 {
+		return fmt.Errorf("replay finished with %d failed operations", stats.FailedOps)
+	}
+
+	// Generate state digest
+	digest, err := generateStateDigest(database, *digestSamples)
+	if err != nil {
+		return fmt.Errorf("generate digest: %w", err)
+	}
+
+	fmt.Println("\nState Digest")
+	fmt.Println("============")
+	fmt.Printf("Key Count:     %d\n", digest.KeyCount)
+	fmt.Printf("Checksum:      %s\n", digest.Checksum)
+	fmt.Printf("Sample Keys:   %d\n", len(digest.SampleKeys))
+
+	// Write digest if requested
+	if *writeDigest != "" {
+		if err := writeDigestFile(*writeDigest, digest); err != nil {
+			return fmt.Errorf("write digest: %w", err)
+		}
+		fmt.Printf("\nDigest written to: %s\n", *writeDigest)
+	}
+
+	// Verify against expected digest if provided
+	if *expectDigest != "" {
+		expected, err := readDigestFile(*expectDigest)
+		if err != nil {
+			return fmt.Errorf("read expected digest: %w", err)
+		}
+
+		if err := verifyDigest(digest, expected); err != nil {
+			fmt.Println("\n❌ VERIFICATION FAILED")
+			return fmt.Errorf("digest mismatch: %w", err)
+		}
+
+		fmt.Println("\n✅ VERIFICATION PASSED")
+		fmt.Println("Database state matches expected digest")
+	}
+
+	// Acceptance signal: if we reach here without errors, replay succeeded
+	fmt.Println("\n✅ TRACE REPLAY ACCEPTED")
+	return nil
+}
+
+// stateDigest represents a summary of the database state for verification.
+type stateDigest struct {
+	KeyCount   int64             `json:"key_count"`
+	Checksum   string            `json:"checksum"`
+	SampleKeys []string          `json:"sample_keys,omitempty"`
+	SampleVals map[string]string `json:"sample_vals,omitempty"`
+}
+
+// generateStateDigest creates a digest of the current database state.
+func generateStateDigest(database db.DB, maxSamples int) (*stateDigest, error) {
+	digest := &stateDigest{
+		SampleVals: make(map[string]string),
+	}
+
+	// Iterate through all keys and compute checksum
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	var keyCount int64
+	var checksumAccum uint64
+	sampleInterval := 1
+
+	// First pass: count keys
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+	if keyCount > 0 && int64(maxSamples) < keyCount {
+		sampleInterval = max(int(keyCount/int64(maxSamples)), 1)
+	}
+
+	// Second pass: collect samples and compute checksum
+	var idx int64
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		value := iter.Value()
+
+		// Update checksum (simple XOR-based checksum)
+		for _, b := range key {
+			checksumAccum ^= uint64(b) << ((idx % 8) * 8)
+		}
+		for _, b := range value {
+			checksumAccum ^= uint64(b) << ((idx % 8) * 8)
+		}
+
+		// Sample keys at intervals
+		if int(idx)%sampleInterval == 0 && len(digest.SampleKeys) < maxSamples {
+			keyStr := string(key)
+			digest.SampleKeys = append(digest.SampleKeys, keyStr)
+			digest.SampleVals[keyStr] = string(value)
+		}
+
+		idx++
+	}
+
+	if err := iter.Error(); err != nil {
+		return nil, err
+	}
+
+	digest.KeyCount = keyCount
+	digest.Checksum = fmt.Sprintf("%016x", checksumAccum)
+
+	return digest, nil
+}
+
+// writeDigestFile writes a state digest to a JSON file.
+func writeDigestFile(path string, digest *stateDigest) error {
+	data, err := json.MarshalIndent(digest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal digest: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// readDigestFile reads a state digest from a JSON file.
+func readDigestFile(path string) (*stateDigest, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	digest := &stateDigest{}
+	if err := json.Unmarshal(content, digest); err != nil {
+		return nil, fmt.Errorf("failed to parse digest: %w", err)
+	}
+	return digest, nil
+}
+
+// verifyDigest compares two digests and returns an error if they don't match.
+func verifyDigest(actual, expected *stateDigest) error {
+	if actual.KeyCount != expected.KeyCount {
+		return fmt.Errorf("key count mismatch: got %d, expected %d", actual.KeyCount, expected.KeyCount)
+	}
+	if actual.Checksum != expected.Checksum {
+		return fmt.Errorf("checksum mismatch: got %s, expected %s", actual.Checksum, expected.Checksum)
+	}
+	return nil
 }
