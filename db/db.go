@@ -90,7 +90,7 @@ type DB interface {
 	MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error
 
 	// Write applies a batch of operations atomically.
-	Write(opts *WriteOptions, batch *batch.WriteBatch) error
+	Write(opts *WriteOptions, batch *WriteBatch) error
 
 	// NewIterator creates an iterator over the default column family.
 	NewIterator(opts *ReadOptions) Iterator
@@ -511,13 +511,13 @@ func (db *DBImpl) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []
 		return err
 	}
 
-	wb := batch.New()
+	internal := batch.New()
 	if cfd.id == DefaultColumnFamilyID {
-		wb.Put(key, value)
+		internal.Put(key, value)
 	} else {
-		wb.PutCF(cfd.id, key, value)
+		internal.PutCF(cfd.id, key, value)
 	}
-	return db.Write(opts, wb)
+	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // Get retrieves the value for the given key from the default column family.
@@ -977,9 +977,9 @@ func (db *DBImpl) Delete(opts *WriteOptions, key []byte) error {
 // without any Merge operations. If there are multiple Put operations for a key,
 // SingleDelete may not work correctly.
 func (db *DBImpl) SingleDelete(opts *WriteOptions, key []byte) error {
-	wb := batch.New()
-	wb.SingleDelete(key)
-	return db.Write(opts, wb)
+	internal := batch.New()
+	internal.SingleDelete(key)
+	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // DeleteCF removes the given key from the specified column family.
@@ -989,13 +989,13 @@ func (db *DBImpl) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte
 		return err
 	}
 
-	wb := batch.New()
+	internal := batch.New()
 	if cfd.id == DefaultColumnFamilyID {
-		wb.Delete(key)
+		internal.Delete(key)
 	} else {
-		wb.DeleteCF(cfd.id, key)
+		internal.DeleteCF(cfd.id, key)
 	}
-	return db.Write(opts, wb)
+	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // DeleteRange removes all keys in the range [startKey, endKey) from the default column family.
@@ -1010,13 +1010,13 @@ func (db *DBImpl) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start
 		return err
 	}
 
-	wb := batch.New()
+	internal := batch.New()
 	if cfd.id == DefaultColumnFamilyID {
-		wb.DeleteRange(startKey, endKey)
+		internal.DeleteRange(startKey, endKey)
 	} else {
-		wb.DeleteRangeCF(cfd.id, startKey, endKey)
+		internal.DeleteRangeCF(cfd.id, startKey, endKey)
 	}
-	return db.Write(opts, wb)
+	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // Merge applies a merge operation for the given key in the default column family.
@@ -1035,17 +1035,17 @@ func (db *DBImpl) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value 
 		return err
 	}
 
-	wb := batch.New()
+	internal := batch.New()
 	if cfd.id == DefaultColumnFamilyID {
-		wb.Merge(key, value)
+		internal.Merge(key, value)
 	} else {
-		wb.MergeCF(cfd.id, key, value)
+		internal.MergeCF(cfd.id, key, value)
 	}
-	return db.Write(opts, wb)
+	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // Write applies a batch of operations atomically.
-func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
+func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 	// Whitebox [synctest]: barrier at Write start
 	_ = testutil.SP(testutil.SPDBWrite)
 
@@ -1053,8 +1053,11 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 		opts = DefaultWriteOptions()
 	}
 
+	// Get the internal batch for low-level operations
+	internal := wb.internalBatch()
+
 	// Check write stall condition and wait if needed
-	writeSize := len(wb.Data())
+	writeSize := len(internal.Data())
 	db.writeController.MaybeStallWrite(writeSize)
 
 	db.mu.Lock()
@@ -1070,9 +1073,9 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	}
 
 	// Assign sequence numbers
-	count := wb.Count()
+	count := internal.Count()
 	firstSeq := db.seq + 1
-	wb.SetSequence(firstSeq)
+	internal.SetSequence(firstSeq)
 	db.seq += uint64(count)
 
 	// Write to WAL (unless disabled)
@@ -1088,7 +1091,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 		// Whitebox [synctest]: barrier before WAL write
 		_ = testutil.SP(testutil.SPDBWriteWAL)
 
-		data := wb.Data()
+		data := internal.Data()
 		if _, err := db.logWriter.AddRecord(data); err != nil {
 			db.mu.Unlock()
 			return err
@@ -1120,7 +1123,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *batch.WriteBatch) error {
 	db.mu.Unlock()
 
 	// Iterate through the batch and apply to memtables
-	if err := wb.Iterate(handler); err != nil {
+	if err := internal.Iterate(handler); err != nil {
 		return err
 	}
 

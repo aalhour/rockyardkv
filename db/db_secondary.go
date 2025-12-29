@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/version"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -157,7 +156,7 @@ func (db *DBImplSecondary) Merge(opts *WriteOptions, key, operand []byte) error 
 }
 
 // Write is not supported in secondary mode.
-func (db *DBImplSecondary) Write(opts *WriteOptions, b *batch.WriteBatch) error {
+func (db *DBImplSecondary) Write(opts *WriteOptions, b *WriteBatch) error {
 	return ErrReadOnly
 }
 

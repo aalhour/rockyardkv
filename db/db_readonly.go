@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/version"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -128,7 +127,7 @@ func (db *DBImplReadOnly) Merge(opts *WriteOptions, key, operand []byte) error {
 }
 
 // Write is not supported in read-only mode.
-func (db *DBImplReadOnly) Write(opts *WriteOptions, b *batch.WriteBatch) error {
+func (db *DBImplReadOnly) Write(opts *WriteOptions, b *WriteBatch) error {
 	return ErrReadOnly
 }
 
