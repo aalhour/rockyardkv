@@ -38,6 +38,7 @@ CRASH_BIN := $(BIN_DIR)/crashtest
 TRACEANALYZER_BIN := $(BIN_DIR)/traceanalyzer
 LDB_BIN := $(BIN_DIR)/ldb
 SSTDUMP_BIN := $(BIN_DIR)/sstdump
+MANIFESTDUMP_BIN := $(BIN_DIR)/manifestdump
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Tier Configuration
@@ -122,7 +123,7 @@ all: build ## Build all binaries (alias for 'build')
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: build
-build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZER_BIN) $(LDB_BIN) $(SSTDUMP_BIN) ## Build all binaries
+build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZER_BIN) $(LDB_BIN) $(SSTDUMP_BIN) $(MANIFESTDUMP_BIN) ## Build all binaries
 	@echo "✅ Build complete"
 
 $(BIN_DIR):
@@ -155,6 +156,10 @@ $(LDB_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 $(SSTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 	@echo "🔧 Building sstdump binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/sstdump
+
+$(MANIFESTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+	@echo "🔧 Building manifestdump binary..."
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/manifestdump
 
 .PHONY: build-release
 build-release: ## Build release binaries for all platforms
@@ -627,7 +632,7 @@ $(GOCYCLO_BIN): $(BIN_DIR)
 	@GOBIN=$$(pwd)/$(BIN_DIR) $(GO) install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 
 .PHONY: gocyclo
-gocyclo: $(GOCYCLO_BIN) ## Check cyclomatic complexity (default max $(GOCYCLO_MAX))
+gocyclo: $(GOCYCLO_BIN) ## Check cyclomatic complexity (default max 20)
 	@echo "🧠 Checking cyclomatic complexity (max $(GOCYCLO_MAX))..."
 	@$(GOCYCLO_BIN) -over $(GOCYCLO_MAX) . 2>&1 | tee $(GOCYCLO_REPORT)
 	@echo "📄 gocyclo report: $(GOCYCLO_REPORT)"
@@ -708,13 +713,13 @@ todo: ## List TODO/FIXME items in code
 # CLEANUP
 # ═══════════════════════════════════════════════════════════════════════════
 
-.PHONY: clean
+.PHONY: clean-build
 clean-build: ## Remove all build artifacts
 	@echo "🧹 Cleaning build artifacts..."
 	rm -rf $(BIN_DIR)
 	rm -rf $(COV_DIR)
 	rm -rf $(DIST_DIR)
-	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump
+	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump manifestdump
 	rm -rf crashtest-artifacts
 	rm -f profile.cov coverage.out
 	rm -f *.test
