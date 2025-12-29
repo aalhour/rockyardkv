@@ -46,7 +46,7 @@ import (
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
-	"github.com/aalhour/rockyardkv/internal/batch"
+	ibatch "github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/trace"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -1141,7 +1141,7 @@ func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, 
 	}
 
 	// Trace the operation (if tracing enabled)
-	traceOp(trace.TypeWrite, traceGetPayload(keyBytes)) // Delete is a write with just key
+	traceOp(trace.TypeWrite, traceDeletePayload(keyBytes))
 
 	// Commit the expected state update
 	pendingValue.Commit()
@@ -1151,7 +1151,7 @@ func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, 
 
 // doBatch performs a batch write WITH per-key locking for all keys in the batch
 func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
-	wb := batch.New()
+	wb := db.NewWriteBatch()
 	batchSize := rng.Intn(20) + 1
 
 	type opInfo struct {
@@ -1247,6 +1247,9 @@ func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, r
 	if err != nil {
 		return fmt.Errorf("batch write failed: %w", err)
 	}
+
+	// Trace the operation (if tracing enabled)
+	traceOp(trace.TypeWrite, traceWriteBatchPayload(wb))
 
 	stats.batches.Add(1)
 	return nil
@@ -1742,7 +1745,7 @@ func doTransaction(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *
 	}
 
 	// Build the batch
-	wb := batch.New()
+	wb := db.NewWriteBatch()
 	for _, l := range locks {
 		if l.isPut {
 			wb.Put(makeKey(l.key), makeValue(l.key, l.valueBase))
@@ -2356,21 +2359,29 @@ func traceOp(opType trace.RecordType, payload []byte) {
 }
 
 // tracePutPayload creates a trace payload for a Put operation.
-// Format: [key_len:4][key][value_len:4][value]
+// The trace payload uses internal/trace.WritePayload where Data is a raw WriteBatch.
 func tracePutPayload(key, value []byte) []byte {
-	buf := make([]byte, 4+len(key)+4+len(value))
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key)))
-	copy(buf[4:4+len(key)], key)
-	binary.LittleEndian.PutUint32(buf[4+len(key):8+len(key)], uint32(len(value)))
-	copy(buf[8+len(key):], value)
-	return buf
+	wb := ibatch.New()
+	wb.Put(key, value)
+	return (&trace.WritePayload{ColumnFamilyID: 0, Data: wb.Data()}).Encode()
 }
 
 // traceGetPayload creates a trace payload for a Get operation.
-// Format: [key_len:4][key]
+// The trace payload uses internal/trace.GetPayload.
 func traceGetPayload(key []byte) []byte {
-	buf := make([]byte, 4+len(key))
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(key)))
-	copy(buf[4:], key)
-	return buf
+	return (&trace.GetPayload{ColumnFamilyID: 0, Key: key}).Encode()
+}
+
+// traceDeletePayload creates a trace payload for a Delete operation.
+// The payload is a WritePayload wrapping a WriteBatch with a single Delete record.
+func traceDeletePayload(key []byte) []byte {
+	wb := ibatch.New()
+	wb.Delete(key)
+	return (&trace.WritePayload{ColumnFamilyID: 0, Data: wb.Data()}).Encode()
+}
+
+// traceWriteBatchPayload creates a trace payload for a batch write.
+// The payload is a WritePayload wrapping the raw batch bytes.
+func traceWriteBatchPayload(wb *db.WriteBatch) []byte {
+	return (&trace.WritePayload{ColumnFamilyID: 0, Data: wb.Data()}).Encode()
 }

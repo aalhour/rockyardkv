@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
-	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
@@ -455,7 +454,7 @@ func testBatchWrite(path string, keys, values [][]byte) error {
 	for start := 0; start < len(keys); start += batchSize {
 		end := min(start+batchSize, len(keys))
 
-		wb := batch.New()
+		wb := db.NewWriteBatch()
 		for i := start; i < end; i++ {
 			wb.Put(keys[i], values[i])
 		}

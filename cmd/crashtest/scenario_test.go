@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
-	"github.com/aalhour/rockyardkv/internal/batch"
 )
 
 // TestScenario_SyncedWriteSurvivesCrash verifies that a synced write
@@ -138,7 +137,7 @@ func TestScenario_WriteBatchAtomicity(t *testing.T) {
 
 	// Write a batch with sync=true, then exit
 	runScenarioChild(t, dir, "batch-sync", func(database db.DB) {
-		wb := batch.New()
+		wb := db.NewWriteBatch()
 		for i := range 50 {
 			wb.Put(fmt.Appendf(nil, "batch_key_%04d", i), fmt.Appendf(nil, "batch_value_%04d", i))
 		}

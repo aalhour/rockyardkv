@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
-	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
@@ -361,7 +360,7 @@ func testDuplicateKeysInBatch(dir string) error {
 	defer database.Close()
 
 	key := []byte("duplicate_key")
-	b := batch.New()
+	b := db.NewWriteBatch()
 	b.Put(key, []byte("first"))
 	b.Put(key, []byte("second"))
 	b.Put(key, []byte("third"))
@@ -828,7 +827,7 @@ func testEmptyBatch(dir string) error {
 	}
 	defer database.Close()
 
-	b := batch.New()
+	b := db.NewWriteBatch()
 	_ = database.Write(nil, b) // Should not panic
 
 	return nil
