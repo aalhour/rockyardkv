@@ -5,6 +5,59 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-12-29
+
+### Added
+
+Durability verification:
+- Seqno-prefix verification mode for DisableWAL crash recovery (C02-03)
+- Trace format V2 with sequence numbers for oracle-aligned verification
+- Collision-check-only gate for crashtest (HARNESS-03)
+
+Testing infrastructure:
+- 83 contract tests for public APIs (Iterator, Transaction, MergeOperator, Comparator, CompactionFilter, Handler2PC, ReplayHandler)
+- Fuzz corpus entries for table reader edge cases
+- Memory safety limits in fuzz tests to prevent OOM
+
+Public API:
+- `db.WriteBatch` public API for batch writes
+- Working examples in `examples/` using public API
+
+Tools:
+- `manifestdump` utility for MANIFEST file inspection
+- `ldb checkcollision` subcommand for internal key collision detection
+
+Documentation:
+- API compatibility matrix in status docs
+- Configuration reference with C++ RocksDB equivalents
+- Contract test classification in testing philosophy
+
+### Fixed
+- LZ4 compression uses raw block format matching RocksDB
+- Snappy prefix handling for C++ compatibility
+- Internal key collision from orphaned SSTs (C02-01)
+- Iterator error propagation
+- Memtable log number tracking for WAL advancement
+- Fuzz test infrastructure (-fuzz=Fuzz matching multiple tests)
+- Hardcoded local paths removed from goldentest
+- DisableWAL data loss under faultfs now allowed (HARNESS-02)
+
+### Changed
+- Trace replay applies operations in real mode
+- Crashtest uses sstdump for collision checking
+- Tools migrated to public WriteBatch API
+- Lint exclusions added for examples directory
+
+### Removed
+- Standalone `check_collision` tool (replaced by ldb subcommand)
+- Redundant `durability_contract_test.go`
+
+## [0.1.3] - 2024-12-27
+
+### Fixed
+- Durability barrier tracking for DisableWAL mode in stresstest
+- Merge operator applied during compaction
+
 ## [0.1.2] - 2024-12-27
 
 ### Fixed
@@ -51,7 +104,7 @@ Initial release with core RocksDB functionality and v10.7.5 format compatibility
 
 ### Added
 
-**Core database operations**
+Core database operations:
 
 - `Open`, `Close`, `Put`, `Get`, `Delete`, `Write`
 - `MultiGet` for batch key retrieval
@@ -64,7 +117,7 @@ Initial release with core RocksDB functionality and v10.7.5 format compatibility
 - Snapshots for consistent point-in-time reads
 - Prefix seek with `PrefixExtractor`
 
-**Storage engine**
+Storage engine:
 
 - WAL (Write-Ahead Log) with RocksDB v10.7.5 format
 - SST (Sorted String Table) with block-based tables
@@ -80,7 +133,7 @@ Initial release with core RocksDB functionality and v10.7.5 format compatibility
 - BlobDB for large value separation
 - Direct I/O support
 
-**Advanced features**
+Advanced features:
 
 - TTL (time-to-live) with automatic expiration via `OpenWithTTL`
 - Compaction filters for custom filtering during compaction
@@ -89,13 +142,13 @@ Initial release with core RocksDB functionality and v10.7.5 format compatibility
 - User timestamps for MVCC
 - Subcompactions for parallel compaction
 
-**Durability and backup**
+Durability and backup:
 
 - Checkpoint for point-in-time snapshots
 - Backup engine with incremental support
 - WAL sync options
 
-**Testing infrastructure**
+Testing infrastructure:
 
 - Unit tests with table-driven patterns
 - Integration tests
@@ -106,7 +159,7 @@ Initial release with core RocksDB functionality and v10.7.5 format compatibility
 - Smoke test for basic functionality
 - Adversarial test for edge cases and error paths
 
-**Documentation**
+Documentation:
 
 - README with quick start guide
 - Integration and migration guides

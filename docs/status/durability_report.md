@@ -5,27 +5,36 @@ It provides reproduction commands and expected evidence for each behavior.
 
 ## Summary
 
-RockyardKV is in **v0.1.x**.
+RockyardKV is in `v0.2.x`.
 Durability guarantees are under active verification.
 
 | Behavior | Configuration | Status |
 |----------|---------------|--------|
-| Internal-key collision (C02-01) | WAL disabled, fault injection | ✅ **Resolved** (2025-12-29) |
-| Durable state divergence (HARNESS-02) | WAL disabled, fault injection | ✅ **Resolved** (2025-12-29) |
-| Value regression after crash (C01-01) | WAL enabled, sync writes | Under investigation |
+| Internal key collision (C02-01) | WAL disabled, fault injection | Resolved (2025-12-29) |
+| Durable state divergence (HARNESS-02) | WAL disabled, fault injection | Resolved (2025-12-29) |
+| DisableWAL verification contract (C02-03) | WAL disabled, fault injection | Resolved (2025-12-29) |
+| Value regression after crash (C01-01) | WAL enabled, sync writes | Resolved (2025-12-29) |
 
 ### Recent fixes (2025-12-29)
 
-**Internal-key collision across SSTs**
-- **Root cause:** Orphaned SST files after crash + missing orphan cleanup during recovery
-- **Fix:** Orphan SST deletion on recovery + LastSequence from SST largest_seqno + monotonicity
-- **Commits:** `947e3a0`, `ac461fe`
-- **Validation:** 10/10 collision-check passes (see `docs/redteam/REPORTS/2025-12-29_C02_run11.md`)
+Internal key collision across SSTs:
+- Root cause: Orphaned SST files after crash and missing orphan cleanup during recovery.
+- Fix: Delete orphaned SST files during recovery and keep `LastSequence` monotonic.
+- Commits: `947e3a0`, `ac461fe`.
+- Evidence: `docs/redteam/REPORTS/2025-12-29_C02_run11.md`.
 
-**Verifier mismatch under DisableWAL+faultfs**
-- **Root cause:** Harness assumed Flush() = durable, but crash before MANIFEST sync loses data
-- **Fix:** Added `-allow-data-loss` flag for DisableWAL+faultfs mode
-- **Validation:** 5/5 passes
+Verifier mismatch under DisableWAL+faultfs:
+- Root cause: The harness treated `Flush()` as a durability boundary, but a crash before `MANIFEST` sync loses flushed data.
+- Fix: Add `-allow-data-loss` for DisableWAL+faultfs mode.
+- Evidence: Refer to the HARNESS-02 entry in `docs/status/durability_report.md` and linked redteam reports.
+
+DisableWAL verification contract (seqno-prefix model):
+- Root cause: The original DisableWAL verifier expected a strict "no missing writes" contract.
+- Fix: Verify a seqno-prefix (no holes) contract aligned with the recovery sequence number.
+- Evidence: `docs/redteam/REPORTS/2025-12-29_C02_run16.md`.
+
+WAL enabled with sync writes:
+- Evidence: `docs/redteam/REPORTS/2025-12-29_C01_run10.md`.
 
 ## What crash durability means
 
@@ -51,11 +60,11 @@ Verification compares the database contents after recovery to the expected state
 
 ## How this report works
 
-This report is evidence-first.  
-You reproduce each behavior with a fixed command line and a fixed seed.  
-You treat the result as verified only when you have the exit code, the log output, and the artifacts.
+This report is evidence-first.
+Reproduce each behavior with a fixed command line and a fixed seed.
+Treat a behavior as resolved only when you capture the exit code, the log output, and the artifacts.
 
-Each command writes output to a run directory.  
+Each command writes output to a run directory.
 Set `<RUN_DIR>` to any location you want.
 
 ### Prerequisites
@@ -95,10 +104,10 @@ Each failing run writes:
 
 ### What it means
 
-With WAL enabled and sync writes, the database acknowledges a write only after it forces the write to stable storage.  
-After a crash and restart, recovery should replay durable state and return the latest acknowledged values.  
-This behavior returns an older value for some acknowledged updates.  
-This behavior is under investigation.
+With WAL enabled and sync writes, the database acknowledges a write only after it forces the write to stable storage.
+After a crash and restart, recovery replays durable state and returns the latest acknowledged values.
+This scenario detects older values or missing keys after recovery.
+This scenario is resolved in the latest verification run.
 
 ### How it happens
 
@@ -118,32 +127,31 @@ rm -rf "$RUN_DIR" && mkdir -p "$RUN_DIR"
   2>&1 | tee "$RUN_DIR/crashtest.log"
 ```
 
-Expected evidence:
+Expected evidence (resolved):
 
-- The command exits non-zero.
-- The log includes `Verify:` lines that report `value base mismatch` or `expected to exist`.
-- The `artifacts` directory contains a bundle suitable for reproduction.
+- The command exits zero.
+- The log does not include failing `Verify:` lines.
+- The `artifacts` directory contains a bundle suitable for future reproduction.
 
 ## Behavior: WAL disabled + flush barriers diverge under fault injection after crash recovery
 
-### Status: ✅ RESOLVED (2025-12-29)
+### Status: Resolved (2025-12-29)
 
-**Two issues were fixed:**
+This section tracks DisableWAL+faultfs crash behavior.
+It includes verifier behavior and internal-key collision checks.
 
-1. **Internal-key collision due to orphaned SST files**
-   - Fix: Orphan SST deletion on recovery + LastSequence monotonicity
-   - Gate: `make status-durability-internal-key-collision` — **PASS**
+Fixed issues:
+1. Internal key collision due to orphaned SST files.
+1. A verifier contract mismatch when the run crashes before `MANIFEST` sync.
 
-2. **Verifier assumed Flush() = durable**
-   - Fix: `-allow-data-loss` flag for DisableWAL+faultfs mode
-   - Gate: `make status-durability-internal-key-collision` — **PASS**
+Use `-seqno-prefix-verify` when you need oracle-aligned DisableWAL verification.
 
 ### What it means
 
-When you disable the WAL, you accept that unflushed writes are not durable.  
-Flush becomes the durability boundary for data that is present in on-disk tables.  
-Under fault injection, crashes can occur after flush but before MANIFEST sync.  
-With the fixes applied, such data loss is expected and allowed by the verifier.
+When you disable the WAL, you accept that unflushed writes are not durable.
+Under fault injection, the process can crash after a flush and before `MANIFEST` sync.
+In that case, the recovered database can lose flushed data.
+Treat that data loss as expected in DisableWAL+faultfs mode.
 
 ### Verification command
 
@@ -152,9 +160,9 @@ make status-durability-internal-key-collision
 ```
 
 Expected evidence:
-- The command exits zero (`exit_code=0`)
-- `collision-check` reports: `OK: no internal-key collisions detected`
-- Data loss is logged but allowed: `(allowed, data loss under DisableWAL)`
+- The command exits zero.
+- `collision-check` reports `OK: no internal-key collisions detected`.
+- The log can include allowed data loss messages for DisableWAL+faultfs mode.
 
 ## Verify file format compatibility
 

@@ -1,7 +1,7 @@
 # Status
 
 This directory contains status documentation for RockyardKV.
-Use these documents to understand what is verified, what is under investigation, and how to reproduce known issues.
+Use these documents to understand what is resolved, what is under investigation, and how to reproduce known issues.
 
 ## Documents
 
