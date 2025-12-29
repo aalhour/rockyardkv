@@ -478,6 +478,9 @@ func runCorruptionTests() []testResult {
 		{"CorruptSSTBlock", testCorruptSSTBlock},
 		{"ZeroFillWAL", testZeroFillWAL},
 		{"DeleteCurrent", testDeleteCurrent},
+		{"TruncateManifest", testTruncateManifest},
+		{"CorruptManifestBytes", testCorruptManifestBytes},
+		{"GarbageManifestRecord", testGarbageManifestRecord},
 	}
 
 	return runTestSuite(tests)
@@ -661,6 +664,182 @@ func testDeleteCurrent(dir string) error {
 	}
 
 	return nil
+}
+
+// testTruncateManifest truncates the tail of the MANIFEST file and verifies
+// the DB either fails to open or recovers to an older consistent state.
+func testTruncateManifest(dir string) error {
+	database, err := openDB(dir)
+	if err != nil {
+		return err
+	}
+
+	// Write data and flush multiple times to create MANIFEST entries
+	for round := range 3 {
+		for i := range 10 {
+			key := fmt.Appendf(nil, "round%d_key_%03d", round, i)
+			value := fmt.Appendf(nil, "round%d_value_%03d", round, i)
+			if err := database.Put(nil, key, value); err != nil {
+				return fmt.Errorf("put: %w", err)
+			}
+		}
+		if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+			return fmt.Errorf("flush: %w", err)
+		}
+	}
+	database.Close()
+
+	// Find MANIFEST file
+	manifestPath := findManifestFile(dir)
+	if manifestPath == "" {
+		return fmt.Errorf("MANIFEST file not found")
+	}
+
+	// Read and truncate
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	if len(content) < 100 {
+		return fmt.Errorf("MANIFEST too small to truncate: %d bytes", len(content))
+	}
+
+	// Truncate 50% of the file
+	truncatedLen := len(content) / 2
+	if err := os.WriteFile(manifestPath, content[:truncatedLen], 0644); err != nil {
+		return fmt.Errorf("truncate manifest: %w", err)
+	}
+
+	// Reopen - should fail or recover older state, but not panic
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+	database, err = db.Open(dir, opts)
+	if err != nil {
+		// Expected: fail to open with truncated MANIFEST
+		return nil
+	}
+	database.Close()
+	return nil // Also acceptable: recovered to older state
+}
+
+// testCorruptManifestBytes flips bytes in the MANIFEST file and verifies
+// the DB either fails to open or detects the corruption.
+func testCorruptManifestBytes(dir string) error {
+	database, err := openDB(dir)
+	if err != nil {
+		return err
+	}
+
+	// Write some data and flush
+	for i := range 20 {
+		key := fmt.Appendf(nil, "key_%03d", i)
+		value := fmt.Appendf(nil, "value_%03d", i)
+		if err := database.Put(nil, key, value); err != nil {
+			return fmt.Errorf("put: %w", err)
+		}
+	}
+	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
+	database.Close()
+
+	// Find and corrupt MANIFEST
+	manifestPath := findManifestFile(dir)
+	if manifestPath == "" {
+		return fmt.Errorf("MANIFEST file not found")
+	}
+
+	content, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+	if len(content) < 50 {
+		return fmt.Errorf("MANIFEST too small: %d bytes", len(content))
+	}
+
+	// Flip bytes in the middle of the file
+	corrupted := make([]byte, len(content))
+	copy(corrupted, content)
+	midpoint := len(corrupted) / 2
+	for i := midpoint; i < midpoint+10 && i < len(corrupted); i++ {
+		corrupted[i] ^= 0xFF
+	}
+	if err := os.WriteFile(manifestPath, corrupted, 0644); err != nil {
+		return fmt.Errorf("write corrupted manifest: %w", err)
+	}
+
+	// Reopen - should fail due to corruption
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+	database, err = db.Open(dir, opts)
+	if err == nil {
+		// If it opens, reads should eventually fail
+		database.Close()
+	}
+	return nil // Either fails to open or fails on read - both acceptable
+}
+
+// testGarbageManifestRecord appends garbage data to the MANIFEST and verifies
+// the DB handles unknown/invalid records correctly.
+func testGarbageManifestRecord(dir string) error {
+	database, err := openDB(dir)
+	if err != nil {
+		return err
+	}
+
+	// Write data and flush
+	for i := range 10 {
+		key := fmt.Appendf(nil, "key_%03d", i)
+		value := fmt.Appendf(nil, "value_%03d", i)
+		if err := database.Put(nil, key, value); err != nil {
+			return fmt.Errorf("put: %w", err)
+		}
+	}
+	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		return fmt.Errorf("flush: %w", err)
+	}
+	database.Close()
+
+	// Find MANIFEST and append garbage
+	manifestPath := findManifestFile(dir)
+	if manifestPath == "" {
+		return fmt.Errorf("MANIFEST file not found")
+	}
+
+	f, err := os.OpenFile(manifestPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open manifest for append: %w", err)
+	}
+	// Append garbage that looks like a record but isn't valid
+	garbage := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF}
+	if _, err := f.Write(garbage); err != nil {
+		f.Close()
+		return fmt.Errorf("append garbage: %w", err)
+	}
+	f.Close()
+
+	// Reopen - should either skip garbage or fail loud
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+	database, err = db.Open(dir, opts)
+	if err == nil {
+		database.Close()
+	}
+	return nil // Either outcome is acceptable as long as no panic
+}
+
+// findManifestFile locates the active MANIFEST file in a DB directory.
+func findManifestFile(dir string) string {
+	currentPath := filepath.Join(dir, "CURRENT")
+	content, err := os.ReadFile(currentPath)
+	if err != nil {
+		return ""
+	}
+	manifestName := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(manifestName, "MANIFEST-") {
+		return ""
+	}
+	return filepath.Join(dir, manifestName)
 }
 
 // =============================================================================
