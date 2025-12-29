@@ -33,9 +33,7 @@
 //
 // For atomic multi-key operations, use WriteBatch:
 //
-//	import "github.com/aalhour/rockyardkv/internal/batch"
-//
-//	wb := batch.New()
+//	wb := db.NewWriteBatch()
 //	wb.Put([]byte("key1"), []byte("value1"))
 //	wb.Put([]byte("key2"), []byte("value2"))
 //	wb.Delete([]byte("key3"))

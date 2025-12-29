@@ -68,9 +68,7 @@ if err != nil {
 For atomic multi-key operations:
 
 ```go
-import "github.com/aalhour/rockyardkv/internal/batch"
-
-wb := batch.New()
+wb := db.NewWriteBatch()
 wb.Put([]byte("key1"), []byte("value1"))
 wb.Put([]byte("key2"), []byte("value2"))
 wb.Delete([]byte("key3"))
@@ -79,6 +77,9 @@ err := database.Write(nil, wb)
 if err != nil {
     log.Fatal(err)
 }
+
+// Reuse the batch
+wb.Clear()
 ```
 
 ### Iteration
