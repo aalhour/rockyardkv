@@ -42,8 +42,7 @@ Remove them with:
 rm -rf /tmp/rockyardkv_*
 ```
 
-## Notes
+## API
 
-Some examples import internal packages (e.g., `internal/batch`) to demonstrate advanced usage.
-These APIs are subject to change between versions.
-For production use, prefer the stable public API in the `db` package.
+All examples use the stable public API from the `db` package.
+See `db.NewWriteBatch()` for batch writes and the `db.DB` interface for database operations.
