@@ -90,6 +90,21 @@ func (tr *Reader) Count() uint64 {
 	return tr.count
 }
 
+// Version returns the trace file format version.
+func (tr *Reader) Version() uint32 {
+	return tr.header.Version
+}
+
+// DecodeWritePayload decodes a write payload using the correct version decoder.
+// For version 2+, this includes the sequence number.
+// For version 1, sequence number will be 0.
+func (tr *Reader) DecodeWritePayload(data []byte) (*WritePayload, error) {
+	if tr.header.Version >= 2 {
+		return DecodeWritePayloadV2(data)
+	}
+	return DecodeWritePayload(data)
+}
+
 // TraceStats represents statistics about a trace file.
 type TraceStats struct {
 	TotalRecords uint64

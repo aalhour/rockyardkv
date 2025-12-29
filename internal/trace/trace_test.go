@@ -2,6 +2,7 @@ package trace
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"testing"
@@ -165,21 +166,46 @@ func TestPayloads(t *testing.T) {
 		t.Errorf("Key mismatch")
 	}
 
-	// Test WritePayload
+	// Test WritePayload (V2 format with sequence number)
 	writePayload := &WritePayload{
 		ColumnFamilyID: 123,
+		SequenceNumber: 999,
 		Data:           []byte("batch-data"),
 	}
 	encoded = writePayload.Encode()
-	decodedWrite, err := DecodeWritePayload(encoded)
+	decodedWrite, err := DecodeWritePayloadV2(encoded)
 	if err != nil {
-		t.Fatalf("DecodeWritePayload failed: %v", err)
+		t.Fatalf("DecodeWritePayloadV2 failed: %v", err)
 	}
 	if decodedWrite.ColumnFamilyID != writePayload.ColumnFamilyID {
 		t.Errorf("CF ID mismatch")
 	}
+	if decodedWrite.SequenceNumber != writePayload.SequenceNumber {
+		t.Errorf("SequenceNumber mismatch: got %d, want %d", decodedWrite.SequenceNumber, writePayload.SequenceNumber)
+	}
 	if !bytes.Equal(decodedWrite.Data, writePayload.Data) {
 		t.Errorf("Data mismatch")
+	}
+
+	// Test backward compatibility: V1 decoder on V1 data
+	writePayloadV1 := &WritePayload{
+		ColumnFamilyID: 456,
+		Data:           []byte("v1-data"),
+	}
+	// Manually encode V1 format (no seqno)
+	v1Encoded := make([]byte, 4+len(writePayloadV1.Data))
+	binary.LittleEndian.PutUint32(v1Encoded[0:4], writePayloadV1.ColumnFamilyID)
+	copy(v1Encoded[4:], writePayloadV1.Data)
+
+	decodedV1, err := DecodeWritePayload(v1Encoded)
+	if err != nil {
+		t.Fatalf("DecodeWritePayload (V1) failed: %v", err)
+	}
+	if decodedV1.ColumnFamilyID != writePayloadV1.ColumnFamilyID {
+		t.Errorf("V1 CF ID mismatch")
+	}
+	if decodedV1.SequenceNumber != 0 {
+		t.Errorf("V1 SequenceNumber should be 0, got %d", decodedV1.SequenceNumber)
 	}
 }
 

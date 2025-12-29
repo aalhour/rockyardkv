@@ -32,6 +32,16 @@ type ReplayHandler interface {
 	HandleCompaction() error
 }
 
+// ReplayHandlerV2 extends ReplayHandler with sequence number support.
+// Used for seqno-prefix verification (C02-03).
+type ReplayHandlerV2 interface {
+	ReplayHandler
+	// HandleWriteWithSeqno handles a write operation with its assigned sequence number.
+	// seqno is the sequence number assigned by the DB after the write completed.
+	// For version 1 traces, seqno will be 0.
+	HandleWriteWithSeqno(cfID uint32, seqno uint64, batchData []byte) error
+}
+
 // ReplayerOptions configures the replayer
 type ReplayerOptions struct {
 	// PreserveTiming delays operations to match original timing
@@ -119,9 +129,14 @@ func (r *Replayer) Replay() (*ReplayStats, error) {
 func (r *Replayer) executeRecord(record *Record) error {
 	switch record.Type {
 	case TypeWrite:
-		payload, err := DecodeWritePayload(record.Payload)
+		// Use version-aware decoder
+		payload, err := r.reader.DecodeWritePayload(record.Payload)
 		if err != nil {
 			return err
+		}
+		// If handler supports V2 interface, call with seqno
+		if v2Handler, ok := r.handler.(ReplayHandlerV2); ok {
+			return v2Handler.HandleWriteWithSeqno(payload.ColumnFamilyID, payload.SequenceNumber, payload.Data)
 		}
 		return r.handler.HandleWrite(payload.ColumnFamilyID, payload.Data)
 

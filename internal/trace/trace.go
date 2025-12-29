@@ -43,8 +43,12 @@ const (
 	// MagicNumber identifies a trace file
 	MagicNumber uint64 = 0x524F434B53545243 // "ROCKSTRC"
 
-	// CurrentVersion is the current trace format version
-	CurrentVersion uint32 = 1
+	// CurrentVersion is the current trace format version.
+	// Version 2 adds SequenceNumber to WritePayload for seqno-prefix verification.
+	CurrentVersion uint32 = 2
+
+	// Version1 is the legacy format without sequence numbers.
+	Version1 uint32 = 1
 )
 
 var (
@@ -213,28 +217,55 @@ func DecodeRecord(r io.Reader) (*Record, error) {
 	}, nil
 }
 
-// WritePayload encodes a Write operation payload
+// WritePayload encodes a Write operation payload.
+//
+// Version 2 format (current):
+//
+//	ColumnFamilyID (4 bytes)
+//	SequenceNumber (8 bytes) - seqno assigned by DB after Write()
+//	Data (variable)          - WriteBatch bytes
+//
+// Version 1 format (legacy):
+//
+//	ColumnFamilyID (4 bytes)
+//	Data (variable)          - WriteBatch bytes
 type WritePayload struct {
 	ColumnFamilyID uint32
+	SequenceNumber uint64 // Seqno assigned by DB after Write() - for seqno-prefix verification
 	Data           []byte // WriteBatch data
 }
 
-// Encode encodes the write payload
+// Encode encodes the write payload (version 2 format with sequence number).
 func (p *WritePayload) Encode() []byte {
-	buf := make([]byte, 4+len(p.Data))
+	buf := make([]byte, 4+8+len(p.Data))
 	binary.LittleEndian.PutUint32(buf[0:4], p.ColumnFamilyID)
-	copy(buf[4:], p.Data)
+	binary.LittleEndian.PutUint64(buf[4:12], p.SequenceNumber)
+	copy(buf[12:], p.Data)
 	return buf
 }
 
-// DecodeWritePayload decodes a write payload
+// DecodeWritePayload decodes a write payload.
+// Supports both version 1 (no seqno) and version 2 (with seqno) formats.
 func DecodeWritePayload(data []byte) (*WritePayload, error) {
 	if len(data) < 4 {
 		return nil, errors.New("trace: invalid write payload")
 	}
 	return &WritePayload{
 		ColumnFamilyID: binary.LittleEndian.Uint32(data[0:4]),
-		Data:           data[4:],
+		// Version 1 format: seqno not present, will be 0
+		Data: data[4:],
+	}, nil
+}
+
+// DecodeWritePayloadV2 decodes a version 2 write payload with sequence number.
+func DecodeWritePayloadV2(data []byte) (*WritePayload, error) {
+	if len(data) < 12 {
+		return nil, errors.New("trace: invalid write payload v2 (too short)")
+	}
+	return &WritePayload{
+		ColumnFamilyID: binary.LittleEndian.Uint32(data[0:4]),
+		SequenceNumber: binary.LittleEndian.Uint64(data[4:12]),
+		Data:           data[12:],
 	}, nil
 }
 
