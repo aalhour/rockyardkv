@@ -1,6 +1,6 @@
 //go:build crashtest
 
-// Whitebox sequence number collision prevention tests (C02).
+// Whitebox sequence number collision prevention tests.
 //
 // These tests use deterministic kill points to verify that orphaned SST cleanup
 // and sequence number monotonicity prevent internal key collisions.

@@ -402,3 +402,109 @@ func TestFaultInjectionFS_PassthroughMethods(t *testing.T) {
 	}
 	lock.Close()
 }
+
+// TestFaultInjectionFS_Rename_NotDurableWithoutDirSync tests that renames
+// are not durable until the parent directory is synced.
+//
+// Contract: A rename without SyncDir creates a pending rename that can be reverted.
+func TestFaultInjectionFS_Rename_NotDurableWithoutDirSync(t *testing.T) {
+	dir := t.TempDir()
+	base := Default()
+	fs := NewFaultInjectionFS(base)
+
+	// Create and sync a file
+	oldPath := filepath.Join(dir, "MANIFEST-000001")
+	f, err := fs.Create(oldPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	f.Write([]byte("manifest content"))
+	f.Sync()
+	f.Close()
+
+	// Create CURRENT pointing to the old manifest
+	currentPath := filepath.Join(dir, "CURRENT")
+	curFile, _ := fs.Create(currentPath)
+	curFile.Write([]byte("MANIFEST-000001\n"))
+	curFile.Sync()
+	curFile.Close()
+
+	// Sync directory to make initial state durable
+	fs.SyncDir(dir)
+
+	// Now create a new manifest and update CURRENT via rename
+	newManifestPath := filepath.Join(dir, "MANIFEST-000002")
+	mf, _ := fs.Create(newManifestPath)
+	mf.Write([]byte("new manifest content"))
+	mf.Sync()
+	mf.Close()
+
+	// Write new CURRENT.tmp and rename to CURRENT (simulating CURRENT update)
+	tmpPath := filepath.Join(dir, "CURRENT.tmp")
+	tmp, _ := fs.Create(tmpPath)
+	tmp.Write([]byte("MANIFEST-000002\n"))
+	tmp.Sync()
+	tmp.Close()
+
+	// Rename CURRENT.tmp -> CURRENT
+	if err := fs.Rename(tmpPath, currentPath); err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	// At this point, rename is NOT durable (no SyncDir called)
+	if !fs.HasPendingRenames() {
+		t.Error("Should have pending renames after Rename without SyncDir")
+	}
+	if fs.PendingRenameCount() != 1 {
+		t.Errorf("PendingRenameCount = %d, want 1", fs.PendingRenameCount())
+	}
+
+	// Simulate crash by reverting unsynced renames
+	fs.RevertUnsyncedRenames()
+
+	// CURRENT should not exist or should have reverted
+	// (In this case, the old CURRENT was overwritten, so it might be deleted)
+	// The key point is: pending renames are reverted
+	if fs.HasPendingRenames() {
+		t.Error("Should have no pending renames after RevertUnsyncedRenames")
+	}
+}
+
+// TestFaultInjectionFS_SyncDir_MakesRenamesDurable tests that SyncDir makes
+// pending renames durable.
+//
+// Contract: A rename followed by SyncDir has no pending renames and survives crash simulation.
+func TestFaultInjectionFS_SyncDir_MakesRenamesDurable(t *testing.T) {
+	dir := t.TempDir()
+	base := Default()
+	fs := NewFaultInjectionFS(base)
+
+	// Create and sync a file
+	oldPath := filepath.Join(dir, "old.txt")
+	f, _ := fs.Create(oldPath)
+	f.Write([]byte("content"))
+	f.Sync()
+	f.Close()
+
+	// Rename to new path
+	newPath := filepath.Join(dir, "new.txt")
+	fs.Rename(oldPath, newPath)
+
+	// Verify pending rename exists
+	if !fs.HasPendingRenames() {
+		t.Error("Should have pending renames after Rename")
+	}
+
+	// Call SyncDir to make the rename durable
+	fs.SyncDir(dir)
+
+	// Pending rename should be cleared
+	if fs.HasPendingRenames() {
+		t.Error("Should have no pending renames after SyncDir")
+	}
+
+	// Verify the new file still exists at new path
+	if !fs.Exists(newPath) {
+		t.Error("New file should exist after SyncDir")
+	}
+}

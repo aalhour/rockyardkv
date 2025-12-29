@@ -33,7 +33,7 @@ type ReplayHandler interface {
 }
 
 // ReplayHandlerV2 extends ReplayHandler with sequence number support.
-// Used for seqno-prefix verification (C02-03).
+// Used for seqno-prefix verification during crash recovery testing.
 type ReplayHandlerV2 interface {
 	ReplayHandler
 	// HandleWriteWithSeqno handles a write operation with its assigned sequence number.

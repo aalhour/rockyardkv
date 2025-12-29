@@ -458,7 +458,7 @@ func (db *DBImpl) recover() error {
 	// Update the next CF ID based on what was in the MANIFEST
 	db.columnFamilies.SetNextID(maxCF + 1)
 
-	// CRITICAL (C02): Delete orphaned SST files before WAL replay.
+	// CRITICAL: Delete orphaned SST files before WAL replay.
 	// Orphaned SSTs can contain sequences that aren't in the MANIFEST's LastSequence,
 	// leading to sequence reuse and internal key collisions after recovery.
 	if err := db.deleteOrphanedSSTFiles(); err != nil {

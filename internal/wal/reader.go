@@ -305,7 +305,7 @@ func (r *Reader) readPhysicalRecord() (RecordType, []byte, error) {
 				// The caller (ReadRecord) will propagate EOF, and any records
 				// after the corrupted one will NOT be returned.
 				//
-				// Evidence: redteam C01 run02/run04/run05/run06 - corruption in
+				// When corruption is detected, record recovery stops. Corruption in
 				// record #2 should prevent record #3 from being visible, matching
 				// C++ `ldb scan` behavior.
 				r.eof = true

@@ -30,6 +30,10 @@ var (
 
 // FaultInjectionFS wraps an FS and allows injecting errors.
 // It tracks unsynced data per file to simulate data loss on crash.
+//
+// Directory entry durability: Entries created by Rename are not durable
+// until SyncDir is called on the parent directory. On simulated crash,
+// pending renames (without dir sync) are reverted.
 type FaultInjectionFS struct {
 	base FS
 
@@ -37,6 +41,10 @@ type FaultInjectionFS struct {
 
 	// Per-file state tracking
 	fileState map[string]*fileState
+
+	// Pending renames that are not yet durable (no SyncDir after rename).
+	// Maps new path -> old path (empty string if file was created, not renamed).
+	pendingRenames map[string]string
 
 	// Error injection flags
 	injectReadError  bool
@@ -62,8 +70,15 @@ func NewFaultInjectionFS(base FS) *FaultInjectionFS {
 	return &FaultInjectionFS{
 		base:             base,
 		fileState:        make(map[string]*fileState),
+		pendingRenames:   make(map[string]string),
 		filesystemActive: true,
 	}
+}
+
+// trackPendingRename records a rename that needs SyncDir to become durable.
+// Caller must hold fs.mu.
+func (fs *FaultInjectionFS) trackPendingRename(oldPath, newPath string) {
+	fs.pendingRenames[newPath] = oldPath
 }
 
 // SetFilesystemActive enables or disables the filesystem.
@@ -225,6 +240,8 @@ func (fs *FaultInjectionFS) OpenRandomAccess(name string) (RandomAccessFile, err
 }
 
 // Rename atomically renames a file.
+// The new directory entry is NOT durable until SyncDir is called on the parent directory.
+// If a crash occurs before SyncDir, the renamed file may disappear or revert to the old name.
 func (fs *FaultInjectionFS) Rename(oldname, newname string) error {
 	fs.mu.RLock()
 	if !fs.filesystemActive {
@@ -238,13 +255,35 @@ func (fs *FaultInjectionFS) Rename(oldname, newname string) error {
 		return err
 	}
 
-	// Update file state tracking
+	// Update file state tracking.
+	// Mark the new path as NOT directory-synced until SyncDir is called.
+	// This models the fact that directory entries created by rename are not
+	// durable until the parent directory is synced.
 	fs.mu.Lock()
 	absOld, _ := filepath.Abs(oldname)
 	absNew, _ := filepath.Abs(newname)
 	if state, ok := fs.fileState[absOld]; ok {
-		fs.fileState[absNew] = state
+		// Copy the state, but reset dirSynced for the new path
+		// The rename creates a new directory entry that isn't durable yet
+		newState := &fileState{
+			pos:          state.pos,
+			syncedPos:    state.syncedPos,
+			unsyncedData: state.unsyncedData,
+			dirSynced:    false, // new directory entry not durable
+		}
+		fs.fileState[absNew] = newState
 		delete(fs.fileState, absOld)
+
+		// Track pending renames for potential revert
+		fs.trackPendingRename(absOld, absNew)
+	} else {
+		// File wasn't tracked, create new tracking entry
+		fs.fileState[absNew] = &fileState{
+			pos:       0,
+			syncedPos: 0,
+			dirSynced: false, // not durable until dir sync
+		}
+		fs.trackPendingRename("", absNew)
 	}
 	fs.mu.Unlock()
 
@@ -403,18 +442,81 @@ func (f *faultWritableFile) Size() (int64, error) {
 }
 
 // SyncDir marks the directory as synced.
-// In RocksDB, this is important for durability of file creation.
+// This is important for durability of file creation and rename.
+// After SyncDir, pending renames in this directory become durable.
 func (fs *FaultInjectionFS) SyncDir(path string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	// Mark all files in this directory as having their directory synced
 	absPath, _ := filepath.Abs(path)
+
+	// Mark all files in this directory as having their directory synced
 	for filePath, state := range fs.fileState {
 		fileDir := filepath.Dir(filePath)
 		if fileDir == absPath {
 			state.dirSynced = true
 		}
 	}
+
+	// Clear pending renames for files in this directory (they are now durable)
+	for newPath := range fs.pendingRenames {
+		fileDir := filepath.Dir(newPath)
+		if fileDir == absPath {
+			delete(fs.pendingRenames, newPath)
+		}
+	}
+
 	return nil
+}
+
+// RevertUnsyncedRenames simulates crash behavior for directory entry durability.
+// Renames that were not followed by SyncDir are reverted:
+// - If the rename had an original path, the file is renamed back
+// - If the rename was from a new file (no original), the file is deleted
+func (fs *FaultInjectionFS) RevertUnsyncedRenames() error {
+	fs.mu.Lock()
+	pendingCopy := make(map[string]string)
+	maps.Copy(pendingCopy, fs.pendingRenames)
+	fs.mu.Unlock()
+
+	for newPath, oldPath := range pendingCopy {
+		if oldPath == "" {
+			// File was created (not renamed from existing), delete it
+			if err := os.Remove(newPath); err != nil && !os.IsNotExist(err) {
+				// Best effort, continue
+			}
+		} else {
+			// File was renamed, revert to old name
+			if err := os.Rename(newPath, oldPath); err != nil && !os.IsNotExist(err) {
+				// Best effort, continue
+			}
+		}
+
+		// Clean up tracking
+		fs.mu.Lock()
+		delete(fs.pendingRenames, newPath)
+		if state, ok := fs.fileState[newPath]; ok {
+			if oldPath != "" {
+				fs.fileState[oldPath] = state
+			}
+			delete(fs.fileState, newPath)
+		}
+		fs.mu.Unlock()
+	}
+
+	return nil
+}
+
+// HasPendingRenames returns true if there are renames waiting for SyncDir.
+func (fs *FaultInjectionFS) HasPendingRenames() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return len(fs.pendingRenames) > 0
+}
+
+// PendingRenameCount returns the number of pending (unsynced) renames.
+func (fs *FaultInjectionFS) PendingRenameCount() int {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return len(fs.pendingRenames)
 }

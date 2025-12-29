@@ -250,7 +250,7 @@ func (db *DBImpl) doFlush() error {
 	// nextLogNumber should be used here to advance LogNumber.
 	// Reference: RocksDB v10.7.5 db/flush_job.cc:206 (SetLogNumber)
 	//
-	// CRITICAL FIX (C02): Use the largest sequence from the flushed SST, not db.seq.
+	// CRITICAL: Use the largest sequence from the flushed SST, not db.seq.
 	// Between memtable switch and flush completion, new writes to the active memtable
 	// increment db.seq. If we use db.seq here, LastSequence will include sequences
 	// that are NOT in the flushed SST. With DisableWAL, those sequences are lost on
@@ -258,7 +258,7 @@ func (db *DBImpl) doFlush() error {
 	//
 	// LastSequence must be MONOTONIC (never decrease). Use max of flushed SST's
 	// largest sequence and the previous LastSequence to ensure this property.
-	// Reference: docs/redteam/ISSUES/C02.md
+	// This ensures LastSequence never decreases after crash recovery.
 	newLastSeq := meta.FD.LargestSeqno
 	prevLastSeq := manifest.SequenceNumber(db.versions.LastSequence())
 	if prevLastSeq > newLastSeq {
@@ -284,7 +284,7 @@ func (db *DBImpl) doFlush() error {
 		return fmt.Errorf("failed to log version edit: %w", err)
 	}
 
-	// CRITICAL (C02): LogAndApply writes to MANIFEST but doesn't update in-memory lastSequence.
+	// CRITICAL: LogAndApply writes to MANIFEST but doesn't update in-memory lastSequence.
 	// We must update it here to ensure subsequent flushes use the correct base value.
 	db.versions.SetLastSequence(uint64(newLastSeq))
 

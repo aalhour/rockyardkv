@@ -1,4 +1,4 @@
-// Performance benchmarks for C02 fix to quantify overhead.
+// Performance benchmarks for durability fixes to quantify overhead.
 package db
 
 import (
@@ -103,7 +103,7 @@ func BenchmarkRecovery_WithOrphanCleanup(b *testing.B) {
 // BenchmarkFlush_LastSequenceOverhead measures flush latency with the new
 // LastSequence logic (max calculation + monotonicity check).
 //
-// Purpose: Quantify overhead of C02 fix. Acceptable: <5% regression.
+// Purpose: Quantify overhead of durability fix. Acceptable: <5% regression.
 func BenchmarkFlush_LastSequenceOverhead(b *testing.B) {
 	dir := b.TempDir()
 

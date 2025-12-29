@@ -411,7 +411,7 @@ func TestWAL_CppWritesGoReads(t *testing.T) {
 }
 
 // =============================================================================
-// T02.6 — Oracle-lock stop-after-corruption
+// Stop-after-corruption oracle test
 // =============================================================================
 
 // TestGoldenWAL_StopAfterCorruption_Oracle verifies that both Go and C++
@@ -419,8 +419,7 @@ func TestWAL_CppWritesGoReads(t *testing.T) {
 //
 // Contract: On WAL corruption, Go and C++ must produce the same recovered DB state.
 //
-// Evidence: redteam C01 run02/04/05/06 showed C++ `ldb scan` only shows
-// records BEFORE corruption, not after.
+// Evidence: C++ `ldb scan` only shows records BEFORE corruption, not after.
 //
 // Reference: RocksDB v10.7.5 WALRecoveryMode::kTolerateCorruptedTailRecords
 func TestGoldenWAL_StopAfterCorruption_Oracle(t *testing.T) {

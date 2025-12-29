@@ -543,10 +543,10 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 		durableStateFile := expectedStateFile + ".durable"
 		stressArgs = append(stressArgs, "-durable-state", durableStateFile)
 
-		// HARNESS-02: When DisableWAL + faultfs, data loss is expected.
+		// When DisableWAL + faultfs, data loss is expected.
 		// The harness saves durable_state after Flush() returns, but with faultfs:
 		// - Crash can occur after flush but before MANIFEST sync
-		// - Orphaned SST is deleted on recovery (C02 fix)
+		// - Orphaned SST is deleted on recovery
 		// - Data is lost, but this prevents collision (the real bug)
 		// We allow this data loss instead of failing verification (G2 scope).
 		if *faultFS {

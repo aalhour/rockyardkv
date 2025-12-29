@@ -1,11 +1,9 @@
 // Cross-cycle durability tests verify that durable state is correctly managed
 // across multiple crash/recovery cycles.
 //
-// These tests address bugs identified in T03.9 and T02.7 where:
-// - Stale expected state from previous cycles was carried over
-// - Durable state contained values that were never actually flushed
-//
-// See tmp/REFLECTION_T03_9.md for detailed root cause analysis.
+// These tests verify that:
+// - Stale expected state from previous cycles is not carried over
+// - Durable state only contains values that were actually flushed
 package main
 
 import (

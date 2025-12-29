@@ -1,4 +1,4 @@
-// Sequence number collision prevention tests (C02).
+// Sequence number collision prevention tests.
 //
 // These tests verify that sequence numbers are never reused across crash/recovery
 // cycles, preventing internal key collisions where the same (user_key, sequence,
@@ -7,12 +7,12 @@
 // The core invariant: After flush+crash+recovery, new writes must receive
 // sequence numbers strictly greater than any sequence in the recovered database.
 //
-// This addresses C02: Internal Key Collision due to:
+// This addresses internal key collision due to:
 // 1. LastSequence using db.seq instead of flushed SST's actual max sequence
 // 2. Orphaned SST files (written but not in MANIFEST) causing sequence reuse
 //
 // Reference:
-//   - docs/redteam/ISSUES/C02.md
+//   - docs/redteam/ISSUES/ (durability issues documentation)
 //   - db/flush.go (LastSequence monotonicity fix)
 //   - db/recovery.go (orphaned SST cleanup)
 package main
@@ -170,8 +170,8 @@ func TestScenario_FlushRecoveryNoSequenceReuse(t *testing.T) {
 
 	t.Log("✓ All keys read consistently - no sequence reuse detected")
 
-	// Phase 5: Run collision-check as the definitive smoking-gun test
-	// This gates on the C02-01 invariant: no duplicate internal keys with different values
+	// Phase 5: Run collision-check as the definitive smoking-gun test.
+	// Verifies no duplicate internal keys with different values exist.
 	if err := runCollisionCheck(t, dir); err != nil {
 		t.Fatalf("Collision check failed: %v", err)
 	}

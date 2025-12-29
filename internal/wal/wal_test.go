@@ -1306,7 +1306,7 @@ func TestErrorDoesNotJoinRecords(t *testing.T) {
 	// This test verifies that corruption stops further reading.
 	// C++ RocksDB's default WALRecoveryMode::kTolerateCorruptedTailRecords
 	// treats corruption as EOF - no more records are read after corruption.
-	// This matches redteam evidence: C01 run02/04/05/06 show C++ `ldb scan`
+	// This matches expected behavior: C++ `ldb scan`
 	// only returns records BEFORE corruption, not after.
 	for _, recyclable := range []bool{false, true} {
 		t.Run(boolName("recyclable", recyclable), func(t *testing.T) {

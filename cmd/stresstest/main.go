@@ -123,8 +123,8 @@ var (
 	// Trace emission
 	traceOut = flag.String("trace-out", "", "Path to write operation trace file for replay")
 
-	// Seqno-prefix verification (C02-03 oracle-aligned model)
-	// This replaces the "durable-state >=" verification with a "seqno-prefix (no holes)" model.
+	// Seqno-prefix verification (oracle-aligned model).
+	// Replaces the "durable-state >=" verification with a "seqno-prefix (no holes)" model.
 	seqnoPrefixVerify = flag.Bool("seqno-prefix-verify", false, "Enable oracle-aligned seqno-prefix verification")
 	traceDir          = flag.String("trace-dir", "", "Directory containing trace files for seqno-prefix verification")
 )
@@ -357,7 +357,7 @@ func main() {
 	// Run stress test
 	stats := &Stats{}
 
-	// Seqno-prefix verification mode (C02-03 oracle-aligned model)
+	// Seqno-prefix verification mode (oracle-aligned model)
 	if *seqnoPrefixVerify {
 		if *traceDir == "" {
 			fmt.Println("\n❌ STRESS TEST FAILED: -seqno-prefix-verify requires -trace-dir")
@@ -374,7 +374,7 @@ func main() {
 		dbRecoveredSeqno := database.GetLatestSequenceNumber()
 		fmt.Printf("📊 dbRecoveredSeqno=%d\n", dbRecoveredSeqno)
 
-		// Liveness assertion (C02-03 hardening): DB must have at least one write.
+		// Liveness assertion: DB must have at least one write.
 		// A seqno=0 would indicate total data loss, which should fail loudly rather
 		// than pass verification with an empty trace prefix.
 		if dbRecoveredSeqno == 0 {
@@ -2236,7 +2236,7 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 					// DisableWAL + faultfs: data loss is expected (G2 scope, not a bug)
 					// The harness saved durable_state after Flush(), but:
 					// - Crash occurred before MANIFEST sync
-					// - Orphaned SST was deleted on recovery (C02 fix)
+					// - Orphaned SST was deleted on recovery
 					// - Data is lost, but this prevents collision (the real bug)
 					if *verbose {
 						fmt.Printf("Verify: key %d expected to exist but lost (allowed, data loss under DisableWAL)\n", key)
@@ -2495,9 +2495,9 @@ func (s *seqnoPrefixState) get(keyNum int64) (valBase uint32, exists bool) {
 
 // reconstructStateFromTraces reads trace files and reconstructs expected state
 // for all operations with traceSeqno <= replayCutoffSeqno.
-// This implements the "seqno-prefix (no holes)" verification model from C02-03.
+// This implements the "seqno-prefix (no holes)" verification model.
 //
-// Naming convention (C02 hardening):
+// Naming convention:
 //   - dbRecoveredSeqno: from database.GetLatestSequenceNumber() after recovery
 //   - traceSeqno: sequence number recorded in the trace payload
 //   - replayCutoffSeqno: upper bound for replay (usually == dbRecoveredSeqno)

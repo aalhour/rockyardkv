@@ -172,7 +172,7 @@ func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
 //  5. On recovery, LastSequence from old MANIFEST is used
 //  6. New writes reuse sequence numbers from orphaned SST → COLLISION
 //
-// Failure policy (C02-01 hardening):
+// Failure policy:
 //   - Directory listing failure: fails Open() hard (corruption suspected)
 //   - Individual file deletion failure: logs warning, continues best-effort
 //

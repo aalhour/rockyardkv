@@ -307,7 +307,7 @@ func openOrCreateDB(t *testing.T, dir string) db.DB {
 }
 
 // runCollisionCheck runs the collision checker tool on a database directory.
-// This is the definitive smoking-gun test for C02-01 (internal-key collision).
+// This is the definitive smoking-gun test for internal-key collision detection.
 func runCollisionCheck(t *testing.T, dbPath string) error {
 	t.Helper()
 

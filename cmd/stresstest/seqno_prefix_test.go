@@ -1,7 +1,7 @@
 // seqno_prefix_test.go tests the seqno-prefix verification mode.
 //
-// This implements the "seqno-prefix (no holes)" verification model from C02-03.
-// Reference: docs/redteam/ISSUES/C02_issues.md
+// This implements the "seqno-prefix (no holes)" verification model for
+// crash recovery testing.
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 )
 
 // TestSeqnoDomainAlignment proves that trace seqnos are in the same domain
-// as database.GetLatestSequenceNumber(). This is the C02-02 acceptance test.
+// as database.GetLatestSequenceNumber().
 //
 // Contract: After a successful write, the seqno recorded in the trace must
 // equal database.GetLatestSequenceNumber() at that moment. On recovery,
@@ -190,7 +190,7 @@ func TestSeqnoDomainAlignment(t *testing.T) {
 		t.Error("key2 should exist")
 	}
 
-	t.Logf("✅ C02-02: Seqno domain alignment verified")
+	t.Logf("✅ Seqno domain alignment verified")
 	t.Logf("   - Captured seqnos match recorded seqnos: %v", capturedSeqnos)
 	t.Logf("   - Recovered seqno (%d) >= last write seqno (%d)", recoveredSeqno, capturedSeqnos[len(capturedSeqnos)-1])
 	t.Logf("   - Replay with cutoff correctly filters by seqno domain")

@@ -568,8 +568,8 @@ type collisionEntry struct {
 // A collision occurs when the same internal key (user key + sequence + type)
 // appears in multiple SST files with different values.
 //
-// This is a diagnostic tool for detecting the C02-01 durability bug
-// (sequence number reuse after crash recovery).
+// This is a diagnostic tool for detecting sequence number reuse bugs
+// that can occur after crash recovery.
 func cmdCheckCollision() error {
 	fs := vfs.Default()
 

@@ -1265,134 +1265,15 @@ func copyDir(src, dst string) error {
 }
 
 // =============================================================================
-// Optional C++ Oracle Hook for Whitebox Artifacts
+// C++ Oracle Hooks
 // =============================================================================
+// Oracle helper functions are defined in oracle_helpers.go:
+// - CppOraclePathEnv - environment variable for C++ RocksDB tools directory
+// - runCppOracleChecks() - runs ldb and sst_dump on artifact DB
+// - runLdbManifestDump() - handles manifest_dump with proper CURRENT parsing
+// - runOracleTool() - runs a C++ tool and saves output
 
-// CppOraclePathEnv is the environment variable to specify the C++ RocksDB tools directory.
-// When set, whitebox artifact persistence will run C++ oracle checks on the DB.
-const CppOraclePathEnv = "ROCKYARDKV_CPP_ORACLE_PATH"
-
-// runCppOracleChecks runs C++ RocksDB tools (ldb, sst_dump) on the artifact DB
-// to verify format compatibility. Results are saved to the artifact directory.
-func runCppOracleChecks(t *testing.T, artifactDir, dbPath string) {
-	t.Helper()
-
-	cppOraclePath := os.Getenv(CppOraclePathEnv)
-	if cppOraclePath == "" {
-		return // Oracle hook not enabled
-	}
-
-	ldbPath := filepath.Join(cppOraclePath, "ldb")
-	sstDumpPath := filepath.Join(cppOraclePath, "sst_dump")
-
-	// Check if ldb exists
-	if _, err := os.Stat(ldbPath); err == nil {
-		// Run manifest_dump with proper CURRENT-based manifest selection
-		runLdbManifestDump(t, artifactDir, dbPath, ldbPath)
-
-		// Run ldb scan (verify DB is readable)
-		runOracleTool(t, artifactDir, "ldb_scan.txt", ldbPath,
-			"scan", "--db="+dbPath)
-	}
-
-	// Check if sst_dump exists
-	if _, err := os.Stat(sstDumpPath); err == nil {
-		// Find SST files in the DB directory
-		entries, err := os.ReadDir(dbPath)
-		if err != nil {
-			t.Logf("Warning: Failed to read DB directory for SST files: %v", err)
-			return
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sst" {
-				sstPath := filepath.Join(dbPath, entry.Name())
-				outputFile := fmt.Sprintf("sst_dump_%s.txt", entry.Name())
-				runOracleTool(t, artifactDir, outputFile, sstDumpPath,
-					"--file="+sstPath, "--command=check", "--verify_checksums")
-			}
-		}
-	}
-}
-
-// runLdbManifestDump handles ldb manifest_dump with proper CURRENT file parsing
-// to avoid "Multiple MANIFEST files found" errors.
-//
-// Per WBT-05 spec, this function:
-// 1. Reads <dbPath>/CURRENT to get the active manifest filename
-// 2. Validates the filename (non-empty, starts with MANIFEST-, no path separators)
-// 3. Runs ldb manifest_dump --db=<dbPath> --path=<activeManifestPath>
-// 4. Saves diagnostic files: current.txt, manifest_selected.txt, manifest_list.txt
-func runLdbManifestDump(t *testing.T, artifactDir, dbPath, ldbPath string) {
-	t.Helper()
-
-	// Step 1: Read CURRENT file
-	currentPath := filepath.Join(dbPath, "CURRENT")
-	currentBytes, err := os.ReadFile(currentPath)
-
-	// Save current.txt (raw bytes from CURRENT file)
-	if err == nil {
-		if writeErr := os.WriteFile(filepath.Join(artifactDir, "current.txt"), currentBytes, 0644); writeErr != nil {
-			t.Logf("Warning: Failed to write current.txt: %v", writeErr)
-		}
-	} else {
-		// Write error note to current.txt
-		errNote := fmt.Sprintf("CURRENT file missing or unreadable: %v", err)
-		_ = os.WriteFile(filepath.Join(artifactDir, "current.txt"), []byte(errNote), 0644)
-		_ = os.WriteFile(filepath.Join(artifactDir, "ldb_manifest_dump.txt"),
-			[]byte("Skipped: "+errNote), 0644)
-		t.Logf("⚠️  Skipping manifest_dump: %s", errNote)
-		return
-	}
-
-	// Step 2: Trim whitespace (spaces, \r, \n)
-	activeManifestName := strings.TrimSpace(string(currentBytes))
-
-	// Step 3: Validate manifest name
-	validationErr := validateManifestName(activeManifestName)
-	if validationErr != "" {
-		errNote := fmt.Sprintf("Invalid CURRENT contents: %s (raw: %q)", validationErr, string(currentBytes))
-		_ = os.WriteFile(filepath.Join(artifactDir, "ldb_manifest_dump.txt"),
-			[]byte("Skipped: "+errNote), 0644)
-		t.Logf("⚠️  Skipping manifest_dump: %s", errNote)
-		return
-	}
-
-	// Step 4: Build full manifest path
-	activeManifestPath := filepath.Join(dbPath, activeManifestName)
-
-	// Save manifest_selected.txt
-	if writeErr := os.WriteFile(filepath.Join(artifactDir, "manifest_selected.txt"),
-		[]byte(activeManifestPath), 0644); writeErr != nil {
-		t.Logf("Warning: Failed to write manifest_selected.txt: %v", writeErr)
-	}
-
-	// Save manifest_list.txt (all MANIFEST-* files in dbPath)
-	saveManifestList(t, artifactDir, dbPath)
-
-	// Step 5: Validate manifest file exists
-	info, err := os.Stat(activeManifestPath)
-	if err != nil {
-		errNote := fmt.Sprintf("CURRENT points to missing file: %s (%v)", activeManifestName, err)
-		_ = os.WriteFile(filepath.Join(artifactDir, "ldb_manifest_dump.txt"),
-			[]byte("Skipped: "+errNote), 0644)
-		t.Logf("⚠️  Skipping manifest_dump: %s", errNote)
-		return
-	}
-	if info.IsDir() {
-		errNote := fmt.Sprintf("CURRENT points to a directory, not a file: %s", activeManifestName)
-		_ = os.WriteFile(filepath.Join(artifactDir, "ldb_manifest_dump.txt"),
-			[]byte("Skipped: "+errNote), 0644)
-		t.Logf("⚠️  Skipping manifest_dump: %s", errNote)
-		return
-	}
-
-	// Step 6: Run ldb manifest_dump with --path to select the exact manifest
-	runOracleTool(t, artifactDir, "ldb_manifest_dump.txt", ldbPath,
-		"manifest_dump", "--db="+dbPath, "--path="+activeManifestPath)
-}
-
-// validateManifestName validates the active manifest name per WBT-05 spec.
+// validateManifestName validates the active manifest name.
 // Returns empty string if valid, or an error description if invalid.
 func validateManifestName(name string) string {
 	if name == "" {
@@ -1438,37 +1319,10 @@ func saveManifestList(t *testing.T, artifactDir, dbPath string) {
 	}
 }
 
-// runOracleTool runs a C++ oracle tool and saves output to the artifact directory.
-func runOracleTool(t *testing.T, artifactDir, outputFile, toolPath string, args ...string) {
-	t.Helper()
-
-	// Set DYLD_LIBRARY_PATH for macOS
-	libPath := filepath.Dir(toolPath)
-	env := append(os.Environ(), "DYLD_LIBRARY_PATH="+libPath)
-
-	cmd := exec.Command(toolPath, args...)
-	cmd.Env = env
-
-	output, err := cmd.CombinedOutput()
-
-	// Save output regardless of success/failure
-	outPath := filepath.Join(artifactDir, outputFile)
-	if writeErr := os.WriteFile(outPath, output, 0644); writeErr != nil {
-		t.Logf("Warning: Failed to write oracle output to %s: %v", outPath, writeErr)
-	}
-
-	if err != nil {
-		t.Logf("⚠️  C++ oracle tool %s failed: %v", filepath.Base(toolPath), err)
-		t.Logf("   Output saved to: %s", outPath)
-	} else {
-		t.Logf("✅ C++ oracle tool %s passed, output saved to: %s", filepath.Base(toolPath), outPath)
-	}
-}
-
 // =============================================================================
-// Scenario: C02 Internal Key Collision Tests (MOVED)
+// Scenario: Internal Key Collision Tests (MOVED)
 // =============================================================================
-// C02 sequence number collision tests have been moved to:
+// Sequence number collision tests have been moved to:
 //   - scenario_seqno_test.go (blackbox tests)
 //   - scenario_seqno_whitebox_test.go (whitebox tests with kill points)
 //
