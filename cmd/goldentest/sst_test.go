@@ -14,6 +14,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -318,6 +319,75 @@ func TestCppCorpus_RangeDel(t *testing.T) {
 	}
 
 	t.Logf("Go read %d keys from C++ rangedel DB", keyCount)
+}
+
+// TestSST_Writer_BloomFilter verifies that Go-written Bloom Filters are readable by C++.
+//
+// Contract: Go SST files with Bloom Filter are valid per C++ sst_dump properties output.
+func TestSST_Writer_BloomFilter(t *testing.T) {
+	sstDump := findSstDumpPath(t)
+	if sstDump == "" {
+		t.Skip("sst_dump not found - set ROCKSDB_PATH or build C++ RocksDB first")
+	}
+
+	dir := t.TempDir()
+	sstPath := filepath.Join(dir, "filter.sst")
+
+	// Create SST with Bloom Filter enabled
+	fs := vfs.Default()
+	file, err := fs.Create(sstPath)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	opts := table.DefaultBuilderOptions()
+	opts.FormatVersion = 6
+	opts.FilterBitsPerKey = 10 // Enable Bloom Filter
+	opts.FilterPolicy = "rocksdb.BuiltinBloomFilter"
+
+	builder := table.NewTableBuilder(file, opts)
+
+	// Add enough keys to make a meaningful filter
+	for i := range 100 {
+		key := fmt.Sprintf("filter_key_%04d", i)
+		ikey := dbformat.NewInternalKey([]byte(key), dbformat.SequenceNumber(i), dbformat.TypeValue)
+		if err := builder.Add(ikey, []byte("value")); err != nil {
+			file.Close()
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	if err := builder.Finish(); err != nil {
+		file.Close()
+		t.Fatalf("finish: %v", err)
+	}
+	file.Close()
+
+	// Verify with C++ sst_dump --show_properties
+	cmd := exec.Command(sstDump, "--file="+sstPath, "--show_properties")
+	cmd.Env = toolEnv(filepath.Dir(sstDump))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sst_dump show_properties failed: %v\nOutput: %s", err, output)
+	}
+
+	props := string(output)
+
+	// Verify filter block exists and has non-zero size
+	if !strings.Contains(props, "filter block size") {
+		t.Error("Missing 'filter block size' in sst_dump output")
+	}
+	if strings.Contains(props, "filter block size: 0") {
+		t.Error("Filter block size is 0, expected > 0")
+	}
+
+	// Verify filter policy name is correct
+	if !strings.Contains(props, "filter policy name: rocksdb.BuiltinBloomFilter") {
+		t.Error("Missing or incorrect filter policy name")
+	}
+
+	t.Logf("C++ sst_dump verified Go Bloom Filter:\n%s", props)
 }
 
 // =============================================================================
