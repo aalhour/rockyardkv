@@ -873,6 +873,14 @@ func runSweepWriteFlush(t *testing.T, kp string, strictMode bool) {
 		}
 		t.Logf("⚠️  Killpoint %s was not triggered (scenario may not exercise this path)", kp)
 	}
+
+	// Phase 5: Persist artifacts per killpoint if env is set (UC.T4)
+	if os.Getenv("WHITEBOX_ARTIFACT_DIR") != "" || os.Getenv("WHITEBOX_ALWAYS_PERSIST") == "1" {
+		artifactDir := persistSweepArtifacts(t, kp, dir, childHit)
+		if artifactDir != "" {
+			runCppOracleChecks(t, artifactDir, filepath.Join(artifactDir, "db"))
+		}
+	}
 }
 
 // runSweepCompaction runs a compaction-driving scenario for killpoints in the compaction path.
@@ -947,6 +955,14 @@ func runSweepCompaction(t *testing.T, kp string, strictMode bool) {
 		}
 		t.Logf("⚠️  Killpoint %s was not triggered (scenario may not exercise this path)", kp)
 	}
+
+	// Phase 5: Persist artifacts per killpoint if env is set (UC.T4)
+	if os.Getenv("WHITEBOX_ARTIFACT_DIR") != "" || os.Getenv("WHITEBOX_ALWAYS_PERSIST") == "1" {
+		artifactDir := persistSweepArtifacts(t, kp, dir, childHit)
+		if artifactDir != "" {
+			runCppOracleChecks(t, artifactDir, filepath.Join(artifactDir, "db"))
+		}
+	}
 }
 
 // verifyBaselineSurvived checks that the baseline key survived the crash.
@@ -967,6 +983,44 @@ func verifyBaselineSurvived(t *testing.T, dir, kp string) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+// persistSweepArtifacts saves artifacts for a killpoint sweep test.
+// Returns the artifact directory path, or empty string on failure.
+func persistSweepArtifacts(t *testing.T, killPoint, dbPath string, killPointHit bool) string {
+	t.Helper()
+
+	artifactBase := os.Getenv("WHITEBOX_ARTIFACT_DIR")
+	if artifactBase == "" {
+		artifactBase = filepath.Join(os.TempDir(), "rockyardkv-sweep-artifacts")
+	}
+
+	// Create killpoint-specific artifact directory
+	timestamp := time.Now().Format("20060102-150405")
+	artifactDir := filepath.Join(artifactBase, fmt.Sprintf("%s-%s", killPoint, timestamp))
+
+	if err := os.MkdirAll(artifactDir, 0755); err != nil {
+		t.Logf("Warning: Failed to create artifact directory: %v", err)
+		return ""
+	}
+
+	// Copy DB directory
+	dbCopyPath := filepath.Join(artifactDir, "db")
+	if err := copyDir(dbPath, dbCopyPath); err != nil {
+		t.Logf("Warning: Failed to copy DB directory: %v", err)
+	}
+
+	// Write run.json with metadata
+	runMeta := fmt.Sprintf(`{
+  "kill_point": %q,
+  "kill_point_hit": %v,
+  "db_path": %q,
+  "repro_cmd": "WHITEBOX_KILL_POINT=%s go test -tags crashtest -v ./cmd/crashtest/... -run TestScenarioWhitebox_Sweep/%s"
+}`, killPoint, killPointHit, dbPath, killPoint, killPoint)
+	_ = os.WriteFile(filepath.Join(artifactDir, "run.json"), []byte(runMeta), 0644)
+
+	t.Logf("Sweep artifacts saved to %s", artifactDir)
+	return artifactDir
+}
 
 // runWhiteboxChildAllowMiss is like runWhiteboxChild but returns whether the killpoint was hit
 // instead of failing if it wasn't hit. This is used by sweep tests.

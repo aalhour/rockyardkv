@@ -32,6 +32,10 @@ func runCppOracleChecks(t *testing.T, artifactDir, dbPath string) {
 
 	// Check if ldb exists
 	if _, err := os.Stat(ldbPath); err == nil {
+		// Run checkconsistency (primary structural integrity check)
+		runOracleTool(t, artifactDir, "ldb_checkconsistency.txt", ldbPath,
+			"checkconsistency", "--db="+dbPath)
+
 		// Run manifest_dump with proper CURRENT-based manifest selection
 		runLdbManifestDump(t, artifactDir, dbPath, ldbPath)
 
