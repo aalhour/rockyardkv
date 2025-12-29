@@ -672,10 +672,7 @@ func runSstDumpContract(t *testing.T, sstDump, sstPath string) string {
 
 	cmd := exec.Command(sstDump, "--file="+sstPath)
 	dir := filepath.Dir(sstDump)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -693,10 +690,7 @@ func runSstDumpScanContract(t *testing.T, sstDump, sstPath string) string {
 
 	cmd := exec.Command(sstDump, "--file="+sstPath, "--command=scan")
 	dir := filepath.Dir(sstDump)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

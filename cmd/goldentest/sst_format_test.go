@@ -401,10 +401,7 @@ func runSstDumpScan(t *testing.T, sstDump, sstPath string) string {
 
 	cmd := exec.Command(sstDump, "--file="+sstPath, "--command=scan")
 	dir := filepath.Dir(sstDump)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -426,11 +423,22 @@ func assertContainsKeys(t *testing.T, output, prefix string, n int) {
 	firstKey := fmt.Sprintf("%s_%04d", prefix, 0)
 	lastKey := fmt.Sprintf("%s_%04d", prefix, n-1)
 
+	missing := false
 	if !strings.Contains(output, firstKey) {
 		t.Errorf("missing first key: %s", firstKey)
+		missing = true
 	}
 	if !strings.Contains(output, lastKey) {
 		t.Errorf("missing last key: %s", lastKey)
+		missing = true
+	}
+	if missing {
+		const max = 2000
+		snippet := output
+		if len(snippet) > max {
+			snippet = snippet[:max] + "\n... (truncated) ..."
+		}
+		t.Logf("sst_dump output (prefix=%q, n=%d):\n%s", prefix, n, snippet)
 	}
 }
 

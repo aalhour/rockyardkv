@@ -164,10 +164,7 @@ func runLdbScan(t *testing.T, ldb, dbPath string) string {
 
 	cmd := exec.Command(ldb, "scan", "--db="+dbPath)
 	dir := filepath.Dir(ldb)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -185,10 +182,7 @@ func runLdbDumpWal(t *testing.T, ldb, walPath string) string {
 
 	cmd := exec.Command(ldb, "dump_wal", "--walfile="+walPath, "--header", "--print_value")
 	dir := filepath.Dir(ldb)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -206,10 +200,7 @@ func runLdbManifestDump(t *testing.T, ldb, path string) string {
 
 	cmd := exec.Command(ldb, "manifest_dump", "--path="+path)
 	dir := filepath.Dir(ldb)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

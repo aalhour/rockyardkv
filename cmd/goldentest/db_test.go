@@ -489,10 +489,7 @@ func runLdbScanDB(t *testing.T, ldb, dbPath string) string {
 
 	cmd := exec.Command(ldb, "scan", "--db="+dbPath)
 	dir := filepath.Dir(ldb)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -510,10 +507,7 @@ func runLdbGetDB(t *testing.T, ldb, dbPath, key string) string {
 
 	cmd := exec.Command(ldb, "get", "--db="+dbPath, key)
 	dir := filepath.Dir(ldb)
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+dir,
-		"LD_LIBRARY_PATH="+dir,
-	)
+	cmd.Env = toolEnv(dir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

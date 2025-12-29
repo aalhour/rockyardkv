@@ -114,10 +114,7 @@ func TestSstDump_VerifyChecksum(t *testing.T) {
 
 	// Run sst_dump --verify_checksum
 	cmd := exec.Command(sstDump, "--file="+sstPath, "--verify_checksum")
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+filepath.Dir(sstDump),
-		"LD_LIBRARY_PATH="+filepath.Dir(sstDump),
-	)
+	cmd.Env = toolEnv(filepath.Dir(sstDump))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -168,10 +165,7 @@ func TestSstDump_ShowProperties(t *testing.T) {
 
 	// Run sst_dump --show_properties
 	cmd := exec.Command(sstDump, "--file="+sstPath, "--show_properties")
-	cmd.Env = append(os.Environ(),
-		"DYLD_LIBRARY_PATH="+filepath.Dir(sstDump),
-		"LD_LIBRARY_PATH="+filepath.Dir(sstDump),
-	)
+	cmd.Env = toolEnv(filepath.Dir(sstDump))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
