@@ -326,10 +326,10 @@ func TestBatchCopier_PartialCopyPreservesRecordTypes(t *testing.T) {
 
 	// Create source batch: Put, SingleDelete, Delete, Merge
 	src := batch.New()
-	src.Put(key, value)        // 1 - will be copied
-	src.SingleDelete(key)      // 2 - will be copied
-	src.Delete(key)            // 3 - will NOT be copied
-	src.Merge(key, value)      // 4 - will NOT be copied
+	src.Put(key, value)   // 1 - will be copied
+	src.SingleDelete(key) // 2 - will be copied
+	src.Delete(key)       // 3 - will NOT be copied
+	src.Merge(key, value) // 4 - will NOT be copied
 
 	// Copy only first 2 entries
 	dst := batch.New()
@@ -450,4 +450,3 @@ func TestNewWriteBatchFromInternal_PreservesData(t *testing.T) {
 		t.Errorf("Internal batch should also have count=4, got %d", internal.Count())
 	}
 }
-

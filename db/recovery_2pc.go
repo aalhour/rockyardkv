@@ -48,7 +48,7 @@ type recovery2PCHandler struct {
 
 // newRecovery2PCHandler creates a new 2PC-aware recovery handler.
 // Reserved for future full 2PC recovery integration.
-func newRecovery2PCHandler(mem *memtable.MemTable, startSeq uint64) *recovery2PCHandler { //nolint:unused // reserved for future use
+func newRecovery2PCHandler(mem *memtable.MemTable, startSeq uint64) *recovery2PCHandler {
 	return &recovery2PCHandler{
 		mem:            mem,
 		sequence:       startSeq,

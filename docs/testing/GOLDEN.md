@@ -1,14 +1,14 @@
 # Golden Tests (C++ Oracle)
 
 Golden tests validate on-disk compatibility with RocksDB v10.7.5.
-They prove that RockyardKV produces and consumes files identical to C++ RocksDB.
+They check that C++ RocksDB tools can read Go-written files and that RockyardKV can read C++-generated fixtures.
 
 ## Purpose
 
 Golden tests answer: "Can C++ RocksDB read what Go writes, and vice versa?"
 
-This is the strongest compatibility guarantee.
-If a golden test passes, the format is correct.
+This is the strongest compatibility signal in this repository.
+If a golden test passes, the tested file shape is compatible with the oracle for that scenario.
 
 ## Test Structure
 

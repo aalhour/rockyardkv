@@ -99,8 +99,6 @@ Output includes:
 
 - Total operations by type
 - Duration and throughput
-- Key size distribution
-- Value size distribution
 
 ### Dump Trace Records
 
@@ -115,19 +113,19 @@ Show first 100 operations:
 Apply operations to a fresh database:
 
 ```bash
-./bin/traceanalyzer replay -db /tmp/replay_db ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false replay ./trace.bin
 ```
 
 Count operations without applying:
 
 ```bash
-./bin/traceanalyzer replay -dry-run ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=true replay ./trace.bin
 ```
 
 Replay at original pace:
 
 ```bash
-./bin/traceanalyzer replay -preserve-timing -db /tmp/replay_db ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false -preserve-timing replay ./trace.bin
 ```
 
 ## C++ RocksDB Tools
@@ -202,19 +200,19 @@ export LD_LIBRARY_PATH=/path/to/rocksdb
 
 1. **Get trace statistics:**
    ```bash
-   ./bin/traceanalyzer stats ./trace.log
+   ./bin/traceanalyzer stats ./trace.bin
    ```
 
 2. **Find problematic operation:**
    ```bash
-   ./bin/traceanalyzer dump -limit 1000 ./trace.log | grep -A5 "error"
+   ./bin/traceanalyzer dump -limit 1000 ./trace.bin
    ```
 
 3. **Replay to specific point:**
    ```bash
-   # Truncate trace and replay
-   head -n 500 ./trace.log > ./trace_partial.log
-   ./bin/traceanalyzer replay -db /tmp/debug_db ./trace_partial.log
+   # Use dump to inspect a prefix, then re-run replay with -v to print handler errors.
+   ./bin/traceanalyzer dump -limit 500 ./trace.bin
+   ./bin/traceanalyzer -v -db /tmp/debug_db -create=true -dry-run=false replay ./trace.bin
    ```
 
 ### Comparing Go and C++ Output

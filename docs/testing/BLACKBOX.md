@@ -232,7 +232,7 @@ Artifacts include:
 Record operations during stress test:
 
 ```bash
-./bin/stresstest -trace-out ./trace.log -duration 1m
+./bin/stresstest -trace-out ./trace.bin -duration 1m
 ```
 
 The trace includes operation types, keys, values, and timestamps.
@@ -242,19 +242,19 @@ The trace includes operation types, keys, values, and timestamps.
 Replay against a fresh database:
 
 ```bash
-./bin/traceanalyzer replay -db /tmp/replay_db ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false replay ./trace.bin
 ```
 
 Use `-dry-run` to count operations without applying:
 
 ```bash
-./bin/traceanalyzer replay -dry-run ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=true replay ./trace.bin
 ```
 
 Use `-preserve-timing` to replay at original pace:
 
 ```bash
-./bin/traceanalyzer replay -preserve-timing -db /tmp/replay_db ./trace.log
+./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false -preserve-timing replay ./trace.bin
 ```
 
 ## References

@@ -1,4 +1,4 @@
-# Testing Philosophy
+# Testing philosophy
 
 ## Test contracts, not bugs
 
@@ -14,7 +14,8 @@ This approach:
 
 ## Naming conventions
 
-Don't name tests after bugs. Name tests after the behavior they verify.
+Don't name tests after bugs.
+Name tests after the behavior they verify.
 
 | Do | Don't |
 |---|---|
@@ -22,9 +23,162 @@ Don't name tests after bugs. Name tests after the behavior they verify.
 | `TestWAL_Recovery_SyncedWritesSurvive` | `TestFixForCrashBug` |
 | `TestSST_ReadZlibCompressed_FormatV6` | `TestZlibFix` |
 
+## Contract test categories
+
+Contract tests verify guarantees at different levels.
+The table below shows the five categories used in this codebase.
+
+| Category | What it tests | Execution model | I/O |
+|---|---|---|---|
+| Semantic unit | API method produces correct internal state | In-process | None |
+| Handler compliance | Interface implementations preserve semantics | In-process | None |
+| Format compatibility | Binary format matches C++ RocksDB | Go writes, C++ reads | File + subprocess |
+| Durability/crash | Guarantees survive process death | Fork, crash, verify | File + fork |
+| Behavioral integration | Multi-component behavior | In-process | Real file I/O |
+
+### Semantic unit tests
+
+These tests verify that an API method produces the correct internal state.
+They run in-process with no I/O.
+
+```go
+// Contract: WriteBatch.SingleDelete() encodes a TypeSingleDeletion record.
+// Note: this example uses internal/batch parsing to validate the encoded record type.
+func TestWriteBatch_RecordTypePreservation(t *testing.T) {
+    wb := NewWriteBatch()
+    wb.SingleDelete(key)
+
+    parsed, err := batch.NewFromData(wb.Data())
+    if err != nil {
+        t.Fatalf("parse write batch: %v", err)
+    }
+    if !parsed.HasSingleDelete() {
+        t.Error("SingleDelete must produce TypeSingleDeletion")
+    }
+}
+```
+
+Use semantic unit tests when you need to verify:
+
+- API methods produce correct record types
+- State transitions follow expected rules
+- Invariants hold after operations
+
+### Handler compliance tests
+
+These tests verify that all implementations of an interface follow its contract.
+They run in-process with no I/O.
+
+```go
+// Contract: All batch.Handler implementations must preserve record types
+func TestBatchCopier_PreservesAllRecordTypes(t *testing.T) {
+    src := batch.New()
+    src.SingleDelete(key)
+
+    dst := batch.New()
+    copier := &batchCopier{target: dst}
+    src.Iterate(copier)
+
+    if !dst.HasSingleDelete() {
+        t.Error("batchCopier must preserve SingleDelete records")
+    }
+}
+```
+
+Use handler compliance tests when you need to verify:
+
+- All implementations of an interface follow the same contract
+- Record types are preserved during iteration or copying
+- Interface contracts aren't violated by new implementations
+
+### Format compatibility tests
+
+These tests verify that Go-written files are readable by C++ RocksDB tools.
+They write a file in Go, then invoke a C++ tool to read it.
+
+```go
+// Contract: Go SST files are readable by C++ sst_dump
+func TestSST_Contract_ZlibCompression(t *testing.T) {
+    // Go writes SST
+    builder.Add(key, value)
+    builder.Finish()
+
+    // C++ reads it
+    output := exec.Command("sst_dump", "--file="+sstPath).Output()
+    if strings.Contains(output, "Corruption") {
+        t.Error("C++ rejected Go-written SST")
+    }
+}
+```
+
+Use format compatibility tests when you need to verify:
+
+- Binary formats match C++ RocksDB exactly
+- Compression algorithms produce C++-compatible output
+- Checksums are computed correctly
+
+### Durability and crash tests
+
+These tests verify that guarantees survive process death.
+They fork a child process, crash it, and verify data in the parent.
+
+```go
+// Contract: Synced writes survive crash
+func TestDurability_WALEnabled_WritesAreDurable(t *testing.T) {
+    if os.Getenv("CHILD") == "1" {
+        db.Put(key, value)
+        os.Exit(0)  // Simulate crash
+    }
+
+    // Parent spawns child, then reopens and verifies
+    exec.Command(os.Args[0], "-test.run=ThisTest").Run()
+    db = Open(path)
+    if _, err := db.Get(key); err != nil {
+        t.Error("Synced write must survive crash")
+    }
+}
+```
+
+Use durability tests when you need to verify:
+
+- Synced writes survive ungraceful termination
+- Recovery produces a consistent prefix of operations
+- WAL and MANIFEST atomicity guarantees hold
+
+### Behavioral integration tests
+
+These tests verify multi-component behavior with real I/O.
+They run in-process but use the filesystem.
+
+```go
+// Contract: Orphan SST files are deleted during recovery
+func TestOrphanCleanup_MultipleOrphans(t *testing.T) {
+    db := Open(path)
+    db.Put(key, value)
+    db.Flush()
+    db.Close()
+
+    // Create orphan files
+    os.WriteFile(path+"/orphan.sst", data, 0644)
+
+    // Reopen - orphans are deleted
+    db = Open(path)
+    if _, err := os.Stat(path + "/orphan.sst"); !os.IsNotExist(err) {
+        t.Error("Orphan SST must be deleted during recovery")
+    }
+}
+```
+
+Use behavioral integration tests when you need to verify:
+
+- Recovery cleans up orphaned files
+- Sequence numbers increase monotonically across restarts
+- Multiple components interact correctly
+
 ## The testing pyramid
 
-Use layers in order. Start with deterministic unit tests.
+Use layers in order.
+Start with deterministic unit tests.
 Move up to crash and differential tests before trusting scale.
 
 | Layer | Goal | Location |
@@ -38,9 +192,31 @@ Move up to crash and differential tests before trusting scale.
 | Adversarial tests | Break invariants with hostile inputs | `cmd/adversarialtest/` |
 | Smoke tests | Catch broken feature paths end to end | `cmd/smoketest/` |
 
+## Contract documentation pattern
+
+All contract tests include a `// Contract:` comment that states the guarantee.
+This makes tests self-documenting and helps reviewers understand intent.
+
+```go
+// TestSST_Contract_BinaryKeys tests that binary keys are preserved.
+//
+// Contract: Keys containing arbitrary bytes (including \x00) are handled correctly.
+func TestSST_Contract_BinaryKeys(t *testing.T) {
+    // ...
+}
+```
+
+When you write a contract test:
+
+1. Add a `// Contract:` comment stating the guarantee
+1. Make the test fail when the contract is violated
+1. Make the test pass when the contract is satisfied
+1. Ensure the test survives implementation changes
+
 ## Jepsen-style invariants
 
-Treat these as contracts. Keep them strict.
+Treat these as contracts.
+Keep them strict.
 
 ### Acknowledge and durability must match
 
@@ -53,8 +229,8 @@ If a write returns success under a durability mode, recovery must preserve it.
 
 Recovered state must be a prefix of acknowledged operations under the selected durability contract.
 
-- Recovery cannot produce keys that were never written.
-- Recovery cannot produce values that were never committed.
+- Recovery can't produce keys that were never written.
+- Recovery can't produce values that were never committed.
 
 ### Snapshots must be consistent
 
@@ -112,13 +288,12 @@ Write tests that explain which invariant they protect.
 A good test:
 
 1. States what contract it verifies
-2. Fails when the contract is violated
-3. Passes when the contract is satisfied
-4. Survives implementation changes that preserve the contract
+1. Fails when the contract is violated
+1. Passes when the contract is satisfied
+1. Survives implementation changes that preserve the contract
 
 ## References
 
 - [Contracts, Not Tests](https://blog.ploeh.dk/2013/09/11/death-by-unit-test/)
 - [Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
 - [Jepsen Methodology](https://jepsen.io/analyses)
-

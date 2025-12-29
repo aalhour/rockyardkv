@@ -40,7 +40,7 @@ RockyardKV organizes tests into layers. Use them in order, from bottom to top.
 
 ## Quality Guarantees
 
-These tests collectively guarantee:
+These tests collectively validate:
 
 | Property | Verified by |
 |----------|-------------|
