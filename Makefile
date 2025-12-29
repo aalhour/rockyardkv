@@ -308,6 +308,11 @@ status-durability-internal-key-collision: build ## Status: Repro + detect intern
 	@echo "🧪 Running internal-key collision repro/check ..."
 	@bash scripts/status/run_durability_repros.sh internal-key-collision "$(STATUS_RUN_ROOT)/internal-key-collision"
 
+.PHONY: status-durability-internal-key-collision-only
+status-durability-internal-key-collision-only: build ## Status: Collision-check-only gate (ignores DisableWAL verifier failures; HARNESS-02 pending)
+	@echo "🧪 Running internal-key collision CHECK-ONLY gate ..."
+	@bash scripts/status/run_durability_repros.sh internal-key-collision-only "$(STATUS_RUN_ROOT)/internal-key-collision-only"
+
 .PHONY: status-durability
 status-durability: status-durability-wal-sync status-durability-wal-sync-sweep status-durability-disablewal-faultfs status-durability-disablewal-faultfs-minimize status-durability-internal-key-collision ## Status: Run durability repros (writes artifacts)
 	@echo "✅ Durability repros complete"

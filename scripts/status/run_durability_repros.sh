@@ -26,6 +26,11 @@ Scenarios:
     Deterministic-ish repro + smoking-gun check: runs a fixed crash schedule and then scans SSTs
     for internal-key collisions (same internal key bytes, different value bytes across SSTs).
 
+  internal-key-collision-only
+    Same as internal-key-collision, but the scenario **fails only** if the collision check fails.
+    This is intended as a Phase-1 (G1) gate when the verifier is known to be unsound for DisableWAL
+    (HARNESS-02 pending). Verifier failures are recorded as warnings, not as a failing exit code.
+
 Examples:
   make build
   scripts/status/run_durability_repros.sh wal-sync /path/to/run/wal-sync
@@ -34,6 +39,7 @@ Examples:
   scripts/status/run_durability_repros.sh disablewal-faultfs-minimize /path/to/run/disablewal-faultfs-minimize
   scripts/status/run_durability_repros.sh adversarial-corruption /path/to/run/adversarial-corruption
   scripts/status/run_durability_repros.sh internal-key-collision /path/to/run/internal-key-collision
+  scripts/status/run_durability_repros.sh internal-key-collision-only /path/to/run/internal-key-collision-only
 
 Notes:
   - This script writes logs and artifacts into <run_dir>.
@@ -331,6 +337,66 @@ case "$SCENARIO" in
       echo ""
       echo "internal-key-collision: rc_crash=$rc_crash rc_collision=$rc_collision"
     } | tee -a "$LOG"
+    ;;
+
+  internal-key-collision-only)
+    require_bin "$CRASHTEST_BIN" "crashtest"
+    require_bin "$SSTDUMP_BIN" "sstdump"
+
+    # Deterministic-ish crash schedule from known repro. Override via env if needed.
+    IKC_SEED="${IKC_SEED:-8201}"
+    IKC_CYCLES="${IKC_CYCLES:-4}"
+    IKC_DURATION="${IKC_DURATION:-3m}"
+    IKC_INTERVAL="${IKC_INTERVAL:-6s}"
+    IKC_MIN_INTERVAL="${IKC_MIN_INTERVAL:-0.5s}"
+    IKC_SCHEDULE="${IKC_SCHEDULE:-5.327s,10.839s,10.547s,10.065s}"
+
+    echo "Seed: $IKC_SEED" | tee -a "$RUN_DIR/meta.txt"
+    echo "Params: cycles=$IKC_CYCLES duration=$IKC_DURATION interval=$IKC_INTERVAL min_interval=$IKC_MIN_INTERVAL kill_mode=sigterm schedule=$IKC_SCHEDULE" \
+      | tee -a "$RUN_DIR/meta.txt"
+    echo "Mode: collision-check-only (ignores verifier failures; HARNESS-02 pending)" | tee -a "$RUN_DIR/meta.txt"
+
+    # Step 1: reproduce crash/recovery state.
+    set +e
+    "$CRASHTEST_BIN" -seed="$IKC_SEED" -cycles="$IKC_CYCLES" -duration="$IKC_DURATION" -interval="$IKC_INTERVAL" -min-interval="$IKC_MIN_INTERVAL" \
+      -kill-mode=sigterm -crash-schedule="$IKC_SCHEDULE" \
+      -disable-wal -faultfs -faultfs-drop-unsynced -faultfs-delete-unsynced \
+      -db "$RUN_DIR/db" -run-dir "$ARTIFACTS" -trace-dir "$RUN_DIR/traces" -keep -v \
+      2>&1 | tee "$LOG"
+    rc_crash=$?
+    set -e
+
+    # Step 2: smoking-gun check (this is the ONLY gating signal).
+    DB_DIR="$RUN_DIR/db"
+    if [[ -d "$RUN_DIR/db/db" ]]; then
+      DB_DIR="$RUN_DIR/db/db"
+    fi
+
+    set +e
+    "$SSTDUMP_BIN" --command=collision-check --dir "$DB_DIR" --max-collisions=1 \
+      2>&1 | tee "$RUN_DIR/collision_check.log"
+    rc_collision=$?
+    set -e
+
+    # Overall: fail ONLY if collision check fails.
+    if [[ "$rc_collision" -ne 0 ]]; then
+      RC=1
+    else
+      RC=0
+    fi
+
+    {
+      echo ""
+      echo "internal-key-collision-only: rc_crash=$rc_crash rc_collision=$rc_collision"
+    } | tee -a "$LOG"
+
+    if [[ "$rc_crash" -ne 0 && "$rc_collision" -eq 0 ]]; then
+      {
+        echo ""
+        echo "WARNING: verifier failed (rc_crash=$rc_crash) but collision-check passed."
+        echo "WARNING: This scenario is collision-check-only; see HARNESS-02 / V4 for seqno-based verification."
+      } | tee -a "$LOG" | tee "$RUN_DIR/warnings.txt" >/dev/null
+    fi
     ;;
 
   *)
