@@ -1,19 +1,57 @@
-# Golden Test Framework
+# Golden Compatibility Tests
 
 Verifies bit-level compatibility between RockyardKV (Go) and RocksDB (C++).
+This directory is part of the test tooling and not part of the API.
+
+> [!NOTE]
+> **Philosophy:** “C++ tools are the oracle; tests skip if missing.”
 
 ## Prerequisites
 
-Build the RocksDB tools (ldb and sst_dump):
+### 1. Install compression libraries
+
+On macOS (Homebrew):
+```bash
+brew install snappy lz4 zstd
+```
+
+On Linux (Debian/Ubuntu):
+```bash
+sudo apt install libsnappy-dev liblz4-dev libzstd-dev
+```
+
+### 2. Build RocksDB tools
+
+> [!NOTE]
+> RocksDB’s C++ tools act as the oracle for format verification. If the tools aren’t present, tests that require them will skip.
 
 ```bash
 cd /path/to/rocksdb
-make ldb sst_dump
+
+# Clean any previous build
+make clean
+
+# Set paths for compression libraries (macOS Homebrew)
+export CPATH=/opt/homebrew/include
+export LIBRARY_PATH=/opt/homebrew/lib
+
+# Build with compression support
+make -j8 USE_RTTI=1 DEBUG_LEVEL=0 LIB_MODE=shared tools
+```
+
+Verify the build includes compression:
+```bash
+grep -E "SNAPPY|LZ4|ZSTD" make_config.mk
+# Should show: -DSNAPPY -DLZ4 -DZSTD
 ```
 
 ## Running tests
 
 ```bash
+# Set library path for compression libs (macOS)
+ROCKSDB_DEPS_LIBDIR=/opt/homebrew/lib go test -v ./cmd/goldentest/...
+
+# Linux (usually not needed if libs are in standard paths)
 go test -v ./cmd/goldentest/...
 ```
 
@@ -76,8 +114,43 @@ cmd/goldentest/
 3. Use `t.Skip()` if C++ tools are required but not found
 4. Run `go test -v ./cmd/goldentest/...` to verify
 
+## Troubleshooting
+
+### `signal: abort trap` or `Library not loaded`
+
+The C++ tools can't find dynamic libraries. Set the library path:
+```bash
+ROCKSDB_DEPS_LIBDIR=/opt/homebrew/lib go test ./cmd/goldentest/...
+```
+
+### `Not implemented: Snappy/LZ4/ZSTD not supported in this build`
+
+RocksDB was built without compression support. Rebuild with:
+```bash
+export CPATH=/opt/homebrew/include LIBRARY_PATH=/opt/homebrew/lib
+make -j8 USE_RTTI=1 DEBUG_LEVEL=0 LIB_MODE=shared tools
+```
+
+### `Symbol not found` C++ ABI errors
+
+The RocksDB dylib was built with an incompatible C++ standard library.
+Clean rebuild usually fixes this:
+```bash
+make clean && make -j8 USE_RTTI=1 DEBUG_LEVEL=0 LIB_MODE=shared tools
+```
+
 ## Reference
 
-- RocksDB v10.7.5 (commit 812b12b)
+- RocksDB v10.7.5 (commit `812b12b`) — used for oracle tooling + fixture generation
 - `tools/ldb.cc`
 - `tools/sst_dump.cc`
+
+<!-- DO NOT REMOVE ATTRIBUTION SECTION -->
+## Provenance / Attribution
+
+The files under `golden/v10.7.5/` are generated data fixtures created using the
+official RocksDB tools (e.g., `ldb`) from RocksDB `v10.7.5` (commit `812b12b`) for
+the purpose of interoperability testing.
+
+These fixtures are data artifacts, not copied RocksDB source code. RocksDB is a
+separately licensed project; see the repository's license for details.
