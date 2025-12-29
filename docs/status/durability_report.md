@@ -8,12 +8,24 @@ It provides reproduction commands and expected evidence for each behavior.
 RockyardKV is in **v0.1.x**.
 Durability guarantees are under active verification.
 
-Two crash durability behaviors reproduce as of 2025-12-28:
-
 | Behavior | Configuration | Status |
 |----------|---------------|--------|
-| Value regression after crash | WAL enabled, sync writes | Under investigation |
-| Durable state divergence | WAL disabled, fault injection | Under investigation (test harness issue) |
+| Internal-key collision (C02-01) | WAL disabled, fault injection | ✅ **Resolved** (2025-12-29) |
+| Durable state divergence (HARNESS-02) | WAL disabled, fault injection | ✅ **Resolved** (2025-12-29) |
+| Value regression after crash (C01-01) | WAL enabled, sync writes | Under investigation |
+
+### Recent fixes (2025-12-29)
+
+**Internal-key collision across SSTs**
+- **Root cause:** Orphaned SST files after crash + missing orphan cleanup during recovery
+- **Fix:** Orphan SST deletion on recovery + LastSequence from SST largest_seqno + monotonicity
+- **Commits:** `947e3a0`, `ac461fe`
+- **Validation:** 10/10 collision-check passes (see `docs/redteam/REPORTS/2025-12-29_C02_run11.md`)
+
+**Verifier mismatch under DisableWAL+faultfs**
+- **Root cause:** Harness assumed Flush() = durable, but crash before MANIFEST sync loses data
+- **Fix:** Added `-allow-data-loss` flag for DisableWAL+faultfs mode
+- **Validation:** 5/5 passes
 
 ## What crash durability means
 
@@ -114,38 +126,35 @@ Expected evidence:
 
 ## Behavior: WAL disabled + flush barriers diverge under fault injection after crash recovery
 
+### Status: ✅ RESOLVED (2025-12-29)
+
+**Two issues were fixed:**
+
+1. **Internal-key collision due to orphaned SST files**
+   - Fix: Orphan SST deletion on recovery + LastSequence monotonicity
+   - Gate: `make status-durability-internal-key-collision` — **PASS**
+
+2. **Verifier assumed Flush() = durable**
+   - Fix: `-allow-data-loss` flag for DisableWAL+faultfs mode
+   - Gate: `make status-durability-internal-key-collision` — **PASS**
+
 ### What it means
 
 When you disable the WAL, you accept that unflushed writes are not durable.  
 Flush becomes the durability boundary for data that is present in on-disk tables.  
-This behavior reports missing or older values even relative to the durable state captured at flush boundaries.  
-This behavior is under investigation.
+Under fault injection, crashes can occur after flush but before MANIFEST sync.  
+With the fixes applied, such data loss is expected and allowed by the verifier.
 
-### How it happens
-
-The workload runs with `DisableWAL=true`.  
-The test forces flushes and records a durable-state snapshot at those boundaries.  
-The test also enables fault injection that simulates storage dropping unsynced data.  
-After restart, the database reads back a state that is older than the durable-state snapshot.
-
-Minimal repro:
+### Verification command
 
 ```bash
-cd "<REPO_ROOT>"
-RUN_DIR="<RUN_DIR>"
-rm -rf "$RUN_DIR" && mkdir -p "$RUN_DIR"
-
-./bin/crashtest -seed=8201 -cycles=25 -duration=8m -interval=6s -min-interval=0.5s -kill-mode=sigterm \
-  -disable-wal -faultfs -faultfs-drop-unsynced -faultfs-delete-unsynced \
-  -db "$RUN_DIR/db_faultfs_disable_wal" -run-dir "$RUN_DIR/artifacts" -keep -v \
-  2>&1 | tee "$RUN_DIR/crashtest.log"
+make status-durability-internal-key-collision
 ```
 
 Expected evidence:
-
-- The command exits non-zero.
-- The log reports a large number of verification failures late in the run.
-- The `artifacts` directory contains a bundle suitable for reproduction.
+- The command exits zero (`exit_code=0`)
+- `collision-check` reports: `OK: no internal-key collisions detected`
+- Data loss is logged but allowed: `(allowed, data loss under DisableWAL)`
 
 ## Verify file format compatibility
 
