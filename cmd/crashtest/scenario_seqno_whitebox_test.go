@@ -279,7 +279,8 @@ func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
 func runCollisionCheck(t *testing.T, dbPath string) error {
 	t.Helper()
 
-	cmd := exec.Command("go", "run", "../../cmd/check_collision", dbPath)
+	// Use sstdump for collision-check (consistent with status scripts)
+	cmd := exec.Command("go", "run", "../../cmd/sstdump", "--command=collision-check", "--dir="+dbPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("collision check failed: %v\nOutput:\n%s", err, output)
