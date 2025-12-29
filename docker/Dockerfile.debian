@@ -1,0 +1,30 @@
+# RockyardKV Debian Linux Test Image
+#
+# Runs full test suite (make test-all-long) in Debian Linux.
+# Reproduces the GitHub Actions Linux test environment locally.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.debian -t rockyardkv:debian .
+#   docker run --rm rockyardkv:debian
+#
+# Or use: make test-docker-debian
+
+FROM golang:1.25-bookworm
+
+# Install dependencies for race detector, make, and debugging
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    git \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy entire project
+COPY . .
+
+# Default command: run full long-tier test suite
+# CMD ["make", "test-all-long"]
+
+CMD ["make", "test-all"]

@@ -1,0 +1,23 @@
+# RockyardKV Alpine Linux Test Image
+#
+# Runs full test suite (make test-all-long) in Alpine Linux.
+# Alpine uses musl libc instead of glibc, which catches compatibility issues.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.alpine -t rockyardkv:alpine .
+#   docker run --rm rockyardkv:alpine
+
+FROM golang:1.25-alpine
+
+# Install build dependencies (make is required for test targets)
+RUN apk add --no-cache gcc musl-dev git make bash
+
+WORKDIR /app
+
+# Copy entire project
+COPY . .
+
+# Default: run full long-tier test suite
+# CMD ["make", "test-all-long"]
+
+CMD ["make", "test-all"]

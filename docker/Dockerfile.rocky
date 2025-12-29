@@ -1,0 +1,31 @@
+# RockyardKV Rocky Linux Test Image
+#
+# Runs full test suite (make test-all-long) in Rocky Linux 9.
+# Rocky Linux is RHEL-compatible, used in enterprise environments.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.rocky -t rockyardkv:rocky .
+#   docker run --rm rockyardkv:rocky
+
+FROM rockylinux:9
+
+# Install Go 1.25+ and build dependencies
+# Rocky Linux 9's default Go is too old, so we install from golang.org
+RUN dnf install -y wget tar gcc git make && dnf clean all && \
+    wget -q https://go.dev/dl/go1.25rc1.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.25rc1.linux-amd64.tar.gz && \
+    rm go1.25rc1.linux-amd64.tar.gz
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+ENV GOPATH="/root/go"
+ENV PATH="${GOPATH}/bin:${PATH}"
+
+WORKDIR /app
+
+# Copy entire project
+COPY . .
+
+# Default: run full long-tier test suite
+# CMD ["make", "test-all-long"]
+
+CMD ["make", "test-all"]

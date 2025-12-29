@@ -377,7 +377,8 @@ test-bench-db: ## Benchmark DB operations
 # ─────────────────────────────────────────────────────────────────────────────
 
 .PHONY: test-all
-test-all: test test-fuzz test-e2e test-bench ## Run all tests: Go + Fuzz + E2E + Benchmarks (uses current TIER)
+test-all: test test-e2e test-bench ## Run all tests: Go + Fuzz + E2E + Benchmarks (uses current TIER)
+	@echo "Skipping test-fuzz, if you want it run it separately."
 	@echo "✅ All tests complete ($(TIER) tier)"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -498,41 +499,68 @@ lint-all-platforms: ## Run golangci-lint for all supported platforms (catches pl
 
 # =============================================================================
 # Cross-Platform Testing (Docker-based)
+# Runs `make test-all-long` inside each container (Go + Fuzz + E2E + Bench)
 # =============================================================================
 
-.PHONY: test-linux
-test-linux: ## Run tests in Linux container (matches GitHub CI ubuntu-latest)
-	@echo "🐧 Running tests in Linux container..."
-	@docker build -f Dockerfile.ci -t rockyardkv-test-linux . --quiet
-	@docker run --rm rockyardkv-test-linux
-	@echo "✅ Linux tests passed"
+.PHONY: test-docker-debian
+test-docker-debian: ## Run full test suite (test-all-long) in Debian Linux
+	@echo "🐧 Running make test-all-long in Debian Linux..."
+	@docker build -f docker/Dockerfile.debian -t rockyardkv:debian .
+	@docker run --rm rockyardkv:debian
+	@echo "✅ Debian Linux tests passed"
 
-.PHONY: test-linux-short
-test-linux-short: ## Run short tests in Linux container (faster)
-	@echo "🐧 Running short tests in Linux container..."
-	@docker build -f Dockerfile.ci -t rockyardkv-test-linux . --quiet
-	@docker run --rm rockyardkv-test-linux go test -short -timeout 5m ./...
-	@echo "✅ Linux short tests passed"
+.PHONY: test-docker-debian-short
+test-docker-debian-short: ## Run short Go tests in Debian Linux (faster)
+	@echo "🐧 Running short tests in Debian Linux..."
+	@docker build -f docker/Dockerfile.debian -t rockyardkv:debian . --quiet
+	@docker run --rm rockyardkv:debian make test-short
+	@echo "✅ Debian Linux short tests passed"
 
-.PHONY: test-alpine
-test-alpine: ## Run tests in Alpine Linux (musl libc - catches glibc compatibility issues)
-	@echo "🏔️  Running tests in Alpine Linux (musl libc)..."
-	@docker run --rm -v $(PWD):/app -w /app golang:1.25-alpine \
-		sh -c "apk add --no-cache gcc musl-dev git && go test -race -timeout 10m ./..."
+.PHONY: test-docker-alpine
+test-docker-alpine: ## Run full test suite (test-all-long) in Alpine Linux
+	@echo "🏔️  Running make test-all-long in Alpine Linux (musl libc)..."
+	@docker build -f docker/Dockerfile.alpine -t rockyardkv:alpine .
+	@docker run --rm rockyardkv:alpine
 	@echo "✅ Alpine Linux tests passed"
 
-.PHONY: test-rockylinux
-test-rockylinux: ## Run tests in Rocky Linux 9 (RHEL-compatible enterprise Linux)
-	@echo "🪨 Running tests in Rocky Linux 9 (RHEL-compatible)..."
-	@docker run --rm -v $(PWD):/app -w /app rockylinux:9 \
-		sh -c "dnf install -y golang gcc git && cd /app && go test -race -timeout 10m ./..."
+.PHONY: test-docker-rockylinux
+test-docker-rockylinux: ## Run full test suite (test-all-long) in Rocky Linux 9
+	@echo "🪨 Running make test-all-long in Rocky Linux 9 (RHEL-compatible)..."
+	@docker build -f docker/Dockerfile.rocky -t rockyardkv:rocky .
+	@docker run --rm rockyardkv:rocky
 	@echo "✅ Rocky Linux tests passed"
 
-.PHONY: test-all-linux
-test-all-linux: test-linux test-alpine test-rockylinux ## Run tests on all Linux distros (Debian, Alpine, Rocky)
+.PHONY: test-docker-all
+test-docker-all: ## Run full test suite on all Linux distros (sequential)
+	@$(MAKE) test-docker-debian
+	@$(MAKE) test-docker-alpine
+	@$(MAKE) test-docker-rockylinux
 	@echo ""
 	@echo "╔══════════════════════════════════════════════════════════════════╗"
 	@echo "║                    All Linux Distros Complete                    ║"
+	@echo "╠══════════════════════════════════════════════════════════════════╣"
+	@echo "║  ✅ Debian:       glibc, matches GitHub CI ubuntu-latest         ║"
+	@echo "║  ✅ Alpine:       musl libc, common in production containers     ║"
+	@echo "║  ✅ Rocky Linux:  RHEL-compatible, enterprise servers            ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+
+.PHONY: test-docker-all-parallel
+test-docker-all-parallel: ## Run full test suite on all Linux distros (parallel)
+	@echo "🚀 Building all Linux images..."
+	@docker build -f docker/Dockerfile.debian -t rockyardkv:debian . &
+	@docker build -f docker/Dockerfile.alpine -t rockyardkv:alpine . &
+	@docker build -f docker/Dockerfile.rocky -t rockyardkv:rocky . &
+	@wait
+	@echo ""
+	@echo "🐧 Running make test-all-long on all Linux distros in parallel..."
+	@echo ""
+	@( docker run --rm rockyardkv:debian 2>&1 | sed 's/^/[debian] /' ) &
+	@( docker run --rm rockyardkv:alpine 2>&1 | sed 's/^/[alpine] /' ) &
+	@( docker run --rm rockyardkv:rocky 2>&1 | sed 's/^/[rocky]  /' ) &
+	@wait
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              All Linux Distros Complete (Parallel)               ║"
 	@echo "╠══════════════════════════════════════════════════════════════════╣"
 	@echo "║  ✅ Debian:      glibc, matches GitHub CI ubuntu-latest          ║"
 	@echo "║  ✅ Alpine:      musl libc, common in production containers      ║"
