@@ -42,7 +42,9 @@ linters:
     # Dependency boundaries
     - depguard
 
-    # Context handling
+    # Concurrency & context handling
+    # - gochecknoglobals
+    # - gochecknoinits
     # - contextcheck
     # - noctx
     # - containedctx

@@ -210,7 +210,7 @@ func TestDB_RoundTrip(t *testing.T) {
 }
 ```
 
-## Debugging Format Issues
+## Debugging format issues
 
 When a golden test fails:
 
@@ -219,7 +219,7 @@ When a golden test fails:
 3. Check format version and compression settings
 4. Verify magic numbers and checksums
 
-### Common Issues
+### Common issues
 
 | Issue | Cause |
 |-------|-------|
@@ -227,6 +227,76 @@ When a golden test fails:
 | "Checksum mismatch" | Block encoding or checksum algorithm wrong |
 | "Unknown compression" | Compression type byte wrong |
 | "Corrupted keys" | Key encoding differs from C++ |
+
+## External corpus tests
+
+External corpus tests verify that Go reads C++-generated databases correctly.
+You run these tests against a directory of fixtures created by C++ RocksDB.
+
+### Set up the corpus
+
+Export the `REDTEAM_CPP_CORPUS_ROOT` environment variable:
+
+```bash
+export REDTEAM_CPP_CORPUS_ROOT=/path/to/corpus
+```
+
+### Corpus layout
+
+The corpus directory contains subdirectories with complete RocksDB databases.
+
+| Subdirectory | Fixture type |
+|--------------|--------------|
+| `multi_cf_db/db/` | Multiple column families |
+| `rangedel_db/db/` | Range deletions |
+| `zlib_small_blocks_db/db/` | Zlib-compressed SST files |
+
+Each `db/` subdirectory contains `CURRENT`, `MANIFEST-*`, and `*.sst` files.
+
+### Run corpus tests
+
+Use make to fail fast when the environment variable isn't set:
+
+```bash
+make test-e2e-golden-corpus
+```
+
+Run tests directly to skip when the environment variable isn't set:
+
+```bash
+go test -v -run TestCppCorpus ./cmd/goldentest/...
+```
+
+### Corpus tests
+
+| Test | Contract |
+|------|----------|
+| `TestCppCorpus_MultiCF` | Go reads C++ multi-column-family databases |
+| `TestCppCorpus_RangeDel` | Go reads C++ range deletion databases |
+| `TestCppCorpus_ZlibSST` | Go reads C++ zlib-compressed SST files |
+
+### Create fixtures
+
+Generate fixtures with C++ RocksDB.
+Copy the resulting database directory to your corpus location.
+
+```cpp
+Options options;
+options.compression = kZlibCompression;
+DB* db;
+DB::Open(options, "/path/to/zlib_small_blocks_db/db", &db);
+db->Put(WriteOptions(), "key", "value");
+db->Close();
+```
+
+### Troubleshoot skipped tests
+
+Corpus tests skip when fixtures are missing.
+Verify these conditions:
+
+1. `REDTEAM_CPP_CORPUS_ROOT` is set and points to the corpus directory.
+1. Each expected subdirectory exists (refer to the layout table).
+1. Each `db/` subdirectory contains valid RocksDB files.
 
 ## References
 

@@ -274,6 +274,18 @@ test-e2e-golden: ## E2E: C++ RocksDB compatibility (tier-independent)
 	@echo "🥇 Running golden tests (C++ compatibility)..."
 	$(GO) test -v -run Golden ./...
 
+.PHONY: test-e2e-golden-corpus
+test-e2e-golden-corpus: ## E2E: Run corpus-driven golden tests (requires REDTEAM_CPP_CORPUS_ROOT)
+	@if [ -z "$$REDTEAM_CPP_CORPUS_ROOT" ]; then \
+		echo "❌ REDTEAM_CPP_CORPUS_ROOT is not set"; \
+		echo "   Set it to the path of the red team C++ corpus, e.g.:"; \
+		echo "   export REDTEAM_CPP_CORPUS_ROOT=/path/to/rockyardkv-tests/redteam/corpus_cpp_generated"; \
+		exit 1; \
+	fi
+	@echo "🥇 Running corpus-driven golden tests..."
+	@echo "   Corpus: $$REDTEAM_CPP_CORPUS_ROOT"
+	$(GO) test -v -run 'TestCppCorpus' ./cmd/goldentest/...
+
 .PHONY: test-e2e-cross-compat
 test-e2e-cross-compat: ## E2E: Cross-compatibility tests (Go ↔ C++)
 	@echo "🔄 Running cross-compatibility tests..."
@@ -453,22 +465,6 @@ _test-release-rocky:
 # QUALITY
 # ═══════════════════════════════════════════════════════════════════════════
 
-# .PHONY: get-unix
-# get-unix: ## Get unix package
-# 	@echo "📥 Getting unix package..."
-# 	@GOBIN=$$(pwd)/$(BIN_DIR) $(GO) get golang.org/x/sys/unix
-
-# .PHONY: fmt
-# fmt: ## Format code with gofmt and goimports
-# 	@echo "🎨 Formatting code..."
-# 	$(GO) fmt ./...
-# 	@which goimports > /dev/null && goimports -w . || true
-
-# .PHONY: vet
-# vet: get-unix ## Run go vet
-# 	@echo "🔎 Running go vet..."
-# 	$(GO) vet ./...
-
 .PHONY: fmt
 fmt-check: ## Check formatting (fails if changes needed)
 	@echo "🎨 Checking formatting..."
@@ -531,26 +527,6 @@ test-rockylinux: ## Run tests in Rocky Linux 9 (RHEL-compatible enterprise Linux
 	@docker run --rm -v $(PWD):/app -w /app rockylinux:9 \
 		sh -c "dnf install -y golang gcc git && cd /app && go test -race -timeout 10m ./..."
 	@echo "✅ Rocky Linux tests passed"
-
-# Windows temporarily disabled (v0.x, no Windows machine for testing)
-# .PHONY: build-windows
-# build-windows: ## Cross-compile for Windows (verifies build, cannot run tests)
-# 	@echo "🪟 Cross-compiling for Windows..."
-# 	@GOOS=windows GOARCH=amd64 $(GO) build -o /dev/null ./...
-# 	@echo "✅ Windows build passed"
-
-# .PHONY: test-all-platforms
-# test-all-platforms: test test-linux test-alpine test-rockylinux ## Run tests on all platforms (local, Linux distros)
-# 	@echo ""
-# 	@echo "╔══════════════════════════════════════════════════════════════════╗"
-# 	@echo "║                    All Platform Tests Complete                   ║"
-# 	@echo "╠══════════════════════════════════════════════════════════════════╣"
-# 	@echo "║  ✅ Local:       Tests passed (native)                           ║"
-# 	@echo "║  ✅ Debian:      Tests passed (Docker, glibc)                    ║"
-# 	@echo "║  ✅ Alpine:      Tests passed (Docker, musl libc)                ║"
-# 	@echo "║  ✅ Rocky Linux: Tests passed (Docker, RHEL-compatible)          ║"
-# 	@echo "║  ✅ Windows:     Build passed (cross-compile)                    ║"
-# 	@echo "╚══════════════════════════════════════════════════════════════════╝"
 
 .PHONY: test-all-linux
 test-all-linux: test-linux test-alpine test-rockylinux ## Run tests on all Linux distros (Debian, Alpine, Rocky)
@@ -669,26 +645,9 @@ deps-update: ## Update all dependencies
 	$(GO) get -u ./...
 	$(GO) mod tidy
 
-.PHONY: tidy
-tidy: ## Tidy go.mod and go.sum
-	@echo "🧹 Tidying modules..."
-	$(GO) mod tidy
-
 # ═══════════════════════════════════════════════════════════════════════════
 # DEVELOPMENT
 # ═══════════════════════════════════════════════════════════════════════════
-
-.PHONY: doc
-doc: ## Start godoc server on http://localhost:6060
-	@echo "📚 Starting godoc server on http://localhost:6060..."
-	@which godoc > /dev/null || (echo "Installing godoc..." && go install golang.org/x/tools/cmd/godoc@latest)
-	godoc -http=:6060
-
-.PHONY: watch
-watch: ## Watch for changes and run tests (requires watchexec)
-	@echo "👀 Watching for changes..."
-	@which watchexec > /dev/null || (echo "Install watchexec: brew install watchexec" && exit 1)
-	watchexec -e go -r -- make test-short
 
 .PHONY: info
 info: ## Show project information and statistics
