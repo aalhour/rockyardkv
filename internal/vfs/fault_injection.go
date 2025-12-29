@@ -14,6 +14,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -55,6 +56,32 @@ type FaultInjectionFS struct {
 
 	// Whether to drop unsynced data on "crash"
 	filesystemActive bool
+
+	// SyncDir lie mode: SyncDir() returns success but does not make renames durable.
+	// This simulates filesystems that report directory fsync success but still lose
+	// directory entries on crash. Use for testing "DB must recover to older consistent
+	// state or fail loud" behavior under N05 fault models.
+	syncDirLieMode bool
+
+	// File sync lie mode: Sync() returns success but does not mark data as synced.
+	// On crash, unsynced data is lost. This simulates filesystems that lie about
+	// fsync completion. Use with fileSyncLiePattern to target specific file types.
+	fileSyncLieMode    bool
+	fileSyncLiePattern string // If set, only lie for files matching this pattern (e.g., ".log", "MANIFEST", ".sst")
+
+	// Rename anomaly modes: Simulate real-world filesystem behaviors where renames
+	// are non-atomic or have unexpected outcomes after power loss.
+	//
+	// renameDoubleNameMode: Rename succeeds but both old and new names exist after crash.
+	// This simulates a filesystem where the new directory entry is created but the old
+	// entry isn't removed before crash.
+	renameDoubleNameMode    bool
+	renameDoubleNamePattern string // If set, only apply to files matching this pattern
+
+	// renameNeitherNameMode: Rename succeeds but neither name exists after crash.
+	// This simulates a filesystem where both directory entries are lost.
+	renameNeitherNameMode    bool
+	renameNeitherNamePattern string // If set, only apply to files matching this pattern
 }
 
 // fileState tracks the sync state of a file.
@@ -387,6 +414,8 @@ func (f *faultWritableFile) Sync() error {
 		f.fs.mu.RUnlock()
 		return ErrInjectedSyncError
 	}
+	fileSyncLieMode := f.fs.fileSyncLieMode
+	fileSyncLiePattern := f.fs.fileSyncLiePattern
 	f.fs.mu.RUnlock()
 
 	err := f.base.Sync()
@@ -394,7 +423,16 @@ func (f *faultWritableFile) Sync() error {
 		return err
 	}
 
-	// Mark data as synced
+	// Check if we should lie about this sync
+	shouldLie := fileSyncLieMode && f.matchesLiePattern(fileSyncLiePattern)
+
+	if shouldLie {
+		// Lie mode: return success but do NOT mark data as synced.
+		// On crash, unsynced data will be lost.
+		return nil
+	}
+
+	// Normal mode: mark data as synced
 	f.fs.mu.Lock()
 	if state, ok := f.fs.fileState[f.path]; ok {
 		state.syncedPos = state.pos
@@ -403,6 +441,25 @@ func (f *faultWritableFile) Sync() error {
 	f.fs.mu.Unlock()
 
 	return nil
+}
+
+// matchesLiePattern checks if this file matches the lie pattern.
+func (f *faultWritableFile) matchesLiePattern(pattern string) bool {
+	if pattern == "" {
+		return true // empty pattern matches all files
+	}
+	// Check if filename contains the pattern
+	return containsPattern(f.path, pattern)
+}
+
+// containsPattern is a simple substring check for pattern matching.
+func containsPattern(path, pattern string) bool {
+	for i := 0; i <= len(path)-len(pattern); i++ {
+		if path[i:i+len(pattern)] == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *faultWritableFile) Append(data []byte) error {
@@ -444,13 +501,19 @@ func (f *faultWritableFile) Size() (int64, error) {
 // SyncDir marks the directory as synced.
 // This is important for durability of file creation and rename.
 // After SyncDir, pending renames in this directory become durable.
+//
+// In "lie mode" (SetSyncDirLieMode(true)), this method returns success but
+// does NOT make renames durable. On simulated crash, RevertUnsyncedRenames()
+// will still revert those renames. This models filesystems that lie about
+// directory fsync completion.
 func (fs *FaultInjectionFS) SyncDir(path string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
 	absPath, _ := filepath.Abs(path)
 
-	// Mark all files in this directory as having their directory synced
+	// Mark all files in this directory as having their directory synced.
+	// This is done even in lie mode (affects file state tracking).
 	for filePath, state := range fs.fileState {
 		fileDir := filepath.Dir(filePath)
 		if fileDir == absPath {
@@ -458,7 +521,15 @@ func (fs *FaultInjectionFS) SyncDir(path string) error {
 		}
 	}
 
-	// Clear pending renames for files in this directory (they are now durable)
+	// In lie mode: return success but do NOT clear pending renames.
+	// This simulates a filesystem that reports fsync success but still
+	// loses directory entries on crash.
+	if fs.syncDirLieMode {
+		return nil
+	}
+
+	// Normal mode: clear pending renames for files in this directory
+	// (they are now durable)
 	for newPath := range fs.pendingRenames {
 		fileDir := filepath.Dir(newPath)
 		if fileDir == absPath {
@@ -519,4 +590,118 @@ func (fs *FaultInjectionFS) PendingRenameCount() int {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 	return len(fs.pendingRenames)
+}
+
+// SetSyncDirLieMode enables or disables SyncDir lie mode.
+// When enabled, SyncDir() returns success but does NOT make renames durable.
+// This simulates filesystems that lie about directory fsync completion.
+// Use for testing recovery behavior under N05 fault models where the OS
+// reports success but data is still lost on crash.
+func (fs *FaultInjectionFS) SetSyncDirLieMode(enabled bool) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.syncDirLieMode = enabled
+}
+
+// IsSyncDirLieModeEnabled returns true if SyncDir lie mode is active.
+func (fs *FaultInjectionFS) IsSyncDirLieModeEnabled() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return fs.syncDirLieMode
+}
+
+// SetFileSyncLieMode enables or disables file Sync lie mode.
+// When enabled, Sync() returns success but does NOT mark data as synced.
+// On simulated crash (DropUnsyncedData), unsynced data is lost.
+//
+// Use pattern to target specific file types:
+//   - "" (empty): lie for ALL files
+//   - ".log": lie for WAL files only
+//   - "MANIFEST": lie for MANIFEST files only
+//   - ".sst": lie for SST files only
+func (fs *FaultInjectionFS) SetFileSyncLieMode(enabled bool, pattern string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.fileSyncLieMode = enabled
+	fs.fileSyncLiePattern = pattern
+}
+
+// IsFileSyncLieModeEnabled returns true if file Sync lie mode is active.
+func (fs *FaultInjectionFS) IsFileSyncLieModeEnabled() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return fs.fileSyncLieMode
+}
+
+// GetFileSyncLiePattern returns the current file sync lie pattern.
+func (fs *FaultInjectionFS) GetFileSyncLiePattern() string {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return fs.fileSyncLiePattern
+}
+
+// SetRenameDoubleNameMode enables/disables "both names exist" rename anomaly mode.
+// When enabled, Rename() records both old and new paths in pendingRenames.
+// After SimulateCrash(), both paths will exist. Use pattern to target specific files.
+func (fs *FaultInjectionFS) SetRenameDoubleNameMode(enabled bool, pattern string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.renameDoubleNameMode = enabled
+	fs.renameDoubleNamePattern = pattern
+}
+
+// IsRenameDoubleNameModeEnabled returns true if "both names exist" mode is active.
+func (fs *FaultInjectionFS) IsRenameDoubleNameModeEnabled() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return fs.renameDoubleNameMode
+}
+
+// SetRenameNeitherNameMode enables/disables "neither name exists" rename anomaly mode.
+// When enabled, after SimulateCrash(), neither old nor new path exists. Use pattern
+// to target specific files.
+func (fs *FaultInjectionFS) SetRenameNeitherNameMode(enabled bool, pattern string) {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	fs.renameNeitherNameMode = enabled
+	fs.renameNeitherNamePattern = pattern
+}
+
+// IsRenameNeitherNameModeEnabled returns true if "neither name exists" mode is active.
+func (fs *FaultInjectionFS) IsRenameNeitherNameModeEnabled() bool {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return fs.renameNeitherNameMode
+}
+
+// SimulateCrashWithRenameAnomalies applies rename anomaly modes to the filesystem.
+// Call this before DropUnsyncedData to set up the rename anomaly state.
+// For double-name mode: copies new file content to old path.
+// For neither-name mode: deletes both paths.
+func (fs *FaultInjectionFS) SimulateCrashWithRenameAnomalies() error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	for newPath, oldPath := range fs.pendingRenames {
+		// Check if this rename matches the anomaly patterns
+		matchesDouble := fs.renameDoubleNameMode &&
+			(fs.renameDoubleNamePattern == "" || strings.Contains(newPath, fs.renameDoubleNamePattern))
+		matchesNeither := fs.renameNeitherNameMode &&
+			(fs.renameNeitherNamePattern == "" || strings.Contains(newPath, fs.renameNeitherNamePattern))
+
+		if matchesDouble {
+			// Double-name mode: copy new file content to old path (both exist)
+			newContent, err := os.ReadFile(newPath)
+			if err == nil {
+				// Create old path with same content
+				_ = os.WriteFile(oldPath, newContent, 0644)
+			}
+		} else if matchesNeither {
+			// Neither-name mode: delete both paths
+			_ = os.Remove(oldPath)
+			_ = os.Remove(newPath)
+		}
+	}
+
+	return nil
 }
