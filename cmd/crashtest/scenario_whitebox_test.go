@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1265,32 +1264,6 @@ func copyDir(src, dst string) error {
 	return nil
 }
 
-// copyFile copies a single file.
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
-	}
-
-	return os.Chmod(dst, srcInfo.Mode())
-}
-
 // =============================================================================
 // Optional C++ Oracle Hook for Whitebox Artifacts
 // =============================================================================
@@ -1491,3 +1464,12 @@ func runOracleTool(t *testing.T, artifactDir, outputFile, toolPath string, args 
 		t.Logf("✅ C++ oracle tool %s passed, output saved to: %s", filepath.Base(toolPath), outPath)
 	}
 }
+
+// =============================================================================
+// Scenario: C02 Internal Key Collision Tests (MOVED)
+// =============================================================================
+// C02 sequence number collision tests have been moved to:
+//   - scenario_seqno_test.go (blackbox tests)
+//   - scenario_seqno_whitebox_test.go (whitebox tests with kill points)
+//
+// This provides semantic grouping of all sequence-related crash tests.
