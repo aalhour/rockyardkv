@@ -42,5 +42,5 @@ func TestGenerateGoSST(t *testing.T) {
 
 	t.Logf("Created Go SST file: %s", path)
 	t.Log("Test with C++ RocksDB:")
-	t.Log("  cd ~/Workspace/rocksdb && DYLD_LIBRARY_PATH=. ./sst_dump --file=/tmp/go_generated.sst --command=scan")
+	t.Log("  cd $ROCKSDB_PATH && DYLD_LIBRARY_PATH=. ./sst_dump --file=/tmp/go_generated.sst --command=scan")
 }

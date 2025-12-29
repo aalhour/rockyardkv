@@ -28,7 +28,8 @@ golden/
 To regenerate fixtures from a fresh RocksDB build:
 
 ```bash
-cd ~/Workspace/rocksdb
+# Set ROCKSDB_PATH to your local RocksDB checkout
+cd $ROCKSDB_PATH
 git checkout v10.7.5
 make clean && make static_lib ldb -j$(nproc)
 
@@ -38,10 +39,10 @@ rm -rf /tmp/rocksdb_test
 ./ldb --db=/tmp/rocksdb_test put key2 value2
 ./ldb --db=/tmp/rocksdb_test put key3 value3
 
-# Copy generated files
-cp /tmp/rocksdb_test/*.log ~/Workspace/rockyardkv/testdata/golden/v10.7.5/wal/
-cp /tmp/rocksdb_test/MANIFEST-* ~/Workspace/rockyardkv/testdata/golden/v10.7.5/manifest/
-cp /tmp/rocksdb_test/*.sst ~/Workspace/rockyardkv/testdata/golden/v10.7.5/sst/
+# Copy generated files (run from rockyardkv repo root)
+cp /tmp/rocksdb_test/*.log ./testdata/golden/v10.7.5/wal/
+cp /tmp/rocksdb_test/MANIFEST-* ./testdata/golden/v10.7.5/manifest/
+cp /tmp/rocksdb_test/*.sst ./testdata/golden/v10.7.5/sst/
 ```
 
 ## Fixture Details
