@@ -22,7 +22,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,6 +29,7 @@ import (
 	"time"
 
 	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/trace"
 )
 
@@ -237,11 +237,10 @@ func cmdReplay(traceFile string) error {
 		fmt.Printf("Replaying to database: %s\n", *replayDB)
 	}
 
-	opts := trace.DefaultReplayerOptions()
-	opts.PreserveTiming = *preserveTime
-
-	replayer := trace.NewReplayer(reader, handler, opts)
-	stats, err := replayer.Replay()
+	// Note: internal/trace.Replayer intentionally continues on errors and only returns
+	// aggregate counts. For harness/debuggability we want to surface concrete handler
+	// errors, so we replay in-process here and print the first few failures.
+	stats, err := replayWithErrors(reader, handler, *preserveTime, 5 /* maxErrorsToPrint */)
 	if err != nil {
 		return fmt.Errorf("replay failed: %w", err)
 	}
@@ -258,7 +257,88 @@ func cmdReplay(traceFile string) error {
 		fmt.Printf("Operations/sec:  %.2f\n", opsPerSec)
 	}
 
+	if stats.FailedOps > 0 {
+		return fmt.Errorf("replay finished with %d failed operations (see errors above)", stats.FailedOps)
+	}
 	return nil
+}
+
+func replayWithErrors(reader *trace.Reader, handler trace.ReplayHandler, preserveTiming bool, maxErrorsToPrint int) (*trace.ReplayStats, error) {
+	stats := &trace.ReplayStats{
+		OperationCounts: make(map[trace.RecordType]uint64),
+	}
+
+	startTime := time.Now()
+	var lastTimestamp time.Time
+
+	errsPrinted := 0
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			stats.Duration = time.Since(startTime)
+			return stats, err
+		}
+
+		stats.TotalRecords++
+		stats.OperationCounts[record.Type]++
+
+		if preserveTiming && !lastTimestamp.IsZero() {
+			delay := record.Timestamp.Sub(lastTimestamp)
+			if delay > 0 {
+				time.Sleep(delay)
+			}
+		}
+		lastTimestamp = record.Timestamp
+
+		if execErr := executeRecord(handler, record); execErr != nil {
+			stats.FailedOps++
+			if errsPrinted < maxErrorsToPrint {
+				fmt.Fprintf(os.Stderr, "Replay op failed: type=%s ts=%s err=%v\n",
+					record.Type.String(),
+					record.Timestamp.Format(time.RFC3339Nano),
+					execErr,
+				)
+				errsPrinted++
+			}
+			continue
+		}
+		stats.SuccessfulOps++
+	}
+
+	stats.Duration = time.Since(startTime)
+	return stats, nil
+}
+
+func executeRecord(handler trace.ReplayHandler, record *trace.Record) error {
+	switch record.Type {
+	case trace.TypeWrite:
+		payload, err := trace.DecodeWritePayload(record.Payload)
+		if err != nil {
+			return err
+		}
+		return handler.HandleWrite(payload.ColumnFamilyID, payload.Data)
+	case trace.TypeGet:
+		payload, err := trace.DecodeGetPayload(record.Payload)
+		if err != nil {
+			return err
+		}
+		return handler.HandleGet(payload.ColumnFamilyID, payload.Key)
+	case trace.TypeIterSeek:
+		payload, err := trace.DecodeGetPayload(record.Payload)
+		if err != nil {
+			return err
+		}
+		return handler.HandleIterSeek(payload.ColumnFamilyID, payload.Key)
+	case trace.TypeFlush:
+		return handler.HandleFlush()
+	case trace.TypeCompaction:
+		return handler.HandleCompaction()
+	default:
+		return nil
+	}
 }
 
 // countingHandler is a simple handler that counts operations without executing them
@@ -302,55 +382,39 @@ type dbHandler struct {
 }
 
 func (h *dbHandler) HandleWrite(cfID uint32, batchData []byte) error {
-	// The trace format from stresstest is: [key_len:4][key][value_len:4][value]
-	// Parse and apply as a Put operation
-	if len(batchData) < 4 {
-		return fmt.Errorf("invalid write payload: too short")
+	// internal/trace encodes writes as raw RocksDB WriteBatch bytes.
+	// This is the same format used by internal/batch and by WAL WriteBatch records.
+	//
+	// Reference:
+	// - internal/trace.WritePayload{Data: <WriteBatch bytes>}
+	// - internal/batch.WriteBatch format (Header + Records)
+	if cfID != 0 {
+		return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
 	}
 
-	keyLen := binary.LittleEndian.Uint32(batchData[0:4])
-	if len(batchData) < int(4+keyLen+4) {
-		// This might be a delete (just key, no value)
-		if len(batchData) == int(4+keyLen) {
-			key := batchData[4 : 4+keyLen]
-			if h.verbose {
-				fmt.Printf("  DELETE key=%q\n", string(key))
-			}
-			return h.database.Delete(nil, key)
-		}
-		return fmt.Errorf("invalid write payload: incomplete")
+	internalWB, err := batch.NewFromData(batchData)
+	if err != nil {
+		return fmt.Errorf("invalid write payload (not a WriteBatch): %w", err)
 	}
 
-	key := batchData[4 : 4+keyLen]
-	valueStart := 4 + keyLen
-	valueLen := binary.LittleEndian.Uint32(batchData[valueStart : valueStart+4])
-
-	if len(batchData) < int(valueStart+4+valueLen) {
-		return fmt.Errorf("invalid write payload: value truncated")
+	wb := db.NewWriteBatch()
+	if err := internalWB.Iterate(&writeBatchCopier{dst: wb}); err != nil {
+		return fmt.Errorf("invalid write batch records: %w", err)
 	}
-
-	value := batchData[valueStart+4 : valueStart+4+valueLen]
 
 	if h.verbose {
-		fmt.Printf("  PUT key=%q value_len=%d\n", string(key), len(value))
+		fmt.Printf("  WRITE batch_ops=%d bytes=%d\n", wb.Count(), len(batchData))
 	}
 
-	return h.database.Put(nil, key, value)
+	return h.database.Write(nil, wb)
 }
 
 func (h *dbHandler) HandleGet(cfID uint32, key []byte) error {
-	// Parse the payload: [key_len:4][key]
-	if len(key) < 4 {
-		return fmt.Errorf("invalid get payload: too short")
+	// internal/trace encodes get payload as raw key bytes (no length prefix).
+	if cfID != 0 {
+		return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
 	}
-
-	keyLen := binary.LittleEndian.Uint32(key[0:4])
-	if len(key) < int(4+keyLen) {
-		return fmt.Errorf("invalid get payload: key truncated")
-	}
-
-	actualKey := key[4 : 4+keyLen]
-
+	actualKey := key
 	if h.verbose {
 		fmt.Printf("  GET key=%q\n", string(actualKey))
 	}
@@ -364,18 +428,11 @@ func (h *dbHandler) HandleGet(cfID uint32, key []byte) error {
 }
 
 func (h *dbHandler) HandleIterSeek(cfID uint32, key []byte) error {
-	// Parse the payload: [key_len:4][key]
-	if len(key) < 4 {
-		return fmt.Errorf("invalid seek payload: too short")
+	// internal/trace encodes iter seek payload as raw key bytes (no length prefix).
+	if cfID != 0 {
+		return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
 	}
-
-	keyLen := binary.LittleEndian.Uint32(key[0:4])
-	if len(key) < int(4+keyLen) {
-		return fmt.Errorf("invalid seek payload: key truncated")
-	}
-
-	actualKey := key[4 : 4+keyLen]
-
+	actualKey := key
 	if h.verbose {
 		fmt.Printf("  SEEK key=%q\n", string(actualKey))
 	}
@@ -400,4 +457,60 @@ func (h *dbHandler) HandleCompaction() error {
 	}
 	// Trigger a manual compaction on the full range
 	return h.database.CompactRange(nil, nil, nil)
+}
+
+// writeBatchCopier copies internal/batch operations into a public db.WriteBatch.
+// This keeps replay applying an atomic Write() instead of individual ops.
+type writeBatchCopier struct {
+	dst *db.WriteBatch
+}
+
+func (c *writeBatchCopier) Put(key, value []byte) error {
+	c.dst.Put(key, value)
+	return nil
+}
+
+func (c *writeBatchCopier) Delete(key []byte) error {
+	c.dst.Delete(key)
+	return nil
+}
+
+func (c *writeBatchCopier) SingleDelete(key []byte) error {
+	c.dst.SingleDelete(key)
+	return nil
+}
+
+func (c *writeBatchCopier) Merge(key, value []byte) error {
+	c.dst.Merge(key, value)
+	return nil
+}
+
+func (c *writeBatchCopier) DeleteRange(startKey, endKey []byte) error {
+	c.dst.DeleteRange(startKey, endKey)
+	return nil
+}
+
+func (c *writeBatchCopier) LogData(_ []byte) {
+	// No-op for trace replay.
+}
+
+func (c *writeBatchCopier) PutCF(cfID uint32, key, value []byte) error {
+	// Column families are not currently used by stresstest traces.
+	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
+}
+
+func (c *writeBatchCopier) DeleteCF(cfID uint32, key []byte) error {
+	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
+}
+
+func (c *writeBatchCopier) SingleDeleteCF(cfID uint32, key []byte) error {
+	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
+}
+
+func (c *writeBatchCopier) MergeCF(cfID uint32, key, value []byte) error {
+	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
+}
+
+func (c *writeBatchCopier) DeleteRangeCF(cfID uint32, startKey, endKey []byte) error {
+	return fmt.Errorf("trace replay does not support column families yet: cf=%d", cfID)
 }
