@@ -88,9 +88,19 @@ func main() {
 
 Refer to the [docs](docs/) directory for detailed guides:
 
-- [Architecture](docs/architecture.md) - Internal design and package structure
-- [Status](docs/status/README.md) - Compatibility and status reports
+<!-- Ordering rationale: "need to know" → "want to know"
+     1. Status         - Is this production-ready? What works?
+     2. Configuration  - What options do I have?
+     3. Integration    - How do I add it to my project?
+     4. Architecture   - How does it work internally?
+     5. Migration      - Specific audience (C++ users)
+     6. Performance    - Tuning (after you're using it)
+     7. Testing        - Contributors
+-->
+- [Status](docs/status/README.md) - Compatibility, limitations, and verification
+- [Configuration](docs/configuration.md) - All options, compression, checksums, and C++ compatibility
 - [Integration guide](docs/integration.md) - Add RockyardKV to your application
+- [Architecture](docs/architecture.md) - Internal design and package structure
 - [Migration guide](docs/migration.md) - Migrate from C++ RocksDB or CGo wrappers
 - [Performance tuning](docs/performance.md) - Optimize for your workload
 - [Testing](docs/testing/README.md) - Run and extend the test suite
