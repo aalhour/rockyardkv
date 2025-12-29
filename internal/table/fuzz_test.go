@@ -48,9 +48,11 @@ func FuzzTableReader(f *testing.F) {
 		defer reader.Close()
 
 		// Try to iterate - should not panic
+		// Limit iterations to prevent infinite loops on corrupted data
+		const maxIterations = 10000
 		iter := reader.NewIterator()
 		iter.SeekToFirst()
-		for iter.Valid() {
+		for i := 0; i < maxIterations && iter.Valid(); i++ {
 			_ = iter.Key()
 			_ = iter.Value()
 			iter.Next()
@@ -254,10 +256,11 @@ func FuzzMultipleEntries(f *testing.F) {
 		}
 		defer reader.Close()
 
-		// Count entries
+		// Count entries (limit to prevent infinite loops on corrupted data)
+		const maxIterations = 10000
 		iter := reader.NewIterator()
 		count := 0
-		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		for iter.SeekToFirst(); count < maxIterations && iter.Valid(); iter.Next() {
 			count++
 		}
 

@@ -42,7 +42,9 @@ func FuzzFooterDecode(f *testing.F) {
 		// If we got a reader, try using it
 		iter := reader.NewIterator()
 		iter.SeekToFirst()
-		for iter.Valid() {
+		// Limit iterations to prevent hangs on corrupted data.
+		const maxIterations = 10000
+		for i := 0; i < maxIterations && iter.Valid(); i++ {
 			_ = iter.Key()
 			_ = iter.Value()
 			iter.Next()

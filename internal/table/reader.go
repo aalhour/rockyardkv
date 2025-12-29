@@ -558,6 +558,11 @@ func (r *Reader) HasFilter() bool {
 	return r.filterReader != nil
 }
 
+// maxBlockSize is the maximum size we'll allocate for a single block.
+// This prevents memory exhaustion from corrupted block handles.
+// 256 MiB is well above typical block sizes (4 KiB to 4 MiB).
+const maxBlockSize = 256 * 1024 * 1024
+
 // readBlock reads and optionally verifies a block from the file.
 func (r *Reader) readBlock(handle block.Handle) (*block.Block, error) {
 	// Block format:
@@ -565,10 +570,27 @@ func (r *Reader) readBlock(handle block.Handle) (*block.Block, error) {
 	// Total size = handle.Size + BlockTrailerSize
 
 	trailerSize := int(r.footer.BlockTrailerSize)
+
+	// Reject offsets that cannot be represented as int64.
+	// ReadAt takes an int64 offset, and some test files use slices that panic on negative offsets.
+	const maxInt64AsUint64 = ^uint64(0) >> 1
+	if handle.Offset > maxInt64AsUint64 {
+		return nil, fmt.Errorf("block offset %d exceeds maximum %d: %w", handle.Offset, maxInt64AsUint64, ErrInvalidSST)
+	}
+
+	// Validate block size to prevent memory exhaustion from corrupted handles
+	if handle.Size > maxBlockSize {
+		return nil, fmt.Errorf("block size %d exceeds maximum %d: %w", handle.Size, maxBlockSize, ErrInvalidSST)
+	}
+
 	totalSize := int(handle.Size) + trailerSize
 
-	// Debug: print handle info
-	// fmt.Printf("readBlock: offset=%d size=%d trailer=%d total=%d\n", handle.Offset, handle.Size, trailerSize, totalSize)
+	// Additional validation: block must fit within the file
+	end := handle.Offset + uint64(totalSize)
+	if end < handle.Offset || end > uint64(r.size) {
+		return nil, fmt.Errorf("block at offset %d size %d exceeds file size %d: %w",
+			handle.Offset, totalSize, r.size, ErrInvalidSST)
+	}
 
 	buf := make([]byte, totalSize)
 	n, err := r.file.ReadAt(buf, int64(handle.Offset))
