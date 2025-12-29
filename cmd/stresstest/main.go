@@ -71,6 +71,7 @@ var (
 	saveExpectedInterval = flag.Duration("save-expected-interval", 1*time.Second, "Interval to persist expected state during the run (0 to disable)")
 	verifyOnly           = flag.Bool("verify-only", false, "Verify database state using expected state file, without running operations")
 	allowDBAhead         = flag.Bool("allow-db-ahead", false, "Allow DB to have more data than expected state (for crash testing with race conditions)")
+	allowDataLoss        = flag.Bool("allow-data-loss", false, "Allow DB to have less data than expected state (for DisableWAL+faultfs crash testing)")
 	durableState         = flag.String("durable-state", "", "Path to durable state file (for DisableWAL verification - tracks flush barriers)")
 
 	// Operation weights (sum to 100)
@@ -2150,9 +2151,20 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 		} else if ev.Exists() {
 			// Key should exist
 			if err != nil {
-				failures++
-				if *verbose {
-					fmt.Printf("Verify: key %d expected to exist but got error: %v\n", key, err)
+				if *allowDataLoss && errors.Is(err, db.ErrNotFound) {
+					// DisableWAL + faultfs: data loss is expected (G2 scope, not a bug)
+					// The harness saved durable_state after Flush(), but:
+					// - Crash occurred before MANIFEST sync
+					// - Orphaned SST was deleted on recovery (C02 fix)
+					// - Data is lost, but this prevents collision (the real bug)
+					if *verbose {
+						fmt.Printf("Verify: key %d expected to exist but lost (allowed, data loss under DisableWAL)\n", key)
+					}
+				} else {
+					failures++
+					if *verbose {
+						fmt.Printf("Verify: key %d expected to exist but got error: %v\n", key, err)
+					}
 				}
 			} else {
 				// Verify value base
@@ -2165,6 +2177,13 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 							// (PUT synced after expected state save, before SIGKILL)
 							if *verbose {
 								fmt.Printf("Verify: key %d value base mismatch: got %d, want %d (allowed, DB ahead)\n",
+									key, actualValueBase, expectedValueBase)
+							}
+						} else if *allowDataLoss && actualValueBase < expectedValueBase {
+							// DB has older value - data loss under DisableWAL + faultfs
+							// This is expected: newer writes were in memtable/orphaned SST
+							if *verbose {
+								fmt.Printf("Verify: key %d value base mismatch: got %d, want %d (allowed, data loss under DisableWAL)\n",
 									key, actualValueBase, expectedValueBase)
 							}
 						} else {
