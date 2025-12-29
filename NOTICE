@@ -1,0 +1,8 @@
+RockyardKV
+Copyright 2025 Ahmad Alhour
+
+RockyardKV is an independent project and is not affiliated with, sponsored by,
+or endorsed by RocksDB or its maintainers.
+
+Some interoperability test fixtures in this repository are generated using
+official RocksDB tools for compatibility testing. RocksDB is separately licensed.
