@@ -344,7 +344,7 @@ func (txn *PessimisticTransaction) Commit() error {
 
 	// Apply the write batch
 	if txn.writeBatch.Count() > 0 {
-		if err := txn.txnDB.db.Write(txn.writeOpts, txn.writeBatch); err != nil {
+		if err := txn.txnDB.db.Write(txn.writeOpts, newWriteBatchFromInternal(txn.writeBatch)); err != nil {
 			// On failure, still release locks
 			txn.releaseLocks()
 			return err
@@ -701,8 +701,13 @@ func (r *pessimisticBatchReader) DeleteCF(cfID uint32, key []byte) error {
 	return nil
 }
 
-func (r *pessimisticBatchReader) SingleDelete(key []byte) error { return r.Delete(key) }
+func (r *pessimisticBatchReader) SingleDelete(key []byte) error {
+	// SingleDelete has the same effect as Delete for read purposes
+	return r.Delete(key)
+}
+
 func (r *pessimisticBatchReader) SingleDeleteCF(cfID uint32, key []byte) error {
+	// SingleDelete has the same effect as Delete for read purposes
 	return r.DeleteCF(cfID, key)
 }
 func (r *pessimisticBatchReader) Merge(key, value []byte) error                      { return nil }
@@ -754,13 +759,62 @@ func (c *batchCopier) DeleteCF(cfID uint32, key []byte) error {
 	return nil
 }
 
-func (c *batchCopier) SingleDelete(key []byte) error                      { return c.Delete(key) }
-func (c *batchCopier) SingleDeleteCF(cfID uint32, key []byte) error       { return c.DeleteCF(cfID, key) }
-func (c *batchCopier) Merge(key, value []byte) error                      { return nil }
-func (c *batchCopier) MergeCF(cfID uint32, key, value []byte) error       { return nil }
-func (c *batchCopier) DeleteRange(start, end []byte) error                { return nil }
-func (c *batchCopier) DeleteRangeCF(cfID uint32, start, end []byte) error { return nil }
-func (c *batchCopier) LogData(blob []byte)                                {}
+func (c *batchCopier) SingleDelete(key []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.SingleDelete(key)
+	c.count++
+	return nil
+}
+
+func (c *batchCopier) SingleDeleteCF(cfID uint32, key []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.SingleDeleteCF(cfID, key)
+	c.count++
+	return nil
+}
+func (c *batchCopier) Merge(key, value []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.Merge(key, value)
+	c.count++
+	return nil
+}
+
+func (c *batchCopier) MergeCF(cfID uint32, key, value []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.MergeCF(cfID, key, value)
+	c.count++
+	return nil
+}
+
+func (c *batchCopier) DeleteRange(start, end []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.DeleteRange(start, end)
+	c.count++
+	return nil
+}
+
+func (c *batchCopier) DeleteRangeCF(cfID uint32, start, end []byte) error {
+	if c.count >= c.maxCount {
+		return nil
+	}
+	c.target.DeleteRangeCF(cfID, start, end)
+	c.count++
+	return nil
+}
+
+func (c *batchCopier) LogData(blob []byte) {
+	// LogData is metadata, not an operation - don't count it
+}
 
 // Verify interface compliance
 var _ = (dbformat.SequenceNumber)(0) // Use dbformat to avoid unused import

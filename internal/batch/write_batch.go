@@ -167,6 +167,15 @@ func (wb *WriteBatch) SingleDelete(key []byte) {
 	wb.deleteRecord(TypeSingleDeletion, 0, key)
 }
 
+// SingleDeleteCF adds a SingleDelete record with column family to the batch.
+func (wb *WriteBatch) SingleDeleteCF(cfID uint32, key []byte) {
+	if cfID == 0 {
+		wb.SingleDelete(key)
+		return
+	}
+	wb.deleteRecord(TypeColumnFamilySingleDeletion, cfID, key)
+}
+
 // Merge adds a Merge record to the batch.
 func (wb *WriteBatch) Merge(key, value []byte) {
 	wb.putRecord(TypeMerge, 0, key, value)

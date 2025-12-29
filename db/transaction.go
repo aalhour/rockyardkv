@@ -275,7 +275,7 @@ func (txn *optimisticTransaction) Commit() error {
 	}
 
 	// Apply the write batch
-	if err := txn.db.Write(txn.writeOpts, txn.writeBatch); err != nil {
+	if err := txn.db.Write(txn.writeOpts, newWriteBatchFromInternal(txn.writeBatch)); err != nil {
 		return err
 	}
 

@@ -331,7 +331,7 @@ func (db *WritePreparedTxnDB) CommitPreparedTransaction(name string) error {
 	// Write commit marker to WAL
 	commitBatch := batch.New()
 	commitBatch.MarkCommit([]byte(name))
-	if err := db.db.Write(nil, commitBatch); err != nil {
+	if err := db.db.Write(nil, newWriteBatchFromInternal(commitBatch)); err != nil {
 		return err
 	}
 
@@ -358,7 +358,7 @@ func (db *WritePreparedTxnDB) RollbackPreparedTransaction(name string) error {
 	// Write rollback marker to WAL
 	rollbackBatch := batch.New()
 	rollbackBatch.MarkRollback([]byte(name))
-	if err := db.db.Write(nil, rollbackBatch); err != nil {
+	if err := db.db.Write(nil, newWriteBatchFromInternal(rollbackBatch)); err != nil {
 		return err
 	}
 
@@ -625,7 +625,7 @@ func (txn *WritePreparedTxn) Prepare() error {
 		prepareBatch.MarkEndPrepare(xid)
 
 		// Write the prepared batch to WAL
-		if err := txn.wpDB.db.Write(txn.writeOpts, prepareBatch); err != nil {
+		if err := txn.wpDB.db.Write(txn.writeOpts, newWriteBatchFromInternal(prepareBatch)); err != nil {
 			return err
 		}
 	}
@@ -678,7 +678,7 @@ func (txn *WritePreparedTxn) Commit() error {
 	// Write commit marker to WAL
 	commitBatch := batch.New()
 	commitBatch.MarkCommit([]byte(txn.name))
-	if err := txn.wpDB.db.Write(txn.writeOpts, commitBatch); err != nil {
+	if err := txn.wpDB.db.Write(txn.writeOpts, newWriteBatchFromInternal(commitBatch)); err != nil {
 		return err
 	}
 
@@ -710,7 +710,7 @@ func (txn *WritePreparedTxn) Rollback() error {
 		// Write rollback marker to WAL
 		rollbackBatch := batch.New()
 		rollbackBatch.MarkRollback([]byte(txn.name))
-		if err := txn.wpDB.db.Write(txn.writeOpts, rollbackBatch); err != nil {
+		if err := txn.wpDB.db.Write(txn.writeOpts, newWriteBatchFromInternal(rollbackBatch)); err != nil {
 			return err
 		}
 
