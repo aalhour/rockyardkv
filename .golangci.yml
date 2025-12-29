@@ -173,6 +173,19 @@ linters:
           - unparam
           - nolintlint
 
+      # Examples (examples/): relax linters
+      # Examples are user-facing demos, not library code - they use printf/log.Fatal
+      # intentionally to show output and error handling patterns
+      - path: '^examples/'
+        linters:
+          - forbidigo
+          - errcheck
+          - errorlint
+          - ineffassign
+          - staticcheck
+          - unconvert
+          - unparam
+
       # Skip SA1019 (deprecated) - external API deprecations we can't control
       - linters:
           - staticcheck
