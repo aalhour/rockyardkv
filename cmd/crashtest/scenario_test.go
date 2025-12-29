@@ -305,3 +305,28 @@ func openOrCreateDB(t *testing.T, dir string) db.DB {
 	}
 	return openDB(t, dir)
 }
+
+// runCollisionCheck runs the collision checker tool on a database directory.
+// This is the definitive smoking-gun test for C02-01 (internal-key collision).
+func runCollisionCheck(t *testing.T, dbPath string) error {
+	t.Helper()
+
+	// Use sstdump for collision-check (consistent with status scripts)
+	cmd := exec.Command("go", "run", "../../cmd/sstdump", "--command=collision-check", "--dir="+dbPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("collision check failed: %w\nOutput:\n%s", err, output)
+	}
+
+	// Check output for collision report
+	if bytes.Contains(output, []byte("SMOKING GUN")) {
+		return fmt.Errorf("collision detected:\n%s", output)
+	}
+
+	// Verify success message is present (case-insensitive substring check)
+	if !bytes.Contains(output, []byte("no internal-key collisions")) {
+		return fmt.Errorf("unexpected collision check output:\n%s", output)
+	}
+
+	return nil
+}

@@ -23,7 +23,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os/exec"
 	"testing"
 
 	"github.com/aalhour/rockyardkv/db"
@@ -275,26 +274,4 @@ func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
 // Helpers
 // =============================================================================
 
-// runCollisionCheck runs the collision checker tool on a database directory.
-func runCollisionCheck(t *testing.T, dbPath string) error {
-	t.Helper()
-
-	// Use sstdump for collision-check (consistent with status scripts)
-	cmd := exec.Command("go", "run", "../../cmd/sstdump", "--command=collision-check", "--dir="+dbPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("collision check failed: %v\nOutput:\n%s", err, output)
-	}
-
-	// Check output for collision report
-	if bytes.Contains(output, []byte("SMOKING GUN")) {
-		return fmt.Errorf("collision detected:\n%s", output)
-	}
-
-	// Verify success message is present
-	if !bytes.Contains(output, []byte("No internal key collisions")) {
-		return fmt.Errorf("unexpected collision check output:\n%s", output)
-	}
-
-	return nil
-}
+// Note: runCollisionCheck is defined in scenario_test.go (shared helper)

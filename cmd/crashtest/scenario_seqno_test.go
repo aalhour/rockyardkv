@@ -169,4 +169,11 @@ func TestScenario_FlushRecoveryNoSequenceReuse(t *testing.T) {
 	}
 
 	t.Log("✓ All keys read consistently - no sequence reuse detected")
+
+	// Phase 5: Run collision-check as the definitive smoking-gun test
+	// This gates on the C02-01 invariant: no duplicate internal keys with different values
+	if err := runCollisionCheck(t, dir); err != nil {
+		t.Fatalf("Collision check failed: %v", err)
+	}
+	t.Log("✓ No internal-key collisions detected")
 }
