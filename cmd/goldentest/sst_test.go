@@ -202,8 +202,10 @@ func TestSstDump_ShowProperties(t *testing.T) {
 func TestCppCorpus_ZlibSST(t *testing.T) {
 	// Look for red team corpus
 	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	// Keep this path portable.
+	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		corpusPath = "/Users/ahmad/Workspace/rockyardkv-tests/redteam/artifacts/redteam/corpus_cpp_generated"
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"
@@ -247,8 +249,10 @@ func TestCppCorpus_ZlibSST(t *testing.T) {
 // Contract: Go reads C++ multi-CF databases correctly.
 func TestCppCorpus_MultiCF(t *testing.T) {
 	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	// Keep this path portable.
+	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		corpusPath = "/Users/ahmad/Workspace/rockyardkv-tests/redteam/artifacts/redteam/corpus_cpp_generated"
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"
@@ -279,8 +283,10 @@ func TestCppCorpus_MultiCF(t *testing.T) {
 // Contract: Go reads C++ range deletion databases correctly.
 func TestCppCorpus_RangeDel(t *testing.T) {
 	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	// Keep this path portable.
+	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		corpusPath = "/Users/ahmad/Workspace/rockyardkv-tests/redteam/artifacts/redteam/corpus_cpp_generated"
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"
