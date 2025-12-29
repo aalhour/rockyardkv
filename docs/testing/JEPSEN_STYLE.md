@@ -90,6 +90,9 @@ Supported instances:
   - `CorruptSSTBlock`.
   - `ZeroFillWAL`.
   - `DeleteCurrent`.
+  - `TruncateManifest`.
+  - `CorruptManifestBytes`.
+  - `GarbageManifestRecord`.
 - `cmd/crashtest` deterministic pointer corruption:
   - `TestDurability_TornCURRENT_FailsLoud`.
 
@@ -117,6 +120,8 @@ Supported instances:
   - `cmd/traceanalyzer stats <TRACE_FILE>`.
   - `cmd/traceanalyzer dump <TRACE_FILE>`.
   - `cmd/traceanalyzer -db <DB_PATH> replay <TRACE_FILE>`.
+  - `cmd/traceanalyzer -db <DB_PATH> -write-digest <DIGEST_FILE> verify <TRACE_FILE>`.
+  - `cmd/traceanalyzer -db <DB_PATH> -expect-digest <DIGEST_FILE> verify <TRACE_FILE>`.
 
 ## Capability matrix
 
@@ -129,7 +134,7 @@ Use the “Missing instances” column to find gaps that fit the same class.
 | --- | --- | --- | --- | --- | --- |
 | Blackbox crash loops | `cmd/crashtest` + `cmd/stresstest` | Persistent expected state + run directory on failure | Optional via `ROCKYARDKV_CPP_ORACLE_PATH` for scenario artifacts | Supported | Add faultfs-driven “lying FS” crash loops that preserve the “success” return codes. |
 | Whitebox killpoint crashes | `cmd/crashtest` (build tag `crashtest`) | Artifact bundles via `WHITEBOX_ARTIFACT_DIR` | Supported on persisted artifacts | Supported | Persist oracle-anchored artifacts for the sweep runner. |
-| Whitebox syncpoint crashes | `cmd/crashtest` (build tag `synctest`) | Artifact bundles via `WHITEBOX_ARTIFACT_DIR` | Partial | Add syncpoint scenarios for MANIFEST rotation and CURRENT update boundaries. |
+| Whitebox syncpoint crashes | `cmd/crashtest` (build tag `synctest`) | Artifact bundles via `WHITEBOX_ARTIFACT_DIR` | Partial | Add syncpoint scenarios for CURRENT update boundaries. |
 
 ### Filesystem fault injection
 
@@ -149,7 +154,7 @@ Use the “Missing instances” column to find gaps that fit the same class.
 | WAL truncation and WAL checksum corruption | `cmd/adversarialtest` | Artifact bundle via `-run-dir` | Supported | Add “stop-after-corruption” equivalence checks against oracle classification. |
 | SST block corruption | `cmd/adversarialtest` + `cmd/goldentest` | Artifact bundle + oracle tools | Supported | Add coverage for metaindex and property block corruption classes. |
 | CURRENT missing and CURRENT torn contents | `cmd/adversarialtest` + `cmd/crashtest` | Scenario artifacts + oracle outputs | Supported | Add partial-write simulation at the VFS layer (not only direct edits). |
-| MANIFEST corruption | `cmd/goldentest` (oracle-driven) | Golden fixtures | Partial | Add adversarial edits for MANIFEST truncation and tag corruption. |
+| MANIFEST corruption | `cmd/adversarialtest` + `cmd/goldentest` (oracle-driven) | Adversarial run output and/or golden fixtures | Supported | Add oracle classification checks for MANIFEST corruption cases. |
 
 ### Oracle and differential testing
 
@@ -157,7 +162,7 @@ Use the “Missing instances” column to find gaps that fit the same class.
 | --- | --- | --- | --- | --- |
 | Golden format compatibility | `cmd/goldentest` | Go writes, C++ reads and C++ writes, Go reads | Supported | Add oracle `checkconsistency` runs where the classification adds signal. |
 | External corpus | `make test-e2e-golden-corpus` | C++ fixtures, Go reads | Supported (opt-in) | Add a dedicated “C04 lies suite” target that fails fast when oracle is requested but not configured. |
-| Trace replay | `cmd/stresstest -trace-out` + `cmd/traceanalyzer replay` | Go trace, Go replay | Supported | Add a standard acceptance signal that compares replay DB state to an expected-state snapshot. |
+| Trace replay | `cmd/stresstest -trace-out` + `cmd/traceanalyzer verify` | Go trace, Go replay | Supported | Add a “trace corruption” corpus that exercises the decoder with structured mutations. |
 
 ## Missing instances checklist
 
@@ -167,8 +172,6 @@ Each row describes a class where you support some instances but not all instance
 | Category | Implemented instances | Missing instances |
 | --- | --- | --- |
 | Sync lies | Directory fsync lie, WAL file fsync lie, SST file fsync lie | MANIFEST file fsync lie, CURRENT temp file fsync lie. |
-| Rename lies | Rename not durable without dir sync, dir sync lie mode | Rename success but both names exist, rename success but neither name exists, rename replace anomalies. |
-| Whitebox sweeps | Strict killpoint coverage | Oracle-anchored artifact persistence for sweep runs. |
+| Rename lies | Rename not durable without dir sync, dir sync lie mode, rename success but both names exist, rename success but neither name exists | Rename replace anomalies. |
+| Whitebox sweeps | Strict killpoint coverage, oracle-anchored artifact persistence for sweep runs | Add a “fast” mode that runs a subset of killpoints in CI with fixed seeds. |
 | Goroutine-local faults | Goroutine-local fault manager exists | Cmd-level scenario that enables per-goroutine metadata and sync faults in concurrent workloads. |
-
-
