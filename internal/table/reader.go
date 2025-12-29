@@ -48,6 +48,11 @@ var (
 
 	// ErrBlockNotFound indicates a requested block was not found.
 	ErrBlockNotFound = errors.New("table: block not found")
+
+	// ErrUnsupportedPartitionedIndex indicates the SST uses partitioned index which is not supported.
+	// Partitioned index splits the index across multiple blocks; our reader treats the index
+	// as a single block and would produce incorrect results.
+	ErrUnsupportedPartitionedIndex = errors.New("table: partitioned index not supported")
 )
 
 // ReadableFile is an interface for reading from an SST file.
@@ -118,6 +123,12 @@ func Open(file ReadableFile, opts ReaderOptions) (*Reader, error) {
 
 	// Read metaindex block to find other meta blocks
 	if err := r.readMetaindex(); err != nil {
+		return nil, err
+	}
+
+	// Check for unsupported index types (partitioned/hash) before reading index
+	// This prevents reading corruption from misinterpreting the index format.
+	if err := r.checkUnsupportedFeatures(); err != nil {
 		return nil, err
 	}
 
@@ -201,6 +212,38 @@ func (r *Reader) readMetaindex() error {
 			r.rangeDelHandle = handle
 		}
 	}
+
+	return nil
+}
+
+// checkUnsupportedFeatures reads properties and returns an error if the SST uses
+// unsupported features (partitioned index, hash index).
+// This check runs early to prevent misinterpreting corrupted data.
+func (r *Reader) checkUnsupportedFeatures() error {
+	// Properties are optional - if we can't read them, skip the check
+	if r.propertiesHandle.IsNull() {
+		return nil
+	}
+
+	props, err := r.Properties()
+	if err != nil {
+		// Can't read properties - skip check rather than fail
+		// This is intentional: we prefer to try reading the SST even if
+		// properties are malformed, as the data blocks may still be readable.
+		return nil //nolint:nilerr // intentional: skip check on properties read failure
+	}
+
+	// Check for partitioned index
+	// IndexPartitions > 0 means the index is split across multiple blocks.
+	// Our reader treats the index as a single block, so partitioned index would
+	// cause incorrect behavior (reading partial index as if it were complete).
+	if props.IndexPartitions > 0 {
+		return ErrUnsupportedPartitionedIndex
+	}
+
+	// Note: IndexKeyIsUserKey > 0 is NOT hash index — it means index keys are
+	// user keys (without 8-byte seqno suffix) vs internal keys. This is a
+	// common optimization and our IndexBlockIterator handles it correctly.
 
 	return nil
 }

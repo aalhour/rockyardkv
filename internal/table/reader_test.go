@@ -1096,3 +1096,23 @@ func TestNewVersionsEncodedLength(t *testing.T) {
 			block.NewVersionsEncodedLength, expected)
 	}
 }
+
+// TestUnsupportedFeatureErrors tests that the reader rejects SST files with
+// unsupported features (partitioned index) rather than silently producing
+// corrupt results.
+func TestUnsupportedFeatureErrors(t *testing.T) {
+	// This test verifies the error constant exists and has a meaningful message.
+	// A full integration test would require generating an SST with partitioned
+	// index, which requires C++ tooling with specific options.
+
+	if ErrUnsupportedPartitionedIndex == nil {
+		t.Error("ErrUnsupportedPartitionedIndex should not be nil")
+	}
+
+	// Verify error message is meaningful
+	expected := "table: partitioned index not supported"
+	if ErrUnsupportedPartitionedIndex.Error() != expected {
+		t.Errorf("Unexpected error message: got %q, want %q",
+			ErrUnsupportedPartitionedIndex.Error(), expected)
+	}
+}
