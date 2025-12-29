@@ -137,6 +137,8 @@ Or run directly:
 Fault injection tests verify durability under filesystem anomalies.
 They use `FaultInjectionFS`, a virtual filesystem wrapper.
 
+For detailed documentation on all fault injection mechanisms, refer to [Fault injection](FAULT_INJECTION.md).
+
 ### Simulated Anomalies
 
 | Anomaly | Description |
@@ -259,7 +261,8 @@ Use `-preserve-timing` to replay at original pace:
 
 ## References
 
+- Refer to [Fault injection](FAULT_INJECTION.md) for VFS-based fault simulation details
+- Refer to [Whitebox crash testing](WHITEBOX.md) for deterministic crash testing
 - RocksDB `db_crashtest.py`
 - RocksDB `db_stress`
 - [Jepsen Testing](https://jepsen.io/)
-

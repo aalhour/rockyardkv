@@ -202,6 +202,8 @@ go build -tags "crashtest synctest" ./...
 
 ## References
 
+- Refer to [Fault injection](FAULT_INJECTION.md) for VFS-based fault simulation
+- Refer to [Blackbox testing](BLACKBOX.md) for crash, stress, and adversarial harnesses
 - RocksDB `db_crashtest.py` — whitebox testing mode
 - RocksDB `test_util/sync_point.h` — `TEST_KILL_RANDOM` macros
 

@@ -21,6 +21,7 @@ make test-e2e-stress    # Concurrency tests
 | [JEPSEN_STYLE.md](JEPSEN_STYLE.md) | Jepsen-style test classes and capability matrix |
 | [WHITEBOX.md](WHITEBOX.md) | Deterministic crash testing with kill points |
 | [BLACKBOX.md](BLACKBOX.md) | Chaos testing: crash, stress, adversarial |
+| [FAULT_INJECTION.md](FAULT_INJECTION.md) | VFS-based fault simulation and lie modes |
 | [GOLDEN.md](GOLDEN.md) | C++ oracle compatibility testing |
 | [TOOLS.md](TOOLS.md) | Database inspection and analysis tools |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to add new tests |
