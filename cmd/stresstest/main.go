@@ -117,6 +117,17 @@ var (
 	faultDelUnsynced        = flag.Bool("faultfs-delete-unsynced", false, "Delete unsynced files on simulated crash (requires -faultfs)")
 	faultSimulateCrashOnSig = flag.Bool("faultfs-simulate-crash-on-signal", false, "Simulate crash (drop/delete unsynced) when SIGTERM is received (requires -faultfs)")
 
+	// Goroutine-local fault injection for concurrent testing.
+	// These flags enable targeted error injection per goroutine class (workers, flusher, reopener).
+	// Use with -seed for reproducible failure paths.
+	goroutineLocalFaults   = flag.Bool("goroutine-faults", false, "Enable goroutine-local fault injection")
+	faultWriterReadOneIn   = flag.Int("fault-writer-read", 0, "Inject read error 1/N for worker goroutines (0=disabled)")
+	faultWriterWriteOneIn  = flag.Int("fault-writer-write", 0, "Inject write error 1/N for worker goroutines (0=disabled)")
+	faultWriterSyncOneIn   = flag.Int("fault-writer-sync", 0, "Inject sync error 1/N for worker goroutines (0=disabled)")
+	faultFlusherSyncOneIn  = flag.Int("fault-flusher-sync", 0, "Inject sync error 1/N for flusher goroutine (0=disabled)")
+	faultReopenerReadOneIn = flag.Int("fault-reopener-read", 0, "Inject read error 1/N for reopener goroutine (0=disabled)")
+	faultErrorType         = flag.String("fault-error-type", "status", "Error type for goroutine faults: status|corruption|truncated")
+
 	// Artifact collection
 	runDir = flag.String("run-dir", "", "Directory for artifact collection on failure (default: none)")
 
@@ -132,6 +143,11 @@ var (
 // globalFaultFS holds the FaultInjectionFS instance when fault injection is enabled.
 // This allows crash/stress tests to simulate failures like fsync lies and dir sync anomalies.
 var globalFaultFS *vfs.FaultInjectionFS
+
+// globalGoroutineFS holds the GoroutineLocalFaultInjectionFS instance when
+// goroutine-local fault injection is enabled (-goroutine-faults).
+// This allows per-goroutine error injection targeting specific operation classes.
+var globalGoroutineFS *vfs.GoroutineLocalFaultInjectionFS
 
 // globalTraceWriter is the trace writer for operation recording.
 // When enabled via -trace-out, all operations are recorded for replay.
@@ -537,6 +553,23 @@ func printBanner() {
 		syncStatus = "on"
 	}
 	line(fmt.Sprintf("WAL: %-8s  Sync: %-4s  Randomized: %v", walStatus, syncStatus, *randomizeParams))
+
+	// Show goroutine-local fault injection settings if enabled
+	if *goroutineLocalFaults {
+		fmt.Println(divider)
+		line(fmt.Sprintf("Goroutine Faults: enabled (type=%s)", *faultErrorType))
+		if *faultWriterReadOneIn > 0 || *faultWriterWriteOneIn > 0 || *faultWriterSyncOneIn > 0 {
+			line(fmt.Sprintf("  Worker: read=1/%d write=1/%d sync=1/%d",
+				*faultWriterReadOneIn, *faultWriterWriteOneIn, *faultWriterSyncOneIn))
+		}
+		if *faultFlusherSyncOneIn > 0 {
+			line(fmt.Sprintf("  Flusher: sync=1/%d", *faultFlusherSyncOneIn))
+		}
+		if *faultReopenerReadOneIn > 0 {
+			line(fmt.Sprintf("  Reopener: read=1/%d", *faultReopenerReadOneIn))
+		}
+	}
+
 	fmt.Println(bottom)
 	fmt.Println()
 }
@@ -698,6 +731,17 @@ func printStats(stats *Stats) {
 	fmt.Printf("  Failures:    %12d\n", stats.verifyFail.Load())
 	fmt.Printf("  Errors:      %12d\n", stats.errors.Load())
 
+	// Print goroutine-local fault injection statistics if enabled
+	if globalGoroutineFS != nil {
+		reads, writes, syncs := globalGoroutineFS.FaultManager().Stats()
+		if reads > 0 || writes > 0 || syncs > 0 {
+			fmt.Printf("\nInjected Faults:\n")
+			fmt.Printf("  Read Errors: %12d\n", reads)
+			fmt.Printf("  Write Errors:%12d\n", writes)
+			fmt.Printf("  Sync Errors: %12d\n", syncs)
+		}
+	}
+
 	fmt.Printf("\nTotal Operations: %d\n", totalOps)
 	fmt.Println("══════════════════════════════════════════════════════════════════")
 }
@@ -717,6 +761,12 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	database, cfs, err := openDB(dbPath)
 	if err != nil {
 		return fmt.Errorf("initial open failed: %w", err)
+	}
+
+	// Enable goroutine fault injection now that DB is successfully open.
+	// This prevents faults from breaking the initial setup.
+	if *goroutineLocalFaults {
+		enableGoroutineFaults()
 	}
 
 	// Stop channels
@@ -804,10 +854,23 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 	// Add a merge operator for stress testing
 	opts.MergeOperator = &db.StringAppendOperator{Delimiter: ","}
 
-	// Enable FaultInjectionFS if requested for durability testing.
-	// This allows simulating fsync lies, missing dir sync, and other
-	// filesystem anomalies to test recovery robustness.
-	if *faultFS {
+	// Enable GoroutineLocalFaultInjectionFS if requested.
+	// This allows targeted error injection for concurrent testing.
+	// Uses global rates that apply to all I/O operations (DB internals included).
+	// Note: Rates are set AFTER initial DB open via enableGoroutineFaults().
+	if *goroutineLocalFaults {
+		if globalGoroutineFS == nil {
+			globalGoroutineFS = vfs.NewGoroutineLocalFaultInjectionFS(vfs.Default())
+			// Don't set rates yet - wait until after DB is open
+			if *verbose {
+				fmt.Println("📦 GoroutineLocalFaultInjectionFS prepared (rates deferred until after DB open)")
+			}
+		}
+		opts.FS = globalGoroutineFS
+	} else if *faultFS {
+		// Enable FaultInjectionFS if requested for durability testing.
+		// This allows simulating fsync lies, missing dir sync, and other
+		// filesystem anomalies to test recovery robustness.
 		if globalFaultFS == nil {
 			globalFaultFS = vfs.NewFaultInjectionFS(vfs.Default())
 			if *verbose {
@@ -854,7 +917,93 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 	return database, cfs, nil
 }
 
+// parseErrorType converts the -fault-error-type flag to a vfs.ErrorType.
+func parseErrorType() vfs.ErrorType {
+	switch *faultErrorType {
+	case "corruption":
+		return vfs.ErrorTypeCorruption
+	case "truncated":
+		return vfs.ErrorTypeTruncated
+	default:
+		return vfs.ErrorTypeStatus
+	}
+}
+
+// createWorkerFaultContext creates a fault context for worker goroutines.
+func createWorkerFaultContext(threadID int) *vfs.GoroutineFaultContext {
+	if globalGoroutineFS == nil {
+		return nil
+	}
+	ctx := vfs.NewGoroutineFaultContext(*seed + int64(threadID*1000))
+	ctx.ReadErrorOneIn = *faultWriterReadOneIn
+	ctx.WriteErrorOneIn = *faultWriterWriteOneIn
+	ctx.SyncErrorOneIn = *faultWriterSyncOneIn
+	ctx.ErrorType = parseErrorType()
+	return ctx
+}
+
+// createFlusherFaultContext creates a fault context for the flusher goroutine.
+func createFlusherFaultContext() *vfs.GoroutineFaultContext {
+	if globalGoroutineFS == nil {
+		return nil
+	}
+	ctx := vfs.NewGoroutineFaultContext(*seed + 999999) // unique seed offset for flusher
+	ctx.SyncErrorOneIn = *faultFlusherSyncOneIn
+	ctx.ErrorType = parseErrorType()
+	return ctx
+}
+
+// createReopenerFaultContext creates a fault context for the reopener goroutine.
+func createReopenerFaultContext() *vfs.GoroutineFaultContext {
+	if globalGoroutineFS == nil {
+		return nil
+	}
+	ctx := vfs.NewGoroutineFaultContext(*seed + 888888) // unique seed offset for reopener
+	ctx.ReadErrorOneIn = *faultReopenerReadOneIn
+	ctx.ErrorType = parseErrorType()
+	return ctx
+}
+
+// enableGoroutineFaults activates global fault injection rates.
+// Called after the initial DB open succeeds to avoid failing during setup.
+func enableGoroutineFaults() {
+	if globalGoroutineFS == nil {
+		return
+	}
+	fm := globalGoroutineFS.FaultManager()
+
+	// Set global rates that apply to all goroutines.
+	// This targets the DB's internal I/O operations (flush, compaction, etc.).
+	maxWriteRate := max(*faultWriterWriteOneIn, 0)
+	maxReadRate := max(*faultWriterReadOneIn, *faultReopenerReadOneIn)
+	maxSyncRate := max(*faultWriterSyncOneIn, *faultFlusherSyncOneIn)
+
+	if maxWriteRate > 0 {
+		fm.SetGlobalWriteErrorRate(maxWriteRate)
+	}
+	if maxReadRate > 0 {
+		fm.SetGlobalReadErrorRate(maxReadRate)
+	}
+	if maxSyncRate > 0 {
+		fm.SetGlobalSyncErrorRate(maxSyncRate)
+	}
+
+	if *verbose {
+		fmt.Printf("📦 Goroutine faults enabled (global: read=1/%d write=1/%d sync=1/%d)\n",
+			maxReadRate, maxWriteRate, maxSyncRate)
+	}
+}
+
 func runWorker(threadID int, holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats, stop chan struct{}) {
+	// Set up goroutine-local fault context if enabled
+	if globalGoroutineFS != nil {
+		ctx := createWorkerFaultContext(threadID)
+		if ctx != nil {
+			globalGoroutineFS.FaultManager().SetContext(ctx)
+			defer globalGoroutineFS.FaultManager().ClearContext()
+		}
+	}
+
 	// Derive per-thread seed from the global seed for reproducibility.
 	// This ensures that when crashtest passes -seed=N, all worker threads
 	// produce deterministic behavior that can be reproduced.
@@ -2068,6 +2217,15 @@ func doSpotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Sta
 }
 
 func runReopener(holder *dbHolder, stats *Stats, stop chan struct{}) {
+	// Set up goroutine-local fault context if enabled
+	if globalGoroutineFS != nil {
+		ctx := createReopenerFaultContext()
+		if ctx != nil {
+			globalGoroutineFS.FaultManager().SetContext(ctx)
+			defer globalGoroutineFS.FaultManager().ClearContext()
+		}
+	}
+
 	ticker := time.NewTicker(*reopenPeriod)
 	defer ticker.Stop()
 
@@ -2107,6 +2265,15 @@ func runReopener(holder *dbHolder, stats *Stats, stop chan struct{}) {
 }
 
 func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats, stop chan struct{}) {
+	// Set up goroutine-local fault context if enabled
+	if globalGoroutineFS != nil {
+		ctx := createFlusherFaultContext()
+		if ctx != nil {
+			globalGoroutineFS.FaultManager().SetContext(ctx)
+			defer globalGoroutineFS.FaultManager().ClearContext()
+		}
+	}
+
 	ticker := time.NewTicker(*flushPeriod)
 	defer ticker.Stop()
 

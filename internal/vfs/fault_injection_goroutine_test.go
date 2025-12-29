@@ -198,3 +198,48 @@ func TestGoroutineFaultManager_Stats(t *testing.T) {
 		t.Errorf("Expected 3 sync errors, got %d", syncs)
 	}
 }
+
+func TestGoroutineFaultManager_GlobalRatesStats(t *testing.T) {
+	manager := NewGoroutineFaultManager()
+
+	// Set global write error rate to always inject (1 in 1)
+	manager.SetGlobalWriteErrorRate(1)
+
+	// Call ShouldInjectWriteError multiple times (no context set)
+	for range 5 {
+		if !manager.ShouldInjectWriteError() {
+			t.Error("Expected write error with 1 in 1 global rate")
+		}
+	}
+
+	// Verify stats are tracked for global injections
+	_, writes, _ := manager.Stats()
+	if writes != 5 {
+		t.Errorf("Expected 5 global write errors, got %d", writes)
+	}
+}
+
+func TestGoroutineLocalFaultInjectionFS_CreateWithGlobalRate(t *testing.T) {
+	dir := t.TempDir()
+
+	fs := NewGoroutineLocalFaultInjectionFS(Default())
+	fm := fs.FaultManager()
+
+	// Set global write error rate to 1 in 1 (always)
+	fm.SetGlobalWriteErrorRate(1)
+
+	// Create should fail with injected error
+	_, err := fs.Create(dir + "/test.txt")
+	if err == nil {
+		t.Error("Expected Create to fail with global write error rate 1/1")
+	}
+	if !errors.Is(err, ErrInjectedWriteError) {
+		t.Errorf("Expected ErrInjectedWriteError, got %v", err)
+	}
+
+	// Verify stats
+	_, writes, _ := fm.Stats()
+	if writes != 1 {
+		t.Errorf("Expected 1 write error in stats, got %d", writes)
+	}
+}

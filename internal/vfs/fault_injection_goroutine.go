@@ -109,6 +109,12 @@ type GoroutineFaultManager struct {
 	globalReadErrorOneIn  atomic.Int32
 	globalWriteErrorOneIn atomic.Int32
 	globalSyncErrorOneIn  atomic.Int32
+
+	// Persistent stats that survive context cleanup.
+	// These are incremented when contexts are cleared.
+	totalReadErrors  atomic.Uint64
+	totalWriteErrors atomic.Uint64
+	totalSyncErrors  atomic.Uint64
 }
 
 // NewGoroutineFaultManager creates a new goroutine fault manager.
@@ -144,11 +150,18 @@ func (m *GoroutineFaultManager) SetContext(ctx *GoroutineFaultContext) {
 }
 
 // ClearContext clears the fault context for the current goroutine.
+// Stats from the context are accumulated before clearing.
 func (m *GoroutineFaultManager) ClearContext() {
 	gid := getGoroutineID()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.contexts, gid)
+	if ctx, ok := m.contexts[gid]; ok {
+		// Accumulate stats before clearing
+		m.totalReadErrors.Add(ctx.ReadErrorsInjected.Load())
+		m.totalWriteErrors.Add(ctx.WriteErrorsInjected.Load())
+		m.totalSyncErrors.Add(ctx.SyncErrorsInjected.Load())
+		delete(m.contexts, gid)
+	}
 }
 
 // GetContext gets the fault context for the current goroutine.
@@ -202,7 +215,11 @@ func (m *GoroutineFaultManager) ShouldInjectReadError() bool {
 	if oneIn <= 0 {
 		return false
 	}
-	return rand.Intn(oneIn) == 0
+	if rand.Intn(oneIn) == 0 {
+		m.totalReadErrors.Add(1)
+		return true
+	}
+	return false
 }
 
 // ShouldInjectWriteError checks if a write error should be injected
@@ -220,7 +237,11 @@ func (m *GoroutineFaultManager) ShouldInjectWriteError() bool {
 	if oneIn <= 0 {
 		return false
 	}
-	return rand.Intn(oneIn) == 0
+	if rand.Intn(oneIn) == 0 {
+		m.totalWriteErrors.Add(1)
+		return true
+	}
+	return false
 }
 
 // ShouldInjectSyncError checks if a sync error should be injected
@@ -238,7 +259,11 @@ func (m *GoroutineFaultManager) ShouldInjectSyncError() bool {
 	if oneIn <= 0 {
 		return false
 	}
-	return rand.Intn(oneIn) == 0
+	if rand.Intn(oneIn) == 0 {
+		m.totalSyncErrors.Add(1)
+		return true
+	}
+	return false
 }
 
 // Stats returns aggregate statistics across all contexts.
@@ -246,6 +271,12 @@ func (m *GoroutineFaultManager) Stats() (reads, writes, syncs uint64) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Include stats from accumulated (cleared) contexts
+	reads = m.totalReadErrors.Load()
+	writes = m.totalWriteErrors.Load()
+	syncs = m.totalSyncErrors.Load()
+
+	// Add stats from still-active contexts
 	for _, ctx := range m.contexts {
 		reads += ctx.ReadErrorsInjected.Load()
 		writes += ctx.WriteErrorsInjected.Load()
