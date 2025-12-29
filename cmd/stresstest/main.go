@@ -371,11 +371,19 @@ func main() {
 		defer database.Close()
 
 		// Get recovered seqno from MANIFEST
-		recoveredSeqno := database.GetLatestSequenceNumber()
-		fmt.Printf("📊 recoveredSeqno=%d\n", recoveredSeqno)
+		dbRecoveredSeqno := database.GetLatestSequenceNumber()
+		fmt.Printf("📊 dbRecoveredSeqno=%d\n", dbRecoveredSeqno)
 
-		// Reconstruct expected state from trace prefix
-		reconstructedState, replayedOps, err := reconstructStateFromTraces(*traceDir, recoveredSeqno, *numKeys)
+		// Liveness assertion (C02-03 hardening): DB must have at least one write.
+		// A seqno=0 would indicate total data loss, which should fail loudly rather
+		// than pass verification with an empty trace prefix.
+		if dbRecoveredSeqno == 0 {
+			fmt.Println("\n❌ STRESS TEST FAILED: dbRecoveredSeqno=0 (total data loss detected)")
+			exitWithFailure(fmt.Errorf("liveness assertion failed: dbRecoveredSeqno=0"), testDir)
+		}
+
+		// Reconstruct expected state from trace prefix (seqno <= dbRecoveredSeqno)
+		reconstructedState, replayedOps, err := reconstructStateFromTraces(*traceDir, dbRecoveredSeqno, *numKeys)
 		if err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: trace reconstruction failed: %v\n", err)
 			exitWithFailure(err, testDir)
@@ -488,27 +496,37 @@ func main() {
 }
 
 func printBanner() {
-	// Helper to print a line with proper right border alignment (70 chars inner width)
+	const boxWidth = 68 // inner width between ║ and ║
+
 	line := func(content string) {
-		fmt.Printf("║ %-63s ║\n", content)
+		padded := fmt.Sprintf(" %-*s", boxWidth-2, content)
+		if len(padded) > boxWidth-1 {
+			padded = padded[:boxWidth-1]
+		}
+		fmt.Printf("║%s║\n", padded)
 	}
 
-	fmt.Println("╔═════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                 RockyardKV Full Stress Test (v2)                ║")
-	fmt.Println("╠═════════════════════════════════════════════════════════════════╣")
-	line(fmt.Sprintf("Duration: %-10s Keys: %-10d Threads: %-6d", *duration, *numKeys, *numThreads))
-	line(fmt.Sprintf("Seed: %-20d", *seed))
-	line(fmt.Sprintf("Value Size: %-6d bytes  Keys/Lock: %-4d", *valueSize, 1<<*log2KeysPerLock))
-	fmt.Println("╠─────────────────────────────────────────────────────────────────╣")
+	border := "╔" + stressRepeatChar('═', boxWidth) + "╗"
+	middle := "╠" + stressRepeatChar('═', boxWidth) + "╣"
+	divider := "╠" + stressRepeatChar('─', boxWidth) + "╣"
+	bottom := "╚" + stressRepeatChar('═', boxWidth) + "╝"
+
+	fmt.Println(border)
+	line(stressCenter("RockyardKV Full Stress Test (v2)", boxWidth-2))
+	fmt.Println(middle)
+	line(fmt.Sprintf("Duration: %-10s Keys: %-10d Threads: %d", *duration, *numKeys, *numThreads))
+	line(fmt.Sprintf("Seed: %d", *seed))
+	line(fmt.Sprintf("Value Size: %-6d bytes  Keys/Lock: %d", *valueSize, 1<<*log2KeysPerLock))
+	fmt.Println(divider)
 	line(fmt.Sprintf("Weights: put=%d get=%d del=%d batch=%d iter=%d snap=%d",
 		*putWeight, *getWeight, *deleteWeight, *batchWeight, *iterWeight, *snapshotWeight))
-	line(fmt.Sprintf("         range-del=%d merge=%d ingest=%d txn=%d compact=%d ",
+	line(fmt.Sprintf("         range-del=%d merge=%d ingest=%d txn=%d compact=%d",
 		*rangeDelWeight, *mergeWeight, *ingestWeight, *transactionWeight, *compactWeight))
 	line(fmt.Sprintf("         snap-verify=%d cf=%d", *snapshotVerifyWeight, *cfWeight))
-	fmt.Println("╠─────────────────────────────────────────────────────────────────╣")
-	line(fmt.Sprintf("Compression: %-8s  Checksum: %-8s  Bloom: %-4d bits",
+	fmt.Println(divider)
+	line(fmt.Sprintf("Compression: %-8s  Checksum: %-8s  Bloom: %d bits",
 		*compressionType, *checksumType, *bloomBits))
-	line(fmt.Sprintf("Block Size: %-8d  Write Buffer: %-10d  CFs: %-4d",
+	line(fmt.Sprintf("Block Size: %-8d  Write Buffer: %-10d  CFs: %d",
 		*blockSize, *writeBufferSize, *numColumnFamilies))
 	walStatus := "enabled"
 	if *disableWAL {
@@ -518,9 +536,25 @@ func printBanner() {
 	if *syncWrites {
 		syncStatus = "on"
 	}
-	line(fmt.Sprintf("WAL: %-8s  Sync: %-4s  Randomized: %-5v", walStatus, syncStatus, *randomizeParams))
-	fmt.Println("╚═════════════════════════════════════════════════════════════════╝")
+	line(fmt.Sprintf("WAL: %-8s  Sync: %-4s  Randomized: %v", walStatus, syncStatus, *randomizeParams))
+	fmt.Println(bottom)
 	fmt.Println()
+}
+
+func stressRepeatChar(ch rune, n int) string {
+	result := make([]rune, n)
+	for i := range result {
+		result[i] = ch
+	}
+	return string(result)
+}
+
+func stressCenter(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	pad := (width - len(s)) / 2
+	return fmt.Sprintf("%*s%s%*s", pad, "", s, width-len(s)-pad, "")
 }
 
 // randomizeAllParameters randomly selects database configuration parameters.
@@ -2460,9 +2494,14 @@ func (s *seqnoPrefixState) get(keyNum int64) (valBase uint32, exists bool) {
 }
 
 // reconstructStateFromTraces reads trace files and reconstructs expected state
-// for all operations with seqno <= recoveredSeqno.
+// for all operations with traceSeqno <= replayCutoffSeqno.
 // This implements the "seqno-prefix (no holes)" verification model from C02-03.
-func reconstructStateFromTraces(traceDir string, recoveredSeqno uint64, _ int64) (*seqnoPrefixState, int, error) {
+//
+// Naming convention (C02 hardening):
+//   - dbRecoveredSeqno: from database.GetLatestSequenceNumber() after recovery
+//   - traceSeqno: sequence number recorded in the trace payload
+//   - replayCutoffSeqno: upper bound for replay (usually == dbRecoveredSeqno)
+func reconstructStateFromTraces(traceDir string, replayCutoffSeqno uint64, _ int64) (*seqnoPrefixState, int, error) {
 	// Find all trace files in directory
 	entries, err := os.ReadDir(traceDir)
 	if err != nil {
@@ -2489,7 +2528,7 @@ func reconstructStateFromTraces(traceDir string, recoveredSeqno uint64, _ int64)
 
 	// Process each trace file
 	for _, tf := range traceFiles {
-		ops, v1, err := replayTraceFileSeqno(tf, recoveredSeqno, state)
+		ops, v1, err := replayTraceFileSeqno(tf, replayCutoffSeqno, state)
 		if err != nil {
 			return nil, 0, fmt.Errorf("replay %s: %w", tf, err)
 		}
@@ -2547,7 +2586,7 @@ func replayTraceFileSeqno(path string, cutoffSeqno uint64, state *seqnoPrefixSta
 			continue
 		}
 
-		// Skip operations with seqno > recoveredSeqno
+		// Skip operations with traceSeqno > replayCutoffSeqno
 		if payload.SequenceNumber > cutoffSeqno {
 			continue
 		}
@@ -2693,7 +2732,7 @@ func verifySeqnoPrefix(database db.DB, expectedState *seqnoPrefixState, stats *S
 			if got != nil {
 				// Key exists in DB but not in expected state
 				// This is OK - the DB may have acknowledged writes that we don't have in trace
-				// (seqno > recoveredSeqno cases that were acknowledged but not traced before crash)
+				// (dbSeqno > replayCutoffSeqno cases that were acknowledged but not traced before crash)
 			}
 		}
 		verified++

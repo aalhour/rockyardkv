@@ -172,6 +172,14 @@ func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
 //  5. On recovery, LastSequence from old MANIFEST is used
 //  6. New writes reuse sequence numbers from orphaned SST → COLLISION
 //
+// Failure policy (C02-01 hardening):
+//   - Directory listing failure: fails Open() hard (corruption suspected)
+//   - Individual file deletion failure: logs warning, continues best-effort
+//
+// The best-effort approach is chosen because a locked file (e.g., Windows)
+// doesn't cause collisions if the DB is not shared. Failing Open() hard for
+// a single undeletable orphan would be overly disruptive.
+//
 // Reference: RocksDB db/db_impl/db_impl_files.cc DeleteObsoleteFiles
 func (db *DBImpl) deleteOrphanedSSTFiles() error {
 	// Get all SST file numbers referenced in the current version
@@ -208,17 +216,19 @@ func (db *DBImpl) deleteOrphanedSSTFiles() error {
 		if !liveFiles[num] {
 			sstPath := db.sstFilePath(num)
 			if err := db.fs.Remove(sstPath); err != nil {
-				// Log but don't fail - orphan cleanup is best-effort
+				// Best-effort: log warning but continue (see doc comment for policy)
+				if db.logger != nil {
+					db.logger.Warn(fmt.Sprintf("failed to delete orphaned SST %s: %v (continuing best-effort)", sstPath, err))
+				}
 				continue
 			}
 			orphanCount++
 		}
 	}
 
-	if orphanCount > 0 {
-		// This is expected behavior in faultfs testing
-		_ = orphanCount // Could log if we had a logger
-	}
+	// Note: orphanCount > 0 is expected in crash recovery testing (faultfs).
+	// We don't log success as the Logger interface only exposes Warn.
+	_ = orphanCount
 
 	return nil
 }
