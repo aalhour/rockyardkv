@@ -1,17 +1,24 @@
-// Package main provides the sstdump CLI tool for inspecting SST files.
+// SST inspection tool for RockyardKV.
 //
-// Usage:
+// Use `sstdump` to inspect and validate SST files written by RockyardKV.
+// Use `--command=scan` to print key-value entries.
+// Use `--command=properties` to print table properties.
+// Use `--command=check` to validate structure and checksums.
+// Use `--command=collision-check` to scan a DB directory for internal-key collisions across SST files.
 //
-//	sst_dump --file=<path> [options]
+// Scan an SST:
 //
-// Commands:
+// ```bash
+// ./bin/sstdump --file=<SST_FILE> --command=scan
+// ```
 //
-//	raw             Show raw data blocks
-//	properties      Show SST file properties
-//	scan            Scan all key-value pairs
-//	check           Verify SST file integrity
+// Check an SST with checksum verification:
 //
-// Reference: RocksDB v10.7.5 tools/sst_dump_tool.cc
+// ```bash
+// ./bin/sstdump --file=<SST_FILE> --command=check --verify_checksums
+// ```
+//
+// Reference: RocksDB v10.7.5 `tools/sst_dump_tool.cc`.
 package main
 
 import (

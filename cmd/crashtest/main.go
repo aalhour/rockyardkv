@@ -1,13 +1,26 @@
-// Crash test orchestrator for RockyardKV
+// Crash test orchestrator for RockyardKV.
 //
-// This tool repeatedly runs the stress test and kills it at random intervals,
-// then verifies database integrity after each crash. This simulates system
-// crashes and tests durability and recovery correctness.
+// Use `crashtest` to run write workloads, crash the process, and verify recovery.
+// `crashtest` runs `stresstest` in a child process.
+// `crashtest` kills the child at a chosen time, then runs a verification pass against the same DB directory.
 //
-// Usage: go run ./cmd/crashtest [flags]
+// Use this tool to validate durability and recovery contracts under process death.
+// Use `-seed` to make a run reproducible.
+// Use `-run-dir` to collect an artifact bundle when verification fails.
 //
-// Reference: RocksDB v10.7.5
-//   - tools/db_crashtest.py
+// Run a basic crash loop:
+//
+// ```bash
+// ./bin/crashtest -cycles=10 -duration=2m -sync
+// ```
+//
+// Use a deterministic crash schedule:
+//
+// ```bash
+// ./bin/crashtest -seed=123 -cycles=3 -crash-schedule="1s,250ms,5s" -sync
+// ```
+//
+// Reference: RocksDB v10.7.5 `tools/db_crashtest.py`.
 package main
 
 import (

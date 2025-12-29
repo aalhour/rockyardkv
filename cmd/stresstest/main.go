@@ -1,31 +1,28 @@
-// Full stress test for RockyardKV
+// Full stress test for RockyardKV.
 //
-// This tool performs comprehensive stress testing using an expected state oracle
-// to verify database correctness.
+// Use `stresstest` to run concurrent operations and verify results with an expected-state oracle.
+// Use this tool to find correctness and concurrency bugs.
+// Use `-seed` to make a run reproducible.
 //
-// KEY DESIGN FEATURES (matching C++ RocksDB db_stress):
-//   - Per-key locking: Each write operation acquires a lock for the key before
-//     modifying the expected state, ensuring atomicity between DB ops and oracle.
-//   - Pending state tracking: Uses PendingExpectedValue with Commit/Rollback semantics.
-//   - Pre/Post read verification: For reads, captures expected state before and after
-//     the operation to handle concurrent modifications gracefully.
+// The oracle uses per-key locking for writes.
+// The oracle uses commit and rollback tracking for operations that can fail.
+// The oracle uses pre and post read sampling to tolerate concurrent mutation during reads.
 //
-// Features:
-// - Random puts, gets, deletes
-// - Batch writes
+// Write a small reproducible run:
 //
-// Reference: RocksDB v10.7.5
-//   - db_stress_tool/db_stress.cc
-//   - db_stress_tool/db_stress_driver.cc
+// ```bash
+// ./bin/stresstest -duration=30s -threads=4 -keys=10000 -seed=123
+// ```
 //
-// - Iterator verification
-// - Snapshot reads
-// - Range scans
-// - Database reopening (persistence checks)
-// - Concurrent access with per-key locking
-// - Compaction triggering
+// Record an operation trace for replay:
 //
-// Usage: go run ./cmd/stresstest [flags]
+// ```bash
+// ./bin/stresstest -duration=30s -threads=4 -keys=10000 -seed=123 -trace-out <TRACE_FILE>
+// ```
+//
+// Note: The trace file is a binary format.
+//
+// Reference: RocksDB v10.7.5 `db_stress_tool/db_stress.cc`.
 package main
 
 import (

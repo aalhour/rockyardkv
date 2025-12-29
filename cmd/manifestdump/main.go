@@ -1,3 +1,17 @@
+// MANIFEST dump utility for RockyardKV.
+//
+// Use `manifestdump` to print a summary of a MANIFEST file.
+// This tool decodes VersionEdits from the MANIFEST and prints a per-level live file set.
+//
+// Run the tool:
+//
+// ```bash
+// ./bin/manifestdump <MANIFEST_FILE>
+// ```
+//
+// Output includes:
+// - Total decoded edits.
+// - Final live file numbers per level.
 package main
 
 import (

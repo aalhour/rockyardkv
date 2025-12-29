@@ -1,17 +1,16 @@
-// Smoke test for RockyardKV
+// End-to-end smoke test for RockyardKV.
 //
-// This tool performs a comprehensive end-to-end test of the database:
-// 1. Creates a database
-// 2. Writes many key-value pairs
-// 3. Reads and verifies all values
-// 4. Closes and reopens the database
-// 5. Verifies data persisted correctly
-// 6. Tests flush, compaction, and recovery
+// Use `smoketest` to run a fast end-to-end check across core features.
+// `smoketest` creates a database, writes data, reopens the database, and verifies results.
+// `smoketest` exercises flush, compaction, recovery, and selected transaction APIs.
 //
-// Usage: go run ./cmd/smoke
+// Run a smoke test:
 //
-// Reference: RocksDB v10.7.5
-//   - db/db_test_util.h (test framework patterns)
+// ```bash
+// ./bin/smoketest -keys=10000 -value-size=1000
+// ```
+//
+// Reference: RocksDB v10.7.5 test patterns in `db/db_test_util.h`.
 package main
 
 import (

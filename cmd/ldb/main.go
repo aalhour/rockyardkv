@@ -1,23 +1,24 @@
-// Package main provides the ldb CLI tool for inspecting RockyardKV databases.
+// Database inspection tool for RockyardKV.
 //
-// Usage:
+// Use `ldb` to inspect a database directory and print human-readable output.
+// Use `scan` to list keys and values.
+// Use `manifest_dump` to decode the active MANIFEST.
+// Use `sstfiles` to list SST files and their key ranges.
+// Use `checkcollision` to check for internal-key collisions across SST files.
 //
-//	ldb --db=<path> <command> [options]
+// Scan a database:
 //
-// Commands:
+// ```bash
+// ./bin/ldb --db=<DB_PATH> scan
+// ```
 //
-//	scan            Scan all key-value pairs
-//	get <key>       Get value for a key
-//	put <key> <val> Put a key-value pair
-//	delete <key>    Delete a key
-//	dump            Dump database contents
-//	repair          Attempt to repair a corrupted database
-//	info            Print database information
-//	manifest_dump   Dump MANIFEST file contents
-//	sstfiles        List SST files and their properties
-//	checkcollision  Check for internal key collisions across SST files
+// Dump the active MANIFEST:
 //
-// Reference: RocksDB v10.7.5 tools/ldb_tool.cc
+// ```bash
+// ./bin/ldb --db=<DB_PATH> manifest_dump -v
+// ```
+//
+// Reference: RocksDB v10.7.5 `tools/ldb_tool.cc`.
 package main
 
 import (

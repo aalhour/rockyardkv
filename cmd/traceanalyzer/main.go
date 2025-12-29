@@ -1,24 +1,25 @@
-// traceanalyzer is a tool for analyzing and replaying trace files.
+// Trace analyzer for RockyardKV.
 //
-// Usage:
+// Use `traceanalyzer` to inspect and replay binary trace files emitted by `stresstest -trace-out`.
+// Use `stats` to print record counts and duration.
+// Use `dump` to print a human-readable prefix of records.
+// Use `replay` to apply the trace to a database.
 //
-//	trace_analyzer <command> [options] <trace_file>
+// Important: flags come before the subcommand because this tool uses Go's `flag` package.
 //
-// Commands:
+// Print trace statistics:
 //
-//	stats     Display statistics about the trace file
-//	dump      Dump all trace records
-//	replay    Replay the trace against a database
+// ```bash
+// ./bin/traceanalyzer stats <TRACE_FILE>
+// ```
 //
-// Examples:
+// Replay a trace in real mode:
 //
-//	trace_analyzer stats trace.log
-//	trace_analyzer dump --limit 100 trace.log
-//	trace_analyzer replay --db /tmp/replay_db trace.log
+// ```bash
+// ./bin/traceanalyzer -db <DB_PATH> -create=true -dry-run=false replay <TRACE_FILE>
+// ```
 //
-// Reference: RocksDB v10.7.5
-//   - tools/trace_analyzer_tool.h
-//   - tools/trace_analyzer_tool.cc
+// Reference: RocksDB v10.7.5 `tools/trace_analyzer_tool.cc`.
 package main
 
 import (
@@ -80,10 +81,10 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`trace_analyzer - RockyardKV trace file analyzer
+	fmt.Println(`traceanalyzer - RockyardKV trace file analyzer
 
 Usage:
-  trace_analyzer <command> [options] <trace_file>
+  traceanalyzer [global flags] <command> <trace_file>
 
 Commands:
   stats     Display statistics about the trace file
@@ -97,9 +98,9 @@ Options:
   -preserve-timing  Preserve original timing during replay
 
 Examples:
-  trace_analyzer stats trace.log
-  trace_analyzer dump -limit 100 trace.log
-  trace_analyzer replay -db /tmp/replay_db trace.log`)
+  traceanalyzer stats <TRACE_FILE>
+  traceanalyzer dump -limit 100 <TRACE_FILE>
+  traceanalyzer -db <DB_PATH> -create=true -dry-run=false replay <TRACE_FILE>`)
 }
 
 func cmdStats(traceFile string) error {

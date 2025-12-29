@@ -1,17 +1,25 @@
-// Package main implements the adversarial test binary.
+// Adversarial test runner for RockyardKV.
 //
-// Adversarial tests attempt to break RockyardKV through:
-// - Edge case inputs (empty keys, huge values, binary keys)
-// - Corruption injection (truncated WAL, corrupt SST, bad MANIFEST)
-// - Protocol violations (use after close, double close, nil inputs)
-// - Go-specific vulnerabilities (slice aliasing, goroutine leaks)
-// - Concurrency attacks (race conditions, deadlocks)
+// Use `adversarialtest` to exercise hostile inputs and error paths.
+// Use this tool to validate that the DB fails loudly on corruption and rejects invalid input.
 //
-// Usage:
+// Run a short suite:
 //
-//	adversarialtest              # Short mode (2 minutes)
-//	adversarialtest -long        # Long mode (10 minutes, 256 threads)
-//	adversarialtest -category=corruption  # Run specific category
+// ```bash
+// ./bin/adversarialtest
+// ```
+//
+// Run a category:
+//
+// ```bash
+// ./bin/adversarialtest -category=corruption
+// ```
+//
+// Collect artifacts on failure:
+//
+// ```bash
+// ./bin/adversarialtest -run-dir <RUN_DIR>
+// ```
 package main
 
 import (
