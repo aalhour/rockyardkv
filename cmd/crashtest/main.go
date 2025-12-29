@@ -180,18 +180,46 @@ func main() {
 }
 
 func printBanner() {
-	fmt.Println("╔══════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║             RockyardKV Crash Test Orchestrator                    ║")
-	fmt.Println("╠══════════════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║ Duration: %-10s Interval: %-10s Seed: %-16d ║\n",
-		*duration, *crashInterval, *seed)
-	fmt.Printf("║ Kill Mode: %-8s  Threads: %-4d  Keys: %-8d                 ║\n",
-		*killMode, *stressThreads, *stressKeys)
-	fmt.Println("╠══════════════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║ Repro: -seed=%d -duration=%s -interval=%s        ║\n",
-		*seed, *duration, *crashInterval)
-	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
+	const boxWidth = 74 // inner width between ║ and ║
+
+	line := func(content string) {
+		// Pad or truncate content to exactly boxWidth-2 chars (for leading/trailing space)
+		padded := fmt.Sprintf(" %-*s", boxWidth-2, content)
+		if len(padded) > boxWidth-1 {
+			padded = padded[:boxWidth-1]
+		}
+		fmt.Printf("║%s║\n", padded)
+	}
+
+	border := "╔" + repeatChar('═', boxWidth) + "╗"
+	middle := "╠" + repeatChar('═', boxWidth) + "╣"
+	bottom := "╚" + repeatChar('═', boxWidth) + "╝"
+
+	fmt.Println(border)
+	line(center("RockyardKV Crash Test Orchestrator", boxWidth-2))
+	fmt.Println(middle)
+	line(fmt.Sprintf("Duration: %-10s Interval: %-10s Seed: %d", *duration, *crashInterval, *seed))
+	line(fmt.Sprintf("Kill Mode: %-8s Threads: %-4d Keys: %d", *killMode, *stressThreads, *stressKeys))
+	fmt.Println(middle)
+	line(fmt.Sprintf("Repro: -seed=%d -duration=%s -interval=%s", *seed, *duration, *crashInterval))
+	fmt.Println(bottom)
 	fmt.Println()
+}
+
+func repeatChar(ch rune, n int) string {
+	result := make([]rune, n)
+	for i := range result {
+		result[i] = ch
+	}
+	return string(result)
+}
+
+func center(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	pad := (width - len(s)) / 2
+	return fmt.Sprintf("%*s%s%*s", pad, "", s, width-len(s)-pad, "")
 }
 
 func setupDBPath() string {
@@ -608,22 +636,36 @@ func getStressBinary() string {
 }
 
 func printStats(stats *Stats) {
+	const boxWidth = 74
+
+	line := func(content string) {
+		padded := fmt.Sprintf(" %-*s", boxWidth-2, content)
+		if len(padded) > boxWidth-1 {
+			padded = padded[:boxWidth-1]
+		}
+		fmt.Printf("║%s║\n", padded)
+	}
+
+	border := "╔" + repeatChar('═', boxWidth) + "╗"
+	middle := "╠" + repeatChar('═', boxWidth) + "╣"
+	bottom := "╚" + repeatChar('═', boxWidth) + "╝"
+
 	elapsed := time.Since(stats.startTime)
 	fmt.Printf("\n")
-	fmt.Println("╔══════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║                        Crash Test Summary                            ║")
-	fmt.Println("╠══════════════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║ Total Cycles:            %-8d                                    ║\n", stats.cycles)
-	fmt.Printf("║ Successful Crashes:      %-8d                                    ║\n", stats.successfulCrash)
-	fmt.Printf("║ Successful Verifications:%-8d                                    ║\n", stats.successfulVerify)
-	fmt.Printf("║ Failed Verifications:    %-8d                                    ║\n", stats.failedVerify)
-	fmt.Printf("║ Errors:                  %-8d                                    ║\n", stats.errors)
-	fmt.Printf("║ Elapsed Time:            %-20s                  ║\n", elapsed.Round(time.Second))
+	fmt.Println(border)
+	line(center("Crash Test Summary", boxWidth-2))
+	fmt.Println(middle)
+	line(fmt.Sprintf("Total Cycles:             %d", stats.cycles))
+	line(fmt.Sprintf("Successful Crashes:       %d", stats.successfulCrash))
+	line(fmt.Sprintf("Successful Verifications: %d", stats.successfulVerify))
+	line(fmt.Sprintf("Failed Verifications:     %d", stats.failedVerify))
+	line(fmt.Sprintf("Errors:                   %d", stats.errors))
+	line(fmt.Sprintf("Elapsed Time:             %s", elapsed.Round(time.Second)))
 	if stats.cycles > 0 {
 		avgCycleTime := elapsed / time.Duration(stats.cycles)
-		fmt.Printf("║ Avg Cycle Time:          %-20s                  ║\n", avgCycleTime.Round(time.Millisecond))
+		line(fmt.Sprintf("Avg Cycle Time:           %s", avgCycleTime.Round(time.Millisecond)))
 	}
-	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
+	fmt.Println(bottom)
 }
 
 // copyFile copies src to dst, overwriting dst if it exists.

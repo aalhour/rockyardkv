@@ -157,18 +157,47 @@ func main() {
 }
 
 func printBanner(threads int, duration time.Duration) {
+	const boxWidth = 72 // inner width between ║ and ║
+
+	line := func(content string) {
+		padded := fmt.Sprintf(" %-*s", boxWidth-2, content)
+		if len(padded) > boxWidth-1 {
+			padded = padded[:boxWidth-1]
+		}
+		fmt.Printf("║%s║\n", padded)
+	}
+
+	repeatChar := func(ch rune, n int) string {
+		result := make([]rune, n)
+		for i := range result {
+			result[i] = ch
+		}
+		return string(result)
+	}
+
+	center := func(s string, width int) string {
+		if len(s) >= width {
+			return s
+		}
+		pad := (width - len(s)) / 2
+		return fmt.Sprintf("%*s%s%*s", pad, "", s, width-len(s)-pad, "")
+	}
+
 	mode := "SHORT"
 	if *longMode {
 		mode = "LONG"
 	}
 
-	fmt.Println("╔═══════════════════════════════════════════════════════════════════════╗")
-	fmt.Println("║              RockyardKV Adversarial Test Suite                     ║")
-	fmt.Println("╠═══════════════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║ Mode: %-6s  Threads: %-4d  Duration: %-10s                     ║\n",
-		mode, threads, duration)
-	fmt.Printf("║ Category: %-62s ║\n", *category)
-	fmt.Println("╚═══════════════════════════════════════════════════════════════════════╝")
+	border := "╔" + repeatChar('═', boxWidth) + "╗"
+	middle := "╠" + repeatChar('═', boxWidth) + "╣"
+	bottom := "╚" + repeatChar('═', boxWidth) + "╝"
+
+	fmt.Println(border)
+	line(center("RockyardKV Adversarial Test Suite", boxWidth-2))
+	fmt.Println(middle)
+	line(fmt.Sprintf("Mode: %-6s  Threads: %-4d  Duration: %s", mode, threads, duration))
+	line(fmt.Sprintf("Category: %s", *category))
+	fmt.Println(bottom)
 	fmt.Println()
 }
 

@@ -46,11 +46,11 @@ func main() {
 		cleanupOldTestDirs()
 	}
 
-	fmt.Println("╔══════════════════════════════════════════════════════════════╗")
-	fmt.Println("║           RockyardKV Smoke Test                           ║")
-	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
-	fmt.Printf("║ Keys: %d, Value Size: %d bytes                        ║\n", *numKeys, *valueSize)
-	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
+	fmt.Println("╔════════════════════════════════════════════════════════════════╗")
+	fmt.Println("║                    RockyardKV Smoke Test                      ║")
+	fmt.Println("╠════════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║ Keys: %-8d  Value Size: %-6d bytes                       ║\n", *numKeys, *valueSize)
+	fmt.Println("╚════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 
 	// Setup database path
