@@ -15,6 +15,7 @@
 //	info            Print database information
 //	manifest_dump   Dump MANIFEST file contents
 //	sstfiles        List SST files and their properties
+//	checkcollision  Check for internal key collisions across SST files
 //
 // Reference: RocksDB v10.7.5 tools/ldb_tool.cc
 package main
@@ -28,11 +29,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/aalhour/rockyardkv/db"
 	"github.com/aalhour/rockyardkv/internal/manifest"
+	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
 )
@@ -85,6 +88,8 @@ func main() {
 		err = cmdSSTFiles()
 	case "repair":
 		err = cmdRepair()
+	case "checkcollision":
+		err = cmdCheckCollision()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		printUsage()
@@ -112,6 +117,7 @@ func printUsage() {
 	fmt.Println("  manifest_dump     Dump MANIFEST file contents")
 	fmt.Println("  sstfiles          List SST files and their properties")
 	fmt.Println("  repair            Attempt to repair a corrupted database")
+	fmt.Println("  checkcollision    Check for internal key collisions across SST files")
 	fmt.Println()
 	fmt.Println("Options:")
 	flag.PrintDefaults()
@@ -547,5 +553,142 @@ func cmdRepair() error {
 
 	fmt.Println("Repair not yet implemented - database appears intact")
 	fmt.Println("To verify, try: ldb --db=<path> info")
+	return nil
+}
+
+// collisionEntry represents a key entry found in an SST file for collision detection.
+type collisionEntry struct {
+	InternalKey []byte
+	Value       []byte
+	File        string
+}
+
+// cmdCheckCollision checks for internal key collisions across SST files.
+// A collision occurs when the same internal key (user key + sequence + type)
+// appears in multiple SST files with different values.
+//
+// This is a diagnostic tool for detecting the C02-01 durability bug
+// (sequence number reuse after crash recovery).
+func cmdCheckCollision() error {
+	fs := vfs.Default()
+
+	// Collect all internal keys from all SST files
+	keyMap := make(map[string][]collisionEntry) // map[internal_key_hex][]entries
+
+	files, err := fs.ListDir(*dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to list directory: %w", err)
+	}
+
+	sstCount := 0
+	for _, filename := range files {
+		if filepath.Ext(filename) != ".sst" {
+			continue
+		}
+		sstCount++
+
+		filePath := filepath.Join(*dbPath, filename)
+		file, err := fs.OpenRandomAccess(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open %s: %v\n", filename, err)
+			continue
+		}
+
+		reader, err := table.Open(file, table.ReaderOptions{VerifyChecksums: false})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open SST %s: %v\n", filename, err)
+			file.Close()
+			continue
+		}
+
+		iter := reader.NewIterator()
+		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+			internalKey := iter.Key()
+			value := iter.Value()
+
+			keyHex := hex.EncodeToString(internalKey)
+
+			entry := collisionEntry{
+				InternalKey: append([]byte{}, internalKey...),
+				Value:       append([]byte{}, value...),
+				File:        filename,
+			}
+
+			keyMap[keyHex] = append(keyMap[keyHex], entry)
+		}
+
+		if err := iter.Error(); err != nil {
+			fmt.Fprintf(os.Stderr, "Iterator error in %s: %v\n", filename, err)
+		}
+
+		file.Close()
+	}
+
+	fmt.Printf("Scanned %d SST files, %d unique internal keys\n", sstCount, len(keyMap))
+
+	// Find collisions
+	collisions := 0
+	var collisionKeys []string
+
+	for keyHex, entries := range keyMap {
+		if len(entries) > 1 {
+			// Check if values differ
+			firstValue := hex.EncodeToString(entries[0].Value)
+			hasDifferentValue := false
+
+			for i := 1; i < len(entries); i++ {
+				if hex.EncodeToString(entries[i].Value) != firstValue {
+					hasDifferentValue = true
+					break
+				}
+			}
+
+			if hasDifferentValue {
+				collisions++
+				collisionKeys = append(collisionKeys, keyHex)
+			}
+		}
+	}
+
+	if collisions > 0 {
+		fmt.Printf("\n🔥 SMOKING GUN: Found %d internal key collision(s) with different values!\n\n", collisions)
+
+		// Sort for consistent output
+		sort.Strings(collisionKeys)
+
+		for i, keyHex := range collisionKeys {
+			if i >= 5 {
+				fmt.Printf("... and %d more collisions\n", len(collisionKeys)-5)
+				break
+			}
+
+			entries := keyMap[keyHex]
+			fmt.Printf("═══════════════════════════════════════════════════════════\n")
+			fmt.Printf("Collision #%d:\n", i+1)
+			fmt.Printf("Internal Key (hex): %s\n", keyHex)
+
+			if len(entries[0].InternalKey) >= 8 {
+				userKey := entries[0].InternalKey[:len(entries[0].InternalKey)-8]
+				seqAndType := entries[0].InternalKey[len(entries[0].InternalKey)-8:]
+				fmt.Printf("User Key (hex):     %s\n", hex.EncodeToString(userKey))
+				fmt.Printf("Seq+Type (hex):     %s\n", hex.EncodeToString(seqAndType))
+			}
+			fmt.Printf("\n")
+
+			for j, entry := range entries {
+				valueHex := hex.EncodeToString(entry.Value)
+				valueStr := ""
+				if len(entry.Value) > 0 && entry.Value[0] >= 32 && entry.Value[0] < 127 {
+					valueStr = fmt.Sprintf(" (%q)", string(entry.Value))
+				}
+				fmt.Printf("  [%d] File: %-15s Value: %s%s\n", j+1, entry.File, valueHex, valueStr)
+			}
+			fmt.Printf("\n")
+		}
+
+		return fmt.Errorf("found %d internal key collisions", collisions)
+	}
+
+	fmt.Println("✓ No internal key collisions found")
 	return nil
 }

@@ -215,3 +215,224 @@ func runMain(args []string, stdout, stderr *bytes.Buffer) int {
 
 	return 0
 }
+
+// TestCheckCollision_NoFalsePositives verifies the tool doesn't report
+// collisions in a valid database with no actual collisions.
+//
+// Contract: Large valid DB with many keys should report 0 collisions.
+func TestCheckCollision_NoFalsePositives(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+
+	writeOpts := db.DefaultWriteOptions()
+
+	// Write 1000 keys across multiple flushes
+	for flush := range 5 {
+		for i := range 200 {
+			key := fmt.Appendf(nil, "key_%03d_%04d", flush, i)
+			value := fmt.Appendf(nil, "value_%03d_%04d", flush, i)
+			if err := database.Put(writeOpts, key, value); err != nil {
+				t.Fatalf("Put failed: %v", err)
+			}
+		}
+		if err := database.Flush(nil); err != nil {
+			t.Fatalf("Flush failed: %v", err)
+		}
+	}
+
+	database.Close()
+
+	// Set the global dbPath and run the check
+	oldDbPath := *dbPath
+	*dbPath = dir
+	defer func() { *dbPath = oldDbPath }()
+
+	err = cmdCheckCollision()
+	if err != nil {
+		t.Errorf("Collision check should pass on valid DB: %v", err)
+	}
+
+	t.Log("✅ No false positives on valid database")
+}
+
+// TestCheckCollision_EmptyDatabase verifies the tool handles empty databases.
+//
+// Contract: Empty DB should report 0 collisions without errors.
+func TestCheckCollision_EmptyDatabase(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+	database.Close()
+
+	// Set the global dbPath and run the check
+	oldDbPath := *dbPath
+	*dbPath = dir
+	defer func() { *dbPath = oldDbPath }()
+
+	err = cmdCheckCollision()
+	if err != nil {
+		t.Errorf("Collision check on empty DB should pass: %v", err)
+	}
+
+	t.Log("✅ Empty database handled correctly")
+}
+
+// TestCheckCollision_SingleSST verifies the tool works with just one SST file.
+//
+// Contract: Single SST can't have collisions (within same file), should report 0.
+func TestCheckCollision_SingleSST(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+
+	writeOpts := db.DefaultWriteOptions()
+
+	// Write data and flush (creates one SST)
+	for i := range 100 {
+		key := fmt.Appendf(nil, "key_%04d", i)
+		value := fmt.Appendf(nil, "value_%04d", i)
+		if err := database.Put(writeOpts, key, value); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+
+	if err := database.Flush(nil); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	database.Close()
+
+	// Set the global dbPath and run the check
+	oldDbPath := *dbPath
+	*dbPath = dir
+	defer func() { *dbPath = oldDbPath }()
+
+	err = cmdCheckCollision()
+	if err != nil {
+		t.Errorf("Collision check should pass on single SST: %v", err)
+	}
+
+	t.Log("✅ Single SST handled correctly")
+}
+
+// TestCheckCollision_MultipleSSTs verifies the tool scans all SST files.
+//
+// Contract: Keys spread across multiple SSTs should all be checked.
+func TestCheckCollision_MultipleSSTs(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+
+	writeOpts := db.DefaultWriteOptions()
+
+	// Create multiple SST files by flushing separately
+	for flush := range 10 {
+		for i := range 100 {
+			key := fmt.Appendf(nil, "key_%03d_%04d", flush, i)
+			value := fmt.Appendf(nil, "value_%03d_%04d", flush, i)
+			if err := database.Put(writeOpts, key, value); err != nil {
+				t.Fatalf("Put failed: %v", err)
+			}
+		}
+		if err := database.Flush(nil); err != nil {
+			t.Fatalf("Flush failed: %v", err)
+		}
+	}
+
+	database.Close()
+
+	// Count SST files
+	sstFiles, err := filepath.Glob(filepath.Join(dir, "*.sst"))
+	if err != nil {
+		t.Fatalf("Failed to glob SST files: %v", err)
+	}
+
+	t.Logf("Created %d SST files", len(sstFiles))
+
+	if len(sstFiles) < 5 {
+		t.Errorf("Expected multiple SST files, got %d", len(sstFiles))
+	}
+
+	// Set the global dbPath and run the check
+	oldDbPath := *dbPath
+	*dbPath = dir
+	defer func() { *dbPath = oldDbPath }()
+
+	err = cmdCheckCollision()
+	if err != nil {
+		t.Errorf("Collision check should pass: %v", err)
+	}
+
+	t.Logf("✅ Multiple SSTs scanned successfully")
+}
+
+// TestCheckCollision_UpdatedKeys verifies the tool correctly handles the
+// same user key with different sequence numbers (normal updates).
+//
+// Contract: Same user key with different sequences is NOT a collision.
+func TestCheckCollision_UpdatedKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to open DB: %v", err)
+	}
+
+	writeOpts := db.DefaultWriteOptions()
+
+	// Write the same keys multiple times (creates different sequences)
+	for update := range 5 {
+		for i := range 20 {
+			key := fmt.Appendf(nil, "key_%04d", i)
+			value := fmt.Appendf(nil, "value_update%d_%04d", update, i)
+			if err := database.Put(writeOpts, key, value); err != nil {
+				t.Fatalf("Put failed: %v", err)
+			}
+		}
+		if err := database.Flush(nil); err != nil {
+			t.Fatalf("Flush failed: %v", err)
+		}
+	}
+
+	database.Close()
+
+	// Set the global dbPath and run the check
+	oldDbPath := *dbPath
+	*dbPath = dir
+	defer func() { *dbPath = oldDbPath }()
+
+	err = cmdCheckCollision()
+	if err != nil {
+		t.Errorf("Collision check should pass (different sequences = not a collision): %v", err)
+	}
+
+	t.Log("✅ Updated keys (different sequences) not reported as collisions")
+}
