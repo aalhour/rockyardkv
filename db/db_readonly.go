@@ -64,6 +64,13 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 		cmp = BytewiseComparator{}
 	}
 
+	// Logger configuration: db.logger is NEVER nil.
+	// If opts.Logger is nil, we use a default logger.
+	logger := opts.Logger
+	if logger == nil {
+		logger = newDefaultLogger()
+	}
+
 	// Create the base DB implementation
 	db := &DBImpl{
 		name:            path,
@@ -74,6 +81,7 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
 		writeController: NewWriteController(),
+		logger:          logger,
 	}
 
 	// Initialize column family set
@@ -85,6 +93,7 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 		FS:                  fs,
 		MaxManifestFileSize: 1024 * 1024 * 1024, // 1GB
 		NumLevels:           version.MaxNumLevels,
+		Logger:              db.logger, // Pass through for MANIFEST logging
 	}
 	db.versions = version.NewVersionSet(vsOpts)
 
@@ -274,11 +283,13 @@ func ListColumnFamilies(path string, opts *Options) ([]string, error) {
 	}
 
 	// Use version set to recover and get column families
+	// Note: nil logger is acceptable here - this is a short-lived VersionSet
 	vsOpts := version.VersionSetOptions{
 		DBName:              path,
 		FS:                  fs,
 		MaxManifestFileSize: 1 << 30,
 		NumLevels:           version.MaxNumLevels,
+		Logger:              nil, // No logging for temporary VersionSet
 	}
 	vs := version.NewVersionSet(vsOpts)
 

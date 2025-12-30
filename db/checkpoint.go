@@ -45,6 +45,8 @@ func NewCheckpoint(database DB) (*Checkpoint, error) {
 // If logSizeForFlush is > 0, WAL files smaller than this size will be copied.
 // If logSizeForFlush is very large (e.g., math.MaxUint64), all WAL files are copied.
 func (cp *Checkpoint) CreateCheckpoint(checkpointDir string, logSizeForFlush uint64) error {
+	cp.db.logger.Infof("[checkpoint] creating checkpoint at %s", checkpointDir)
+
 	// Validate checkpoint directory
 	if checkpointDir == "" {
 		return fmt.Errorf("checkpoint: directory path cannot be empty")
@@ -148,6 +150,8 @@ func (cp *Checkpoint) CreateCheckpoint(checkpointDir string, logSizeForFlush uin
 			// Non-fatal, OPTIONS file is optional
 		}
 	}
+
+	cp.db.logger.Infof("[checkpoint] completed: %d SST files, manifest=%s", len(liveFiles.sst), liveFiles.manifest)
 
 	return nil
 }

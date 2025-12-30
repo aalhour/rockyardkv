@@ -59,6 +59,13 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 		cmp = BytewiseComparator{}
 	}
 
+	// Logger configuration: db.logger is NEVER nil.
+	// If opts.Logger is nil, we use a default logger.
+	logger := opts.Logger
+	if logger == nil {
+		logger = newDefaultLogger()
+	}
+
 	// Create the base DB implementation (read-only)
 	db := &DBImpl{
 		name:            primaryPath,
@@ -69,6 +76,7 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
 		writeController: NewWriteController(),
+		logger:          logger,
 	}
 
 	// Initialize column family set
@@ -80,6 +88,7 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 		FS:                  fs,
 		MaxManifestFileSize: 1024 * 1024 * 1024,
 		NumLevels:           version.MaxNumLevels,
+		Logger:              db.logger, // Pass through for MANIFEST logging
 	}
 	db.versions = version.NewVersionSet(vsOpts)
 

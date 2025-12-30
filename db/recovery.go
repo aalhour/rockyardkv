@@ -63,6 +63,7 @@ func (db *DBImpl) replayWAL() error {
 	for _, logNum := range toReplay {
 		seq, err := db.replayLogFile(logNum)
 		if err != nil {
+			db.logger.Warnf("[recovery] failed to replay log %d: %v", logNum, err)
 			return fmt.Errorf("failed to replay log %d: %w", logNum, err)
 		}
 		if seq > maxSeq {
@@ -72,6 +73,10 @@ func (db *DBImpl) replayWAL() error {
 
 	// Update sequence number to max seen
 	db.seq = maxSeq
+
+	if len(toReplay) > 0 {
+		db.logger.Infof("[recovery] replayed %d WAL files, max sequence: %d", len(toReplay), maxSeq)
+	}
 
 	return nil
 }
@@ -217,9 +222,7 @@ func (db *DBImpl) deleteOrphanedSSTFiles() error {
 			sstPath := db.sstFilePath(num)
 			if err := db.fs.Remove(sstPath); err != nil {
 				// Best-effort: log warning but continue (see doc comment for policy)
-				if db.logger != nil {
-					db.logger.Warn(fmt.Sprintf("failed to delete orphaned SST %s: %v (continuing best-effort)", sstPath, err))
-				}
+				db.logger.Warnf("[recovery] failed to delete orphaned SST %s: %v (continuing best-effort)", sstPath, err)
 				continue
 			}
 			orphanCount++
@@ -227,7 +230,6 @@ func (db *DBImpl) deleteOrphanedSSTFiles() error {
 	}
 
 	// Note: orphanCount > 0 is expected in crash recovery testing (faultfs).
-	// We don't log success as the Logger interface only exposes Warn.
 	_ = orphanCount
 
 	return nil

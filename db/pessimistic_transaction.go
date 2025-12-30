@@ -343,7 +343,8 @@ func (txn *PessimisticTransaction) Commit() error {
 	}
 
 	// Apply the write batch
-	if txn.writeBatch.Count() > 0 {
+	writeCount := txn.writeBatch.Count()
+	if writeCount > 0 {
 		if err := txn.txnDB.db.Write(txn.writeOpts, newWriteBatchFromInternal(txn.writeBatch)); err != nil {
 			// On failure, still release locks
 			txn.releaseLocks()
@@ -354,6 +355,8 @@ func (txn *PessimisticTransaction) Commit() error {
 	// Release all locks and cleanup
 	txn.releaseLocks()
 	txn.close()
+
+	txn.txnDB.db.logger.Debugf("[txn] committed txn %d (%d writes)", txn.id, writeCount)
 
 	return nil
 }
@@ -370,6 +373,8 @@ func (txn *PessimisticTransaction) Rollback() error {
 	// Release all locks and cleanup
 	txn.releaseLocks()
 	txn.close()
+
+	txn.txnDB.db.logger.Debugf("[txn] rolled back txn %d", txn.id)
 
 	return nil
 }
