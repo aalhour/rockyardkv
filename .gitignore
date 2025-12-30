@@ -50,6 +50,7 @@ go.work
 go.work.sum
 .gocache/
 .gomodcache/
+.cache
 
 # Uncomment to ignore vendor directory
 # vendor/
@@ -71,9 +72,10 @@ fuzz-*/
 
 # Temporary database directories created during testing
 tmp/
-crashtest-artifacts/
 docs/review/
 docs/redteam/
+docs/status/gap-analysis
+crashtest-artifacts/
 rockyardkv-*/
 *.db/
 *.sst
