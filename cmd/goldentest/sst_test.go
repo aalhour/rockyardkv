@@ -245,6 +245,123 @@ func TestCppCorpus_ZlibSST(t *testing.T) {
 	t.Logf("Go read %d keys from C++ zlib-compressed DB", keyCount)
 }
 
+// TestCppCorpus_SnappySST tests that Go can read C++ snappy-compressed SST files.
+//
+// Contract: Go reads C++ snappy-compressed DBs correctly.
+func TestCppCorpus_SnappySST(t *testing.T) {
+	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	if corpusPath == "" {
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+	}
+
+	snappyDBPath := filepath.Join(corpusPath, "snappy_small_blocks_db", "db")
+	if _, err := os.Stat(snappyDBPath); os.IsNotExist(err) {
+		t.Skip("Red team corpus not found (missing snappy_small_blocks_db/db)")
+	}
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+
+	database, err := db.Open(snappyDBPath, opts)
+	if err != nil {
+		t.Fatalf("open snappy DB: %v", err)
+	}
+	defer database.Close()
+
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	keyCount := 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+	if keyCount == 0 {
+		t.Error("no keys found in snappy DB")
+	}
+	t.Logf("Go read %d keys from C++ snappy-compressed DB", keyCount)
+}
+
+// TestCppCorpus_LZ4SST tests that Go can read C++ lz4-compressed SST files.
+//
+// Contract: Go reads C++ lz4-compressed DBs correctly.
+func TestCppCorpus_LZ4SST(t *testing.T) {
+	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	if corpusPath == "" {
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+	}
+
+	lz4DBPath := filepath.Join(corpusPath, "lz4_small_blocks_db", "db")
+	if _, err := os.Stat(lz4DBPath); os.IsNotExist(err) {
+		t.Skip("Red team corpus not found (missing lz4_small_blocks_db/db)")
+	}
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+
+	database, err := db.Open(lz4DBPath, opts)
+	if err != nil {
+		t.Fatalf("open lz4 DB: %v", err)
+	}
+	defer database.Close()
+
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	keyCount := 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+	if keyCount == 0 {
+		t.Error("no keys found in lz4 DB")
+	}
+	t.Logf("Go read %d keys from C++ lz4-compressed DB", keyCount)
+}
+
+// TestCppCorpus_ZstdSST tests that Go can read C++ zstd-compressed SST files.
+//
+// Contract: Go reads C++ zstd-compressed DBs correctly.
+func TestCppCorpus_ZstdSST(t *testing.T) {
+	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	if corpusPath == "" {
+		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+	}
+
+	zstdDBPath := filepath.Join(corpusPath, "zstd_small_blocks_db", "db")
+	if _, err := os.Stat(zstdDBPath); os.IsNotExist(err) {
+		t.Skip("Red team corpus not found (missing zstd_small_blocks_db/db)")
+	}
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = false
+
+	database, err := db.Open(zstdDBPath, opts)
+	if err != nil {
+		t.Fatalf("open zstd DB: %v", err)
+	}
+	defer database.Close()
+
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	keyCount := 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+	if keyCount == 0 {
+		t.Error("no keys found in zstd DB")
+	}
+	t.Logf("Go read %d keys from C++ zstd-compressed DB", keyCount)
+}
+
 // TestCppCorpus_MultiCF tests that Go can read C++ multi-column-family databases.
 //
 // Contract: Go reads C++ multi-CF databases correctly.

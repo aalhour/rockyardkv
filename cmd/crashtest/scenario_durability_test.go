@@ -890,6 +890,65 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 	}
 }
 
+// TestDurability_SyncDirLieMode_CreatedFilesMayDisappear_FailsLoud tests a stronger
+// "system lies" instance than N05 rename durability: directory fsync returns
+// success, but newly created directory entries are still lost on crash.
+//
+// Contract: If directory-entry durability is violated after SyncDir success, the
+// DB must fail loud (or recover consistently) and must not silently proceed with
+// inconsistent metadata.
+func TestDurability_SyncDirLieMode_CreatedFilesMayDisappear_FailsLoud(t *testing.T) {
+	dir := t.TempDir()
+
+	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
+	faultFS.SetSyncDirLieMode(true)
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+	opts.FS = faultFS
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// Force some metadata + file creation (WAL + MANIFEST edits + SST).
+	for i := range 200 {
+		key := []byte("k_" + strconv.Itoa(i))
+		if err := database.Put(nil, key, []byte("v")); err != nil {
+			t.Fatalf("put: %v", err)
+		}
+	}
+	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Simulate crash:
+	// - lose directory entries for created files despite SyncDir returning success
+	// - revert unsynced renames (CURRENT updates, etc.)
+	// - drop unsynced file data
+	_ = faultFS.DeleteUnsyncedFiles()
+	_ = faultFS.RevertUnsyncedRenames()
+	_ = faultFS.DropUnsyncedData()
+
+	opts.CreateIfMissing = false
+	_, err = db.Open(dir, opts)
+	if err == nil {
+		// If we ever start “recovering” here, it must be explicitly consistent.
+		// Today, we want to fail loud under this severe lie model.
+		t.Fatalf("expected reopen to fail loud under SyncDir lie for created files, but it succeeded")
+	}
+
+	// Error should be meaningful.
+	errStr := err.Error()
+	if !containsAny(errStr, "manifest", "MANIFEST", "CURRENT", "not found", "no such file", "corrupt", "invalid") {
+		t.Logf("warning: error message may not be specific enough: %q", errStr)
+	}
+}
+
 // =============================================================================
 // File Sync Lie Mode: FS reports sync success but data is not durable
 // =============================================================================
@@ -986,6 +1045,79 @@ func TestDurability_FileSyncLieMode_WAL_LosesUnsyncedWrites(t *testing.T) {
 	if unflushedFound != 0 && unflushedFound != 10 {
 		t.Errorf("Inconsistent state: found %d/10 unflushed keys", unflushedFound)
 	}
+}
+
+// TestDurability_FileSyncLieMode_AllFiles_FailsLoudOrRecoversEmpty tests a stronger
+// "system lies" instance than per-file targeting: Sync() returns success for all files
+// but does not make data durable.
+//
+// Contract: After a crash that drops all unsynced data, the DB must either:
+// - fail loud with a meaningful error, OR
+// - reopen to an older consistent state (possibly empty).
+//
+// It must not silently produce a partially-applied, inconsistent state.
+func TestDurability_FileSyncLieMode_AllFiles_FailsLoudOrRecoversEmpty(t *testing.T) {
+	dir := t.TempDir()
+
+	// Lie about Sync() for ALL files.
+	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
+	faultFS.SetFileSyncLieMode(true, "")
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+	opts.FS = faultFS
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+
+	// Write some data with Sync=true (FS will lie; data still not durable).
+	syncOpts := db.DefaultWriteOptions()
+	syncOpts.Sync = true
+	for i := range 50 {
+		key := []byte("allfiles_key_" + strconv.Itoa(i))
+		if err := database.Put(syncOpts, key, []byte("value")); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+
+	// Flush to create more file activity (SST/MANIFEST), but Sync lies for all files.
+	_ = database.Flush(db.DefaultFlushOptions())
+
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Simulate crash: everything that was "synced" is actually unsynced and may be lost.
+	_ = faultFS.DropUnsyncedData()
+
+	opts.CreateIfMissing = false
+	database, err = db.Open(dir, opts)
+	if err != nil {
+		// Fail loud is acceptable; try to ensure error has some signal.
+		errStr := err.Error()
+		if !containsAny(errStr, "manifest", "MANIFEST", "CURRENT", "not found", "no such file", "corrupt", "invalid") {
+			t.Logf("warning: error message may not be specific enough: %q", errStr)
+		}
+		return
+	}
+	defer database.Close()
+
+	// If open succeeds, it must be consistent. Under this extreme lie model,
+	// recovering to an empty (or older) state is acceptable.
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+
+	keyCount := 0
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		keyCount++
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+
+	t.Logf("DB reopened under all-files sync lie mode; keyCount=%d", keyCount)
 }
 
 // TestDurability_FileSyncLieMode_SST_FailsOnRead tests that when the filesystem
@@ -1772,4 +1904,70 @@ func TestDurability_RenameDoubleNameMode_SSTAnomalyHandled(t *testing.T) {
 	}
 
 	t.Logf("Data verified: %d/100 keys correct after SST double-name anomaly", keyCount)
+}
+
+// TestDurability_RenameNeitherNameMode_SSTMissing_FailsLoudOrRecoversOlder tests
+// a rename neither-name anomaly on the SST publish path: after crash, neither the
+// temp SST nor the final SST exists.
+//
+// Contract: The DB must fail loud or recover to an older consistent state (no
+// silent success with missing SST references).
+func TestDurability_RenameNeitherNameMode_SSTMissing_FailsLoudOrRecoversOlder(t *testing.T) {
+	dir := t.TempDir()
+
+	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
+	// Target SST publish/rename outcomes.
+	faultFS.SetRenameNeitherNameMode(true, ".sst")
+
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+	opts.FS = faultFS
+
+	database, err := db.Open(dir, opts)
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+
+	// Create an SST via flush.
+	for i := range 200 {
+		key := []byte("sst_key_" + padInt(i, 4))
+		val := []byte("sst_val_" + padInt(i, 4))
+		if err := database.Put(nil, key, val); err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+	}
+	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Simulate crash with rename anomalies + unsynced data loss.
+	_ = faultFS.SimulateCrashWithRenameAnomalies()
+	_ = faultFS.RevertUnsyncedRenames()
+	_ = faultFS.DropUnsyncedData()
+
+	opts.CreateIfMissing = false
+	database, err = db.Open(dir, opts)
+	if err != nil {
+		// Fail loud is acceptable; ensure error has some signal.
+		errStr := err.Error()
+		if !containsAny(errStr, "sst", "SST", "manifest", "MANIFEST", "not found", "no such file", "corrupt", "invalid") {
+			t.Logf("warning: error message may not be specific enough: %q", errStr)
+		}
+		return
+	}
+	defer database.Close()
+
+	// If open succeeds, it must be consistent (recover older state is acceptable).
+	// Iteration should be clean (no internal errors).
+	iter := database.NewIterator(nil)
+	defer iter.Close()
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		// no-op
+	}
+	if err := iter.Error(); err != nil {
+		t.Fatalf("iterator error after reopen: %v", err)
+	}
 }
