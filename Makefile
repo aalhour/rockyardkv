@@ -39,6 +39,7 @@ TRACEANALYZER_BIN := $(BIN_DIR)/traceanalyzer
 LDB_BIN := $(BIN_DIR)/ldb
 SSTDUMP_BIN := $(BIN_DIR)/sstdump
 MANIFESTDUMP_BIN := $(BIN_DIR)/manifestdump
+CAMPAIGN_BIN := $(BIN_DIR)/campaignrunner
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Tier Configuration
@@ -123,7 +124,7 @@ all: build ## Build all binaries (alias for 'build')
 # ═══════════════════════════════════════════════════════════════════════════
 
 .PHONY: build
-build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZER_BIN) $(LDB_BIN) $(SSTDUMP_BIN) $(MANIFESTDUMP_BIN) ## Build all binaries
+build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZER_BIN) $(LDB_BIN) $(SSTDUMP_BIN) $(MANIFESTDUMP_BIN) $(CAMPAIGN_BIN) ## Build all binaries
 	@echo "✅ Build complete"
 
 $(BIN_DIR):
@@ -160,6 +161,10 @@ $(SSTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 $(MANIFESTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
 	@echo "🔧 Building manifestdump binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/manifestdump
+
+$(CAMPAIGN_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+	@echo "🔧 Building campaign runner binary..."
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/campaignrunner
 
 .PHONY: build-release
 build-release: ## Build release binaries for all platforms
@@ -730,6 +735,78 @@ clean-reports: ## Remove generated refactoring reports (staticcheck, modernize, 
 
 .PHONY: clean
 clean: clean-build clean-test clean-fuzz clean-reports ## Remove all build artifacts, test cache, fuzz corpus, and refactoring reports (staticcheck, modernize, gocyclo, gocritic)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# JEPSEN-STYLE CAMPAIGN RUNNER
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Oracle-gated, fingerprinted, artifact-producing test campaigns.
+# Requires ROCKSDB_PATH to be set for C++ oracle tools.
+#
+# Quick tier: ~30 min, suitable for CI
+# Nightly tier: ~8 hours, thorough testing
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+CAMPAIGN_RUN_ROOT ?= campaign-runs/$(shell date +%Y%m%d-%H%M%S)
+KNOWN_FAILURES_PATH ?= campaign-runs/known-failures.json
+
+.PHONY: oracle-tools
+oracle-tools: ## Build C++ oracle tools (ldb, sst_dump) in ROCKSDB_PATH
+	@if [ -z "$$ROCKSDB_PATH" ]; then \
+		echo "error: ROCKSDB_PATH is not set"; \
+		echo "Set it to your RocksDB source directory:"; \
+		echo "  export ROCKSDB_PATH=/path/to/rocksdb"; \
+		exit 1; \
+	fi
+	@bash scripts/build-oracle.sh
+
+.PHONY: oracle-check
+oracle-check: ## Verify oracle tools are available
+	@if [ -z "$$ROCKSDB_PATH" ]; then \
+		echo "❌ ROCKSDB_PATH is not set"; \
+		exit 1; \
+	fi
+	@if [ ! -x "$$ROCKSDB_PATH/ldb" ]; then \
+		echo "❌ ldb not found at $$ROCKSDB_PATH/ldb"; \
+		echo "Run 'make oracle-tools' to build it"; \
+		exit 1; \
+	fi
+	@if [ ! -x "$$ROCKSDB_PATH/sst_dump" ]; then \
+		echo "❌ sst_dump not found at $$ROCKSDB_PATH/sst_dump"; \
+		echo "Run 'make oracle-tools' to build it"; \
+		exit 1; \
+	fi
+	@echo "✅ Oracle tools available:"
+	@echo "   ldb:      $$ROCKSDB_PATH/ldb"
+	@echo "   sst_dump: $$ROCKSDB_PATH/sst_dump"
+
+.PHONY: jepsen-quick
+jepsen-quick: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run Jepsen-style campaign (quick tier, ~30 min)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🔬 Jepsen Campaign: Quick Tier                      ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	$(CAMPAIGN_BIN) -tier=quick -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -v
+
+.PHONY: jepsen-nightly
+jepsen-nightly: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run Jepsen-style campaign (nightly tier, ~8 hours)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🔬 Jepsen Campaign: Nightly Tier                    ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	$(CAMPAIGN_BIN) -tier=nightly -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -v
+
+.PHONY: jepsen-quick-failfast
+jepsen-quick-failfast: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run quick campaign, stop on first failure
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🔬 Jepsen Campaign: Quick (fail-fast)               ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	$(CAMPAIGN_BIN) -tier=quick -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -fail-fast -v
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CI/CD
