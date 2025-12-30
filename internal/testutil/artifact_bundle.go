@@ -65,6 +65,10 @@ type RunInfo struct {
 	Passed  bool   `json:"passed"`
 	Error   string `json:"error,omitempty"`
 	Elapsed string `json:"elapsed,omitempty"`
+
+	// Termination info (set when process is interrupted by signal)
+	SignalReceived string `json:"signal_received,omitempty"`
+	ExitCode       int    `json:"exit_code,omitempty"`
 }
 
 // NewArtifactBundle creates a new artifact bundle.
@@ -133,6 +137,19 @@ func (ab *ArtifactBundle) RecordFailure(err error, elapsed time.Duration) error 
 	ab.RunInfo.Passed = false
 	ab.RunInfo.Error = err.Error()
 	ab.RunInfo.Elapsed = elapsed.String()
+
+	return ab.collectArtifacts()
+}
+
+// RecordSignalTermination marks the test as terminated by signal and collects artifacts.
+// signalName should be the signal name (e.g., "SIGINT", "SIGTERM").
+// exitCode is the exit code that will be used (typically 128 + signal number or 1).
+func (ab *ArtifactBundle) RecordSignalTermination(signalName string, exitCode int, elapsed time.Duration) error {
+	ab.RunInfo.Passed = false
+	ab.RunInfo.Error = "terminated by signal: " + signalName
+	ab.RunInfo.Elapsed = elapsed.String()
+	ab.RunInfo.SignalReceived = signalName
+	ab.RunInfo.ExitCode = exitCode
 
 	return ab.collectArtifacts()
 }

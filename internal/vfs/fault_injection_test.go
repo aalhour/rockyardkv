@@ -619,6 +619,50 @@ func TestFaultInjectionFS_SyncDirLieMode_ToggleOff(t *testing.T) {
 	}
 }
 
+// TestFaultInjectionFS_SyncDirLieMode_DoesNotMakeCreatesDurable tests that SyncDir
+// in lie mode returns success but does NOT make newly created files durable.
+//
+// Contract: In lie mode, SyncDir succeeds but directory entry durability is not
+// guaranteed. A crash that loses unsynced directory entries can remove newly
+// created files even though SyncDir returned success.
+func TestFaultInjectionFS_SyncDirLieMode_DoesNotMakeCreatesDurable(t *testing.T) {
+	dir := t.TempDir()
+	base := Default()
+	fs := NewFaultInjectionFS(base)
+
+	fs.SetSyncDirLieMode(true)
+
+	created := filepath.Join(dir, "created.txt")
+	f, err := fs.Create(created)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	_, err = f.Write([]byte("content"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	_ = f.Sync()
+	_ = f.Close()
+
+	if !fs.Exists(created) {
+		t.Fatalf("created file should exist before crash simulation")
+	}
+
+	// SyncDir reports success, but in lie mode it should not mark directory entries durable.
+	if err := fs.SyncDir(dir); err != nil {
+		t.Fatalf("SyncDir should succeed in lie mode, got: %v", err)
+	}
+
+	// Simulate a crash that loses unsynced directory entries for created files.
+	if err := fs.DeleteUnsyncedFiles(); err != nil {
+		t.Fatalf("DeleteUnsyncedFiles failed: %v", err)
+	}
+
+	if fs.Exists(created) {
+		t.Fatalf("created file should be missing after crash simulation under SyncDir lie mode")
+	}
+}
+
 // TestFaultInjectionFS_FileSyncLieMode_AllFiles tests that file sync lie mode
 // causes Sync() to return success but NOT mark data as synced.
 //

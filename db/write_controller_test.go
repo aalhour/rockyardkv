@@ -249,3 +249,56 @@ func TestWriteStallCauseString(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteControllerReleaseWriteStall tests graceful shutdown by verifying
+// that ReleaseWriteStall unblocks goroutines waiting in MaybeStallWrite
+// even when the stall condition is still Stopped.
+func TestWriteControllerReleaseWriteStall(t *testing.T) {
+	wc := NewWriteController()
+
+	// Set to stopped condition
+	wc.SetStallCondition(WriteStallConditionStopped, WriteStallCauseMemtableLimit)
+
+	var wg sync.WaitGroup
+	started := make(chan struct{})
+	done := make(chan struct{})
+
+	wg.Go(func() {
+		close(started)
+		// This should block until ReleaseWriteStall is called
+		wc.MaybeStallWrite(100)
+		close(done)
+	})
+
+	// Wait for goroutine to start and block
+	<-started
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify it's still blocked (condition is still Stopped)
+	select {
+	case <-done:
+		t.Fatal("MaybeStallWrite should be blocked")
+	default:
+		// Expected - still blocked
+	}
+
+	// Call ReleaseWriteStall - should unblock even though condition is Stopped
+	wc.ReleaseWriteStall()
+
+	// Wait for completion with timeout
+	select {
+	case <-done:
+		// Success - graceful shutdown worked
+	case <-time.After(1 * time.Second):
+		t.Fatal("MaybeStallWrite did not unblock after ReleaseWriteStall")
+	}
+
+	wg.Wait()
+
+	// Verify subsequent calls to MaybeStallWrite return immediately (closed state)
+	start := time.Now()
+	wc.MaybeStallWrite(1000000)
+	if time.Since(start) > 100*time.Millisecond {
+		t.Error("MaybeStallWrite should return immediately after ReleaseWriteStall")
+	}
+}
