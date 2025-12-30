@@ -44,6 +44,10 @@ type WriteController struct {
 	// Delayed write rate (bytes/sec), 0 means use default
 	delayedWriteRate uint64
 
+	// closed indicates shutdown has been requested.
+	// When true, MaybeStallWrite returns immediately instead of blocking.
+	closed bool
+
 	// Statistics
 	totalStopped uint64
 	totalDelayed uint64
@@ -92,15 +96,21 @@ func (wc *WriteController) SetStallCondition(condition WriteStallCondition, caus
 
 // MaybeStallWrite checks the stall condition and blocks or delays if needed.
 // Returns the time spent waiting (for statistics).
+// If the controller is closed (via ReleaseWriteStall), returns immediately.
 func (wc *WriteController) MaybeStallWrite(writeSize int) time.Duration {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 
 	startTime := time.Now()
 
-	// Handle stopped condition - block until released
-	for wc.condition == WriteStallConditionStopped {
+	// Handle stopped condition - block until released or closed
+	for wc.condition == WriteStallConditionStopped && !wc.closed {
 		wc.stallCond.Wait()
+	}
+
+	// If closed, return immediately without delay
+	if wc.closed {
+		return time.Since(startTime)
 	}
 
 	// Handle delayed condition - sleep based on write rate
@@ -137,6 +147,16 @@ func (wc *WriteController) GetStats() (stopped, delayed uint64) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	return wc.totalStopped, wc.totalDelayed
+}
+
+// ReleaseWriteStall marks the controller as closed and wakes up all waiting writers.
+// After calling this, MaybeStallWrite returns immediately instead of blocking.
+// Use this during graceful shutdown to unblock workers stuck in MaybeStallWrite.
+func (wc *WriteController) ReleaseWriteStall() {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	wc.closed = true
+	wc.stallCond.Broadcast()
 }
 
 // RecalculateWriteStallCondition determines the write stall condition based on current state.

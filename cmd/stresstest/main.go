@@ -205,18 +205,20 @@ func main() {
 
 	rand.Seed(*seed)
 
-	// Setup SIGTERM handler for clean crash test shutdown.
-	// When SIGTERM is received:
+	// Setup signal handler for clean crash test shutdown.
+	// When SIGINT or SIGTERM is received:
 	// 1. Stop workers (so no more writes in flight)
 	// 2. Save expected state (so verification can use the final state)
-	// 3. Simulate fault crash if -faultfs-simulate-crash-on-signal is set
-	// 4. Exit
+	// 3. Collect artifacts (DB snapshot, run.json with signal info)
+	// 4. Simulate fault crash if -faultfs-simulate-crash-on-signal is set
+	// 5. Exit
 	{
 		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGTERM)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
-			<-sigChan
-			fmt.Println("\n🔥 SIGTERM received — shutting down cleanly")
+			sig := <-sigChan
+			sigName := sig.String()
+			fmt.Printf("\n🔥 %s received — shutting down cleanly\n", sigName)
 
 			// Stop the periodic saver first (so it doesn't save stale state)
 			if globalStopSave != nil {
@@ -261,6 +263,23 @@ func main() {
 					fmt.Printf("⚠️  Failed to save expected state: %v\n", err)
 				} else {
 					fmt.Println("📁 Saved expected state before exit")
+				}
+			}
+
+			// Collect artifacts on signal termination (UC-14)
+			if artifactBundle != nil {
+				elapsed := time.Since(startTime)
+				// Use exit code 130 for SIGINT (2), 143 for SIGTERM (15)
+				exitCode := 1
+				if sig == syscall.SIGINT {
+					exitCode = 130
+				} else if sig == syscall.SIGTERM {
+					exitCode = 143
+				}
+				if bundleErr := artifactBundle.RecordSignalTermination(sigName, exitCode, elapsed); bundleErr != nil {
+					fmt.Printf("⚠️  Artifact collection error: %v\n", bundleErr)
+				} else {
+					fmt.Printf("📦 Artifacts collected at: %s\n", artifactBundle.RunDir)
 				}
 			}
 
@@ -463,6 +482,14 @@ func main() {
 			}
 		}
 
+		if globalGoroutineFS != nil {
+			// Disable injected faults for verification-only runs.
+			// Verification must reflect the stored state, not artificial read errors.
+			globalGoroutineFS.FaultManager().DisableGlobal()
+			if *verbose {
+				fmt.Println("📦 Goroutine faults disabled for final verification")
+			}
+		}
 		fmt.Println("\n🔍 Running final verification...")
 		if err := verifyAll(database, verifyState, stats); err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: final verification failed: %v\n", err)
@@ -828,9 +855,35 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	// Run for duration
 	time.Sleep(*duration)
 	close(stop)
+
+	// Release any write stalls to unblock workers waiting in MaybeStallWrite.
+	// This is needed when fault injection causes flush/compaction failures that
+	// prevent the stall condition from clearing naturally.
+	//
+	// IMPORTANT: We call ReleaseWriteStall directly on 'database' (the original
+	// DB instance) without acquiring holder.mu. This avoids a deadlock where:
+	// - Workers hold holder.mu.RLock() and are stuck in MaybeStallWrite()
+	// - Reopener is waiting for holder.mu.Lock()
+	// - Main thread would block on holder.mu.RLock() waiting for reopener
+	//
+	// ReleaseWriteStall just broadcasts on a sync.Cond, which is safe even if
+	// the reopener is in the middle of replacing the DB. The workers will wake
+	// up, check stop, and exit cleanly.
+	if impl, ok := database.(*db.DBImpl); ok {
+		impl.ReleaseWriteStall()
+	}
+
 	wg.Wait()
 
 	// Final verification
+	if globalGoroutineFS != nil {
+		// Disable injected faults for final verification.
+		// Verification must reflect the stored state, not artificial read errors.
+		globalGoroutineFS.FaultManager().DisableGlobal()
+		if *verbose {
+			fmt.Println("📦 Goroutine faults disabled for final verification")
+		}
+	}
 	fmt.Println("\n🔍 Running final verification...")
 	holder.mu.RLock()
 	err = verifyAll(holder.db, expected, stats)
@@ -2380,20 +2433,26 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 
 		if ev.IsDeleted() {
 			// Key should not exist
-			if !errors.Is(err, db.ErrNotFound) {
+			if err == nil {
 				if *allowDBAhead {
 					// In crash testing, DB can be ahead of expected state due to race conditions.
 					// Expected state: key deleted (saved before new PUT)
 					// DB: key exists (PUT synced after expected state save, before SIGKILL)
 					// This is acceptable - no data loss occurred.
 					if *verbose {
-						fmt.Printf("Verify: key %d expected deleted but found (allowed, DB ahead) (err=%v)\n", key, err)
+						fmt.Printf("Verify: key %d expected deleted but found (allowed, DB ahead)\n", key)
 					}
 				} else {
 					failures++
 					if *verbose {
-						fmt.Printf("Verify: key %d expected deleted but found (err=%v)\n", key, err)
+						fmt.Printf("Verify: key %d expected deleted but found\n", key)
 					}
+				}
+			} else if !errors.Is(err, db.ErrNotFound) {
+				// The key might or might not exist, but we could not verify due to a read error.
+				failures++
+				if *verbose {
+					fmt.Printf("Verify: key %d expected deleted but got error: %v\n", key, err)
 				}
 			}
 		} else if ev.Exists() {

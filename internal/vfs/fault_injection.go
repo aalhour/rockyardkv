@@ -512,20 +512,22 @@ func (fs *FaultInjectionFS) SyncDir(path string) error {
 
 	absPath, _ := filepath.Abs(path)
 
-	// Mark all files in this directory as having their directory synced.
-	// This is done even in lie mode (affects file state tracking).
+	// In lie mode: return success but do NOT:
+	// - mark directory entries as durable (dirSynced)
+	// - clear pending renames
+	//
+	// This simulates a filesystem that reports directory fsync success but still
+	// loses directory entries (including newly created files) on crash.
+	if fs.syncDirLieMode {
+		return nil
+	}
+
+	// Normal mode: mark all files in this directory as having their directory synced.
 	for filePath, state := range fs.fileState {
 		fileDir := filepath.Dir(filePath)
 		if fileDir == absPath {
 			state.dirSynced = true
 		}
-	}
-
-	// In lie mode: return success but do NOT clear pending renames.
-	// This simulates a filesystem that reports fsync success but still
-	// loses directory entries on crash.
-	if fs.syncDirLieMode {
-		return nil
 	}
 
 	// Normal mode: clear pending renames for files in this directory
