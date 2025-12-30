@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -404,6 +405,66 @@ func TestDatabase_Contract_GoWritesCppReads(t *testing.T) {
 	}
 }
 
+// TestDatabase_OracleLock_GoWritesCppToolsClassify ratchets the contract from
+// "C++ ldb can scan" to "C++ oracle tools classify the directory as consistent".
+//
+// Contract: A Go-generated DB directory is accepted by C++ oracle tools:
+// - ldb checkconsistency
+// - ldb manifest_dump (on the active MANIFEST)
+// - sst_dump (on at least one produced SST)
+func TestDatabase_OracleLock_GoWritesCppToolsClassify(t *testing.T) {
+	ldb := findLdbPathDB(t)
+	if ldb == "" {
+		t.Skip("ldb not found")
+	}
+	sstDump := findSstDumpPath(t)
+	if sstDump == "" {
+		t.Skip("sst_dump not found")
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "go_db_for_cpp_tools")
+
+	// Create database (small but flushed, to guarantee an SST exists).
+	opts := db.DefaultOptions()
+	opts.CreateIfMissing = true
+
+	database, err := db.Open(dbPath, opts)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	for i := range 2000 {
+		key := fmt.Sprintf("k_%05d", i)
+		val := fmt.Sprintf("v_%05d", i)
+		if err := database.Put(nil, []byte(key), []byte(val)); err != nil {
+			database.Close()
+			t.Fatalf("put: %v", err)
+		}
+	}
+	if err := database.Flush(nil); err != nil {
+		database.Close()
+		t.Fatalf("flush: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// 1) ldb checkconsistency must succeed (this is the strongest oracle signal).
+	_ = runLdbCheckConsistencyDB(t, ldb, dbPath)
+
+	// 2) ldb manifest_dump must parse the active MANIFEST without reporting corruption.
+	manifestPath := findAnyManifestFile(t, dbPath)
+	manifestOut := runLdbManifestDump(t, ldb, manifestPath)
+	if strings.Contains(strings.ToLower(manifestOut), "corruption") {
+		t.Fatalf("C++ ldb reports corruption parsing Go MANIFEST:\n%s", manifestOut)
+	}
+
+	// 3) sst_dump must be able to scan at least one produced SST.
+	sstPath := findAnySstFile(t, dbPath)
+	_ = runSstDumpScanDB(t, sstDump, sstPath)
+}
+
 // TestDatabase_Contract_ColumnFamilyIsolation_CppReads tests that C++ can read
 // column families created by Go.
 //
@@ -517,5 +578,68 @@ func runLdbGetDB(t *testing.T, ldb, dbPath, key string) string {
 		t.Fatalf("ldb get failed: %v\nOutput: %s", err, output)
 	}
 
+	return string(output)
+}
+
+func runLdbCheckConsistencyDB(t *testing.T, ldb, dbPath string) string {
+	t.Helper()
+
+	// RocksDB tool: ldb checkconsistency --db=<DB_PATH>
+	cmd := exec.Command(ldb, "checkconsistency", "--db="+dbPath)
+	dir := filepath.Dir(ldb)
+	cmd.Env = toolEnv(dir)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "Library not loaded") {
+			t.Skipf("C++ tools not built: %s", output)
+		}
+		t.Fatalf("ldb checkconsistency failed: %v\nOutput: %s", err, output)
+	}
+	return string(output)
+}
+
+func findAnyManifestFile(t *testing.T, dbPath string) string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dbPath, "MANIFEST-*"))
+	if err != nil {
+		t.Fatalf("glob MANIFEST: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("no MANIFEST files found under %q", dbPath)
+	}
+	sort.Strings(matches)
+	return matches[len(matches)-1]
+}
+
+func findAnySstFile(t *testing.T, dbPath string) string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dbPath, "*.sst"))
+	if err != nil {
+		t.Fatalf("glob sst: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("no sst files found under %q", dbPath)
+	}
+	sort.Strings(matches)
+	return matches[0]
+}
+
+func runSstDumpScanDB(t *testing.T, sstDump, sstPath string) string {
+	t.Helper()
+
+	cmd := exec.Command(sstDump, "--file="+sstPath, "--command=scan")
+	dir := filepath.Dir(sstDump)
+	cmd.Env = toolEnv(dir)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(output), "Library not loaded") {
+			t.Skipf("C++ tools not built: %s", output)
+		}
+		t.Fatalf("sst_dump scan failed: %v\nOutput: %s", err, output)
+	}
 	return string(output)
 }
