@@ -4,8 +4,8 @@ Benchmark results for RockyardKV on Apple Silicon hardware.
 
 **Environment:**
 
-- Date: 2024-12-26
-- Go version: go1.22 (darwin/arm64)
+- Date: 2024-12-30
+- Go version: go1.25 (darwin/arm64)
 - Hardware: Apple M2 Max, 12 cores
 - Tool: `go test -bench=. -benchmem`
 
@@ -13,10 +13,10 @@ Benchmark results for RockyardKV on Apple Silicon hardware.
 
 | Operation | Throughput | Latency | Notes |
 |-----------|------------|---------|-------|
-| Sequential Put | 240k ops/sec | 5.0 us/op | 100-byte values |
-| Random Put | 200k ops/sec | 7.4 us/op | 100-byte values |
-| Get (memtable) | 1.0M ops/sec | 1.1 us/op | Hot path |
-| Get (concurrent) | 5.3M ops/sec | 226 ns/op | 12 readers |
+| Sequential Put | 224k ops/sec | 5.0 us/op | 100-byte values |
+| Random Put | 216k ops/sec | 7.8 us/op | 100-byte values |
+| Get (memtable) | 1.5M ops/sec | 0.8 us/op | Hot path |
+| Get (concurrent) | 5.9M ops/sec | 199 ns/op | 12 readers |
 | MultiGet (100 keys) | 18k batches/sec | 65 us/batch | 1.5M keys/sec effective |
 | Batch Write (100 ops) | 10k batches/sec | 111 us/batch | 1M ops/sec effective |
 | Delete | 128k ops/sec | 9.5 us/op | Point deletes |
@@ -26,16 +26,16 @@ Benchmark results for RockyardKV on Apple Silicon hardware.
 | Iterator Scan (10k keys) | 862 scans/sec | 1.4 ms/scan | Full iteration |
 | Transaction | 176k ops/sec | 8.2 us/op | Read-modify-write |
 | Snapshot Create | 1.8M ops/sec | 636 ns/op | Lock-free read |
-| DB Open | 190 opens/sec | 6.5 ms/op | With 10k keys, 1 SST |
+| DB Open | 56 opens/sec | 21.5 ms/op | With 10k keys, 1 SST (includes fsync) |
 
 ## Detailed results
 
 ### Single-key operations
 
 ```
-BenchmarkDBPutSequential-12      239,592 ops    4,995 ns/op    613 B/op    13 allocs/op
-BenchmarkDBPutRandom-12          200,856 ops    7,415 ns/op    613 B/op    13 allocs/op
-BenchmarkDBGet-12              1,000,000 ops    1,058 ns/op    175 B/op     3 allocs/op
+BenchmarkDBPutSequential-12      223,992 ops    5,035 ns/op    613 B/op    13 allocs/op
+BenchmarkDBPutRandom-12          216,463 ops    7,824 ns/op    613 B/op    13 allocs/op
+BenchmarkDBGet-12              1,490,748 ops      804 ns/op    175 B/op     3 allocs/op
 ```
 
 ### Batch operations
@@ -83,15 +83,18 @@ BenchmarkTransactionConflict-12    157,603 ops    7,490 ns/op    1,287 B/op    2
 ### Database lifecycle
 
 ```
-BenchmarkDBOpen-12                 190 ops  6,451,928 ns/op  174,026 B/op  1,807 allocs/op
-BenchmarkFlush-12                   52 ops 37,306,240 ns/op  1,616,197 B/op  14,624 allocs/op
+BenchmarkDBOpen-12                  56 ops 21,500,000 ns/op  5,892,846 B/op  84,273 allocs/op
+BenchmarkFlush-12                   69 ops 22,521,290 ns/op  2,108,562 B/op  15,214 allocs/op
 ```
+
+Note: DBOpen latency increased from 6.5ms to 21.5ms due to durability fixes that add fsync calls during MANIFEST and CURRENT file writes.
+This ensures crash safety but increases open time.
 
 ### Concurrent operations
 
 ```
-BenchmarkConcurrentPut-12        157,556 ops   11,886 ns/op    685 B/op    14 allocs/op
-BenchmarkConcurrentGet-12      5,264,005 ops      226 ns/op    175 B/op     3 allocs/op
+BenchmarkConcurrentPut-12        163,128 ops    7,822 ns/op    685 B/op    14 allocs/op
+BenchmarkConcurrentGet-12      5,949,781 ops      199 ns/op    175 B/op     3 allocs/op
 ```
 
 ### Value size scaling
