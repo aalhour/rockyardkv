@@ -10,6 +10,14 @@
 //
 //	campaignrunner -tier=quick -run-root=/tmp/campaign
 //	campaignrunner -tier=nightly -fail-fast -run-root=/tmp/campaign
+//	campaignrunner -group=status.durability -run-root=/tmp/status
+//
+// Groups:
+//
+//	stress, crash, golden - standard test campaigns
+//	status.golden - C++ compatibility (go test -run Golden)
+//	status.durability - durability scenarios (wal_sync, disablewal_faultfs, etc.)
+//	status.adversarial - corruption attack suite
 //
 // Environment:
 //
@@ -39,14 +47,25 @@ func main() {
 func run() error {
 	// Parse flags
 	tier := flag.String("tier", "quick", "Campaign tier: quick or nightly")
+	group := flag.String("group", "", "Instance group to run (e.g., status.durability, stress)")
 	runRoot := flag.String("run-root", "", "Root directory for run artifacts (required)")
 	failFast := flag.Bool("fail-fast", false, "Stop on first failure")
 	verbose := flag.Bool("v", false, "Verbose output")
 	instanceTimeout := flag.Int("instance-timeout", 0, "Per-instance timeout in seconds (0 = default for tier)")
 	globalTimeout := flag.Int("global-timeout", 0, "Global campaign timeout in seconds (0 = default for tier)")
 	knownFailuresPath := flag.String("known-failures", "", "Path to known failures JSON file for deduplication")
+	listGroups := flag.Bool("list-groups", false, "List available instance groups and exit")
 
 	flag.Parse()
+
+	// Handle -list-groups
+	if *listGroups {
+		fmt.Println("Available groups:")
+		for _, g := range campaign.AllGroups() {
+			fmt.Printf("  %s\n", g)
+		}
+		return nil
+	}
 
 	// Validate required flags
 	if *runRoot == "" {
@@ -110,10 +129,19 @@ func run() error {
 
 	// Run campaign
 	fmt.Printf("campaign: tier=%s run-root=%s fail-fast=%v\n", t, *runRoot, *failFast)
-	fmt.Printf("instances: %d configurations\n", len(campaign.GetInstances(t)))
+	if *group != "" {
+		fmt.Printf("group: %s\n", *group)
+	}
 	fmt.Println()
 
-	summary, err := runner.Run(ctx)
+	var summary *campaign.CampaignSummary
+	var err error
+
+	if *group != "" {
+		summary, err = runner.RunGroup(ctx, *group)
+	} else {
+		summary, err = runner.Run(ctx)
+	}
 	if err != nil {
 		return err
 	}

@@ -70,6 +70,33 @@ func (r *Runner) Run(ctx context.Context) (*CampaignSummary, error) {
 	return r.RunInstances(ctx, instances)
 }
 
+// RunGroup executes instances matching the group prefix.
+// If group is empty, runs all instances for the tier.
+// If group starts with "status.", runs status instances.
+func (r *Runner) RunGroup(ctx context.Context, group string) (*CampaignSummary, error) {
+	var instances []Instance
+
+	if group == "" {
+		instances = GetInstances(r.config.Tier)
+	} else if len(group) >= 6 && group[:6] == "status" {
+		instances = GetStatusInstances(group)
+	} else {
+		// Filter regular instances by group
+		all := GetInstances(r.config.Tier)
+		for _, inst := range all {
+			if matchesGroup(inst.Name, group) {
+				instances = append(instances, inst)
+			}
+		}
+	}
+
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no instances match group %q", group)
+	}
+
+	return r.RunInstances(ctx, instances)
+}
+
 // RunInstances executes the specified instances.
 func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*CampaignSummary, error) {
 	startTime := time.Now()
