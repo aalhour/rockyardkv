@@ -10,7 +10,7 @@
   
 [![Go Reference](https://pkg.go.dev/badge/github.com/aalhour/rockyardkv/v4.svg)](https://pkg.go.dev/github.com/aalhour/rockyardkv)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aalhour/rockyardkv)](https://goreportcard.com/report/github.com/aalhour/rockyardkv)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/facebook/rocksdb)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aalhour/rockyardkv)
   
 </div>
 
