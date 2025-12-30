@@ -4,35 +4,21 @@
 package db
 
 import (
-	"log"
-	"os"
 	"time"
 
 	"github.com/aalhour/rockyardkv/internal/checksum"
 	"github.com/aalhour/rockyardkv/internal/compression"
+	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
-// Logger defines the interface for database logging.
-// If nil, a default logger writing to stderr is used.
-type Logger interface {
-	// Warn logs a warning message.
-	Warn(msg string)
-}
+// Logger is an alias for the logging.Logger interface.
+// This allows users to pass their own logger implementation.
+type Logger = logging.Logger
 
-// defaultLogger is the default logger that writes to stderr.
-type defaultLogger struct {
-	logger *log.Logger
-}
-
-func newDefaultLogger() *defaultLogger {
-	return &defaultLogger{
-		logger: log.New(os.Stderr, "[rockyardkv] ", log.LstdFlags),
-	}
-}
-
-func (l *defaultLogger) Warn(msg string) {
-	l.logger.Println("WARN:", msg)
+// newDefaultLogger creates the default logger with warn level.
+func newDefaultLogger() logging.Logger {
+	return logging.NewDefaultLogger(logging.LevelWarn)
 }
 
 // CompressionType is an alias for the compression type.

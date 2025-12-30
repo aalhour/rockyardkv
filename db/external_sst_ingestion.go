@@ -123,6 +123,8 @@ func (db *DBImpl) IngestExternalFileCF(cf ColumnFamilyHandle, paths []string, op
 		return nil
 	}
 
+	db.logger.Infof("[ingest] ingesting %d SST files", len(paths))
+
 	// Step 1: Verify and collect information about all files
 	files, err := db.verifyAndPrepareIngestFiles(paths, opts)
 	if err != nil {
@@ -183,6 +185,8 @@ func (db *DBImpl) IngestExternalFileCF(cf ColumnFamilyHandle, paths []string, op
 		}
 		return err
 	}
+
+	db.logger.Infof("[ingest] completed: %d files ingested", len(files))
 
 	return nil
 }

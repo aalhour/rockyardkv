@@ -269,7 +269,9 @@ func Open(path string, opts *Options) (DB, error) {
 		}
 	}
 
-	// Use default logger if not specified
+	// Logger configuration: db.logger is NEVER nil after Open().
+	// If opts.Logger is nil, we use a default logger (LevelWarn).
+	// This allows all components to call db.logger.Infof(...) without nil checks.
 	logger := opts.Logger
 	if logger == nil {
 		logger = newDefaultLogger()
@@ -299,6 +301,7 @@ func Open(path string, opts *Options) (DB, error) {
 		FS:                  fs,
 		MaxManifestFileSize: 1024 * 1024 * 1024, // 1GB
 		NumLevels:           version.MaxNumLevels,
+		Logger:              logger, // Pass through for MANIFEST logging
 	}
 	db.versions = version.NewVersionSet(vsOpts)
 
@@ -308,11 +311,13 @@ func Open(path string, opts *Options) (DB, error) {
 		if err := db.recover(); err != nil {
 			return nil, err
 		}
+		db.logger.Infof("[db] opened database at %s", path)
 	} else {
 		// Create new database
 		if err := db.create(); err != nil {
 			return nil, err
 		}
+		db.logger.Infof("[db] created new database at %s", path)
 	}
 
 	// Start background workers
@@ -412,6 +417,7 @@ func (db *DBImpl) create() error {
 	db.logFile = logFile
 	db.logFileNumber = logNumber
 	db.logWriter = wal.NewWriter(logFile, logNumber, false /* not recyclable */)
+	db.logger.Debugf("[wal] created WAL file %d", logNumber)
 
 	// Create memtable with the configured comparator
 	var memCmp memtable.Comparator
@@ -482,6 +488,7 @@ func (db *DBImpl) recover() error {
 	db.logFile = logFile
 	db.logFileNumber = logNumber
 	db.logWriter = wal.NewWriter(logFile, logNumber, false /* not recyclable */)
+	db.logger.Debugf("[wal] created WAL file %d (post-recovery)", logNumber)
 
 	// Record NextFileNumber to prevent file number reuse, but do NOT update
 	// LogNumber. The LogNumber determines which logs are replayed during
@@ -632,6 +639,10 @@ func (db *DBImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([
 			return value, nil
 		}
 		if !errors.Is(err, ErrNotFound) {
+			// Log corruption errors - critical for debugging silent data corruption
+			if errors.Is(err, table.ErrChecksumMismatch) {
+				db.logger.Errorf("[corruption] checksum mismatch reading SST file for key %x: %v", key, err)
+			}
 			return nil, err
 		}
 	}
@@ -1083,9 +1094,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 		// Warn once about data loss risk
 		if !db.walDisabledWarned {
 			db.walDisabledWarned = true
-			if db.logger != nil {
-				db.logger.Warn("DisableWAL=true: writes will be lost if process crashes before Flush()")
-			}
+			db.logger.Warn("[wal] DisableWAL=true: writes will be lost if process crashes before Flush()")
 		}
 	} else if db.logWriter != nil {
 		// Whitebox [synctest]: barrier before WAL write
@@ -1443,6 +1452,7 @@ func (db *DBImpl) Close() error {
 		return nil
 	}
 	db.closed = true
+	db.logger.Info("[db] closing database")
 	db.mu.Unlock()
 
 	// Stop background workers first (outside mutex to avoid deadlock)
@@ -1486,6 +1496,7 @@ func (db *DBImpl) SetBackgroundError(err error) {
 	// Only set if not already set (first error wins)
 	if db.backgroundError == nil && err != nil {
 		db.backgroundError = err
+		db.logger.Errorf("[db] background error set: %v", err)
 	}
 }
 
@@ -1494,6 +1505,14 @@ func (db *DBImpl) GetBackgroundError() error {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.backgroundError
+}
+
+// ReleaseWriteStall wakes up all goroutines waiting in MaybeStallWrite.
+// This is useful for graceful shutdown when write stalls are active.
+// After calling this, waiting writers will recheck their conditions and can exit.
+// Note: This does NOT change the stall condition - use SetStallCondition for that.
+func (db *DBImpl) ReleaseWriteStall() {
+	db.writeController.ReleaseWriteStall()
 }
 
 // Property name constants for GetProperty.
@@ -1805,6 +1824,7 @@ func (db *DBImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (Col
 		return nil, fmt.Errorf("failed to persist column family: %w", err)
 	}
 
+	db.logger.Infof("[cf] created column family %q (id=%d)", name, cfd.id)
 	return &columnFamilyHandle{cfd: cfd}, nil
 }
 
@@ -1827,6 +1847,7 @@ func (db *DBImpl) DropColumnFamily(cf ColumnFamilyHandle) error {
 	}
 
 	cfID := handle.cfd.id
+	cfName := handle.cfd.name
 
 	// Persist CF drop to MANIFEST first
 	edit := &manifest.VersionEdit{}
@@ -1836,6 +1857,7 @@ func (db *DBImpl) DropColumnFamily(cf ColumnFamilyHandle) error {
 		return fmt.Errorf("failed to persist column family drop: %w", err)
 	}
 
+	db.logger.Infof("[cf] dropped column family %q (id=%d)", cfName, cfID)
 	return db.columnFamilies.Drop(handle.cfd)
 }
 
@@ -1927,7 +1949,9 @@ func (db *DBImpl) compactLevel(v *version.Version, level int, start, end []byte,
 		return nil
 	}
 
-	// Find files that overlap [start, end)
+	// Find files that overlap [start, end) while holding the lock
+	// to safely read BeingCompacted (which is written by background compactions)
+	db.mu.Lock()
 	var overlappingFiles []*manifest.FileMetaData
 	for _, f := range files {
 		if f.BeingCompacted {
@@ -1942,6 +1966,7 @@ func (db *DBImpl) compactLevel(v *version.Version, level int, start, end []byte,
 		}
 		overlappingFiles = append(overlappingFiles, f)
 	}
+	db.mu.Unlock()
 
 	if len(overlappingFiles) == 0 {
 		return nil
@@ -1970,12 +1995,14 @@ func (db *DBImpl) compactLevel(v *version.Version, level int, start, end []byte,
 	}
 
 	outputFiles := v.OverlappingInputs(outputLevel, smallest, largest)
+	db.mu.Lock()
 	var outputAvailable []*manifest.FileMetaData
 	for _, f := range outputFiles {
 		if !f.BeingCompacted {
 			outputAvailable = append(outputAvailable, f)
 		}
 	}
+	db.mu.Unlock()
 
 	inputs := []*compaction.CompactionInputFiles{input}
 	if len(outputAvailable) > 0 {
@@ -2036,6 +2063,9 @@ func (db *DBImpl) recalculateWriteStall() {
 		numL0Files = len(v.Files(0))
 	}
 
+	// Get previous condition for logging
+	prevCondition, _ := db.writeController.GetStallCondition()
+
 	// Recalculate condition
 	condition, cause := RecalculateWriteStallCondition(
 		numUnflushed,
@@ -2048,4 +2078,14 @@ func (db *DBImpl) recalculateWriteStall() {
 
 	// Update write controller
 	db.writeController.SetStallCondition(condition, cause)
+
+	// Log stall condition changes (rare but critical for debugging)
+	if condition != prevCondition {
+		if condition == WriteStallConditionNormal {
+			db.logger.Infof("[stall] write stall ended (was %s)", prevCondition)
+		} else {
+			db.logger.Warnf("[stall] write stall started: %s (cause: %s, L0=%d, memtables=%d)",
+				condition, cause, numL0Files, numUnflushed)
+		}
+	}
 }

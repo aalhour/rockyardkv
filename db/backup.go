@@ -85,6 +85,8 @@ func (be *BackupEngine) CreateNewBackup() (*BackupInfo, error) {
 		return nil, err
 	}
 
+	be.db.logger.Infof("[backup] creating backup %d", backupID)
+
 	// Hold lock to get consistent state
 	be.db.mu.Lock()
 
@@ -184,12 +186,16 @@ func (be *BackupEngine) CreateNewBackup() (*BackupInfo, error) {
 		return nil, fmt.Errorf("db: failed to write backup metadata: %w", err)
 	}
 
-	return &BackupInfo{
+	info := &BackupInfo{
 		ID:        backupID,
 		Timestamp: time.Unix(meta.Timestamp, 0),
 		Size:      totalSize,
 		NumFiles:  len(sstFiles) + 1 + len(logFiles), // SST + manifest + logs
-	}, nil
+	}
+
+	be.db.logger.Infof("[backup] completed backup %d: %d files, %d bytes", backupID, info.NumFiles, totalSize)
+
+	return info, nil
 }
 
 // GetBackupInfo returns information about all available backups.
@@ -239,6 +245,8 @@ func (be *BackupEngine) GetBackupInfo() ([]BackupInfo, error) {
 // RestoreDBFromBackup restores the database from a backup.
 // The restore directory should not exist.
 func (be *BackupEngine) RestoreDBFromBackup(backupID uint32, restoreDir string) error {
+	be.db.logger.Infof("[backup] restoring backup %d to %s", backupID, restoreDir)
+
 	// Check restore directory doesn't exist
 	if _, err := os.Stat(restoreDir); !os.IsNotExist(err) {
 		if err == nil {
@@ -312,6 +320,8 @@ func (be *BackupEngine) RestoreDBFromBackup(backupID uint32, restoreDir string) 
 		_ = dir.Sync() // Best effort sync
 		_ = dir.Close()
 	}
+
+	be.db.logger.Infof("[backup] restore completed: %d SST files, manifest=%s", len(meta.Files), meta.ManifestFile)
 
 	success = true
 	return nil

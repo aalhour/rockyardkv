@@ -339,6 +339,7 @@ func (bg *BackgroundWork) doCompactionWork() {
 		// Record background error for I/O failures
 		bg.db.SetBackgroundError(err)
 		bg.IncrementBackgroundErrors()
+		bg.db.logger.Warnf("[compact] compaction failed: %v", err)
 		return
 	}
 

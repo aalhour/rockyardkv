@@ -221,6 +221,19 @@ func (db *DBImpl) doFlush() error {
 	job := newFlushJob(db, imm)
 	meta, err := job.Run()
 	if err != nil {
+		// Flush failed. Set background error and broadcast to unblock any waiters.
+		// Without this, goroutines waiting on immCond.Wait() would block forever.
+		db.mu.Lock()
+		if db.backgroundError == nil {
+			db.backgroundError = err
+		}
+		// Broadcast to wake up any goroutines waiting for immutable memtable to clear.
+		// They will check backgroundError and return the error.
+		if db.immCond != nil {
+			db.immCond.Broadcast()
+		}
+		db.mu.Unlock()
+		db.logger.Warnf("[flush] flush job failed: %v", err)
 		return err
 	}
 

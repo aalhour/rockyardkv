@@ -26,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -59,6 +60,10 @@ type VersionSetOptions struct {
 	// This is validated against the comparator stored in the MANIFEST.
 	// If empty, defaults to "leveldb.BytewiseComparator".
 	ComparatorName string
+
+	// Logger is an optional logger for MANIFEST operations.
+	// If nil, no logging is performed.
+	Logger logging.Logger
 }
 
 // ErrComparatorMismatch indicates that the database was created with a different comparator.
@@ -436,6 +441,11 @@ func (vs *VersionSet) LogAndApply(edit *manifest.VersionEdit) error {
 		vs.manifestWriter = wal.NewWriter(file, manifestNum, false /* not recyclable */)
 		vs.manifestFileNumber = manifestNum
 		newManifest = true
+
+		// Log manifest creation (matches RocksDB version_set.cc:5775)
+		if vs.opts.Logger != nil {
+			vs.opts.Logger.Infof(logging.NSManifest+"creating MANIFEST-%06d", manifestNum)
+		}
 
 		// Write a snapshot of the current state
 		snapshotEdit := vs.writeSnapshot()

@@ -275,12 +275,16 @@ func (txn *optimisticTransaction) Commit() error {
 	}
 
 	// Apply the write batch
+	writeCount := txn.writeBatch.Count()
 	if err := txn.db.Write(txn.writeOpts, newWriteBatchFromInternal(txn.writeBatch)); err != nil {
 		return err
 	}
 
 	// Release snapshot and mark as closed
 	txn.close()
+
+	txn.db.logger.Debugf("[txn] committed optimistic txn (%d writes)", writeCount)
+
 	return nil
 }
 
