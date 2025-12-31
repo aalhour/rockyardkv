@@ -1,3 +1,10 @@
+// matrix.go defines the campaign instance matrix.
+//
+// The matrix contains all predefined instances organized by tier (quick/nightly).
+// Each instance is a specific test configuration with reproducible seeds.
+//
+// Quick tier: fast feedback for local dev and CI pull requests.
+// Nightly tier: comprehensive coverage for scheduled runs.
 package campaign
 
 // QuickInstances returns the instance matrix for the quick tier.

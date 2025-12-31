@@ -1,3 +1,8 @@
+// status.go defines status/durability repro instances.
+//
+// These instances reproduce specific durability and consistency scenarios
+// documented in docs/status/durability_report.md. They serve as regression
+// tests for known failure modes and recovery behaviors.
 package campaign
 
 // StatusInstances returns the simple instance matrix for status/durability checks.

@@ -1,3 +1,8 @@
+// synthetic.go provides synthetic failure injection for CI testing.
+//
+// Synthetic failures allow deterministic testing of the minimization and
+// failure classification pipelines without relying on actual test failures.
+// They produce stable fingerprints for verifying deduplication and quarantine.
 package campaign
 
 import (

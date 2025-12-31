@@ -1,3 +1,11 @@
+// composite.go defines multi-step composite instances.
+//
+// Composite instances execute a sequence of steps (each a campaign instance)
+// with configurable gating policies to determine overall pass/fail.
+//
+// Use cases:
+//   - WAL+sync durability: write → crash → verify
+//   - Compaction stress: write → compact → verify
 package campaign
 
 import (

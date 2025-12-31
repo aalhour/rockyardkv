@@ -1,3 +1,9 @@
+// filter.go implements tag-based instance filtering.
+//
+// Filters allow selecting a subset of instances based on their computed tags.
+// Syntax: "key=value,key!=value,key=v1|v2" (comma-separated AND, pipe for OR).
+//
+// Example: "tier=quick,tool=stresstest" selects quick-tier stress instances.
 package campaign
 
 import (

@@ -1,3 +1,12 @@
+// known_failures.go implements failure fingerprinting and quarantine tracking.
+//
+// Known failures are identified by stable fingerprints (hash of instance name,
+// seed, failure kind, and key error details). When a failure recurs, it can
+// be classified as a duplicate and optionally quarantined to prevent blocking CI.
+//
+// Quarantine policies:
+//   - QuarantineNone: failure is not quarantined, fails the campaign
+//   - QuarantineAllowed: failure is known and allowed, does not fail the campaign
 package campaign
 
 import (

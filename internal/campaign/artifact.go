@@ -1,3 +1,11 @@
+// artifact.go defines run artifacts, campaign summaries, and persistence logic.
+//
+// Key types:
+//   - RunResult: captures outcome of a single instance run
+//   - CampaignSummary: aggregates results across all runs in a campaign
+//   - RunArtifact: on-disk representation of a run for recheck/audit
+//
+// Artifacts are written to stable paths under the run root directory.
 package campaign
 
 import (

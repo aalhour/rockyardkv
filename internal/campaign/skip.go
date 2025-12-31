@@ -1,3 +1,12 @@
+// skip.go implements instance-level skip policies.
+//
+// Skip policies allow excluding instances BEFORE they run, based on:
+//   - Exact instance name
+//   - Group prefix (e.g., "status.durability")
+//   - Tag matching (e.g., tier=quick, tool=crashtest)
+//
+// Unlike quarantine (fingerprint-based, post-failure), skip is instance-level
+// and prevents the run from starting. Skipped instances are recorded in summary.json.
 package campaign
 
 import (

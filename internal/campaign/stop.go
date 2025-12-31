@@ -1,3 +1,7 @@
+// stop.go defines stop conditions for instance runs.
+//
+// Stop conditions specify what constitutes success vs failure for a run.
+// They control termination requirements, verification passes, and oracle checks.
 package campaign
 
 // StopCondition defines when an instance run is considered complete and what

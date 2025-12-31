@@ -1,3 +1,7 @@
+// trace.go implements trace capture and argument injection for stresstest.
+//
+// When trace capture is enabled, the runner injects -trace-out and -trace-max-size
+// arguments into stresstest invocations to capture operation traces for debugging.
 package campaign
 
 import (

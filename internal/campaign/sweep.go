@@ -1,3 +1,10 @@
+// sweep.go implements sweep instances for parameter matrix expansion.
+//
+// A sweep instance defines a base configuration with varying parameters.
+// At run time, it expands into multiple concrete instances by taking the
+// Cartesian product of all parameter values.
+//
+// Example: cycles=[1,2,3] × mode=[sync,async] → 6 concrete runs.
 package campaign
 
 import (

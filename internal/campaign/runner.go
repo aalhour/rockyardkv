@@ -1,3 +1,12 @@
+// runner.go implements the core campaign execution engine.
+//
+// The Runner orchestrates instance execution with:
+//   - Tool invocation with timeout and cancellation
+//   - Artifact persistence (run.json, logs, DB snapshots)
+//   - Oracle gating (require ldb checkconsistency before pass)
+//   - Failure fingerprinting and deduplication
+//   - Skip policy enforcement
+//   - Summary generation (summary.json, governance.json)
 package campaign
 
 import (
