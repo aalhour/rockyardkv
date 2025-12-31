@@ -9,19 +9,30 @@ import (
 )
 
 func TestComputeFingerprint(t *testing.T) {
-	// Same failure reason should produce same fingerprint
-	fp1 := ComputeFingerprint("non-zero exit code: 1", "")
-	fp2 := ComputeFingerprint("non-zero exit code: 1", "")
+	// Same instance/seed/failure should produce same fingerprint
+	fp1 := ComputeFingerprint("test.instance", 12345, "exit_error", "non-zero exit code: 1", "")
+	fp2 := ComputeFingerprint("test.instance", 12345, "exit_error", "non-zero exit code: 1", "")
 
 	if fp1 != fp2 {
 		t.Errorf("same failure should produce same fingerprint: %q != %q", fp1, fp2)
 	}
 
-	// Different failure reasons should produce different fingerprints
-	fp3 := ComputeFingerprint("timeout", "")
-
+	// Different instance should produce different fingerprint
+	fp3 := ComputeFingerprint("other.instance", 12345, "exit_error", "non-zero exit code: 1", "")
 	if fp1 == fp3 {
-		t.Errorf("different failures should produce different fingerprints: %q == %q", fp1, fp3)
+		t.Errorf("different instances should produce different fingerprints: %q == %q", fp1, fp3)
+	}
+
+	// Different seed should produce different fingerprint
+	fp4 := ComputeFingerprint("test.instance", 99999, "exit_error", "non-zero exit code: 1", "")
+	if fp1 == fp4 {
+		t.Errorf("different seeds should produce different fingerprints: %q == %q", fp1, fp4)
+	}
+
+	// Different failure kind should produce different fingerprint
+	fp5 := ComputeFingerprint("test.instance", 12345, "timeout", "non-zero exit code: 1", "")
+	if fp1 == fp5 {
+		t.Errorf("different failure kinds should produce different fingerprints: %q == %q", fp1, fp5)
 	}
 
 	// Fingerprint should be 16 hex chars
