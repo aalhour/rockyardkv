@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Build RocksDB oracle tools (ldb and sst_dump).
 #
 # Prerequisites:
@@ -11,7 +11,7 @@
 #
 # After running, ldb and sst_dump binaries will be in ROCKSDB_PATH.
 
-set -e
+set -euo pipefail
 
 if [ -z "$ROCKSDB_PATH" ]; then
     echo "error: ROCKSDB_PATH is not set"
@@ -35,8 +35,17 @@ cd "$ROCKSDB_PATH"
 echo "Building RocksDB oracle tools in $ROCKSDB_PATH..."
 echo ""
 
-# Build ldb and sst_dump
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) ldb sst_dump
+# Build ldb and sst_dump.
+# On macOS, also build shared_lib so the tools can locate librocksdb_tools.dylib.
+jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+case "$(uname -s)" in
+  Darwin)
+    make -j"$jobs" shared_lib ldb sst_dump
+    ;;
+  *)
+    make -j"$jobs" ldb sst_dump
+    ;;
+esac
 
 echo ""
 echo "Oracle tools built successfully:"

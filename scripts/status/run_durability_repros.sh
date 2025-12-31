@@ -69,7 +69,22 @@ require_bin() {
   fi
 }
 
-rm -rf "$RUN_DIR"
+safe_rm_rf_dir() {
+  local dir="$1"
+  if [[ -z "$dir" ]]; then
+    echo "Error: refusing to rm -rf empty directory path" >&2
+    exit 2
+  fi
+  case "$dir" in
+    "/"|"/tmp"|"/var"|"/var/"*|"$HOME"|"$HOME/"|". "|"."|".." )
+      echo "Error: refusing to rm -rf unsafe directory: $dir" >&2
+      exit 2
+      ;;
+  esac
+  rm -rf "$dir"
+}
+
+safe_rm_rf_dir "$RUN_DIR"
 mkdir -p "$RUN_DIR"
 
 LOG="$RUN_DIR/run.log"
