@@ -1,7 +1,11 @@
 // Cross-compatibility tests that verify Go can read C++ RocksDB-generated SST files.
 //
-// The SST files in testdata/rocksdb_generated/ were created with C++ RocksDB v10.7.5
-// using the ldb tool. This test verifies we can read them correctly.
+// Contract: The table reader can open and iterate real RocksDB-generated SST files.
+//
+// Fixture location:
+//   - testdata/rocksdb/v10.7.5/sst_samples/
+//
+// These SST files were created with C++ RocksDB v10.7.5 using the ldb tool.
 package table
 
 import (
@@ -19,13 +23,13 @@ import (
 //	ldb --db=/tmp/test --create_if_missing put key1 value1
 //	ldb --db=/tmp/test put key2 value2
 //
-// Then the SST files were copied to testdata/rocksdb_generated/
+// Then the SST files were copied to testdata/rocksdb/v10.7.5/sst_samples/
 func TestReadCppRocksDBSST(t *testing.T) {
-	testdataDir := "../../testdata/rocksdb_generated"
+	testdataDir := "../../testdata/rocksdb/v10.7.5/sst_samples"
 
 	// Check if test data exists
 	if _, err := os.Stat(testdataDir); os.IsNotExist(err) {
-		t.Skip("testdata/rocksdb_generated not found - run C++ RocksDB to generate test files")
+		t.Skip("testdata/rocksdb/v10.7.5/sst_samples not found")
 	}
 
 	testCases := []struct {
@@ -113,10 +117,10 @@ func TestReadCppRocksDBSST(t *testing.T) {
 // NOTE: This test may fail with checksum mismatch because C++ RocksDB uses XXHash64 for
 // the properties block checksum by default, which we don't fully support yet.
 func TestReadCppRocksDBSSTProperties(t *testing.T) {
-	testdataDir := "../../testdata/rocksdb_generated"
+	testdataDir := "../../testdata/rocksdb/v10.7.5/sst_samples"
 
 	if _, err := os.Stat(testdataDir); os.IsNotExist(err) {
-		t.Skip("testdata/rocksdb_generated not found")
+		t.Skip("testdata/rocksdb/v10.7.5/sst_samples not found")
 	}
 
 	path := filepath.Join(testdataDir, "000008.sst")
