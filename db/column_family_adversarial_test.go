@@ -6,19 +6,14 @@ package db
 
 import (
 	"errors"
-	"os"
 	"testing"
 )
 
 // TestAdversarial_ColumnFamilyIsolation_NoKeyLeakage verifies that keys written
 // to one column family are not visible when reading from another column family.
+// Contract: Keys in one column family must never be visible from another column family.
 func TestAdversarial_ColumnFamilyIsolation_NoKeyLeakage(t *testing.T) {
-	// Create a temporary database directory
-	dir, err := os.MkdirTemp("", "cf_isolation_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	// Open database
 	opts := DefaultOptions()
@@ -132,12 +127,9 @@ func TestAdversarial_ColumnFamilyIsolation_NoKeyLeakage(t *testing.T) {
 
 // TestAdversarial_ColumnFamilyIsolation_IteratorIsolation verifies that iterators
 // only see keys from their own column family.
+// Contract: Iterators must only yield keys from their own column family.
 func TestAdversarial_ColumnFamilyIsolation_IteratorIsolation(t *testing.T) {
-	dir, err := os.MkdirTemp("", "cf_iter_isolation_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.CreateIfMissing = true
@@ -219,12 +211,9 @@ func TestAdversarial_ColumnFamilyIsolation_IteratorIsolation(t *testing.T) {
 
 // TestAdversarial_ColumnFamilyIsolation_SameKeyDifferentCFs verifies that the
 // same key written to different CFs retains separate values.
+// Contract: The same key in different CFs must have independent values.
 func TestAdversarial_ColumnFamilyIsolation_SameKeyDifferentCFs(t *testing.T) {
-	dir, err := os.MkdirTemp("", "cf_samekey_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.CreateIfMissing = true
