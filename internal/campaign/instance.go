@@ -57,7 +57,7 @@ func (i *Instance) ResolveArgs(runDir string, seed int64) []string {
 	return args
 }
 
-// BinaryName returns the binary name for the tool.
+// BinaryName returns the binary name for the tool (without path).
 func (i *Instance) BinaryName() string {
 	switch i.Tool {
 	case ToolStress:
@@ -71,6 +71,16 @@ func (i *Instance) BinaryName() string {
 	default:
 		return string(i.Tool)
 	}
+}
+
+// BinaryPath returns the full path to the tool binary.
+// Uses binDir to construct path for test binaries (e.g., "./bin/stresstest").
+// For go test, returns "go" since it's expected to be on PATH.
+func (i *Instance) BinaryPath(binDir string) string {
+	if i.IsGoTest() {
+		return "go"
+	}
+	return filepath.Join(binDir, i.BinaryName())
 }
 
 // IsGoTest returns true if this instance runs via `go test`.

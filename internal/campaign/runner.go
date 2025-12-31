@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,10 @@ type RunnerConfig struct {
 
 	// RunRoot is the root directory for all run artifacts.
 	RunRoot string
+
+	// BinDir is the directory containing test binaries.
+	// Defaults to "./bin" if empty.
+	BinDir string
 
 	// Oracle is the C++ oracle for consistency checks.
 	// May be nil if oracle is not available.
@@ -53,6 +58,9 @@ type Runner struct {
 func NewRunner(config RunnerConfig) *Runner {
 	if config.Output == nil {
 		config.Output = os.Stdout
+	}
+	if config.BinDir == "" {
+		config.BinDir = "./bin"
 	}
 	if config.InstanceTimeout == 0 {
 		config.InstanceTimeout = InstanceTimeout(config.Tier)
@@ -116,6 +124,7 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 	var results []*RunResult
 
 	// Run all instances
+	stopNow := false
 	for i := range instances {
 		instance := &instances[i]
 
@@ -141,17 +150,13 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 
 			if !result.Passed && r.config.FailFast {
 				r.log("fail-fast: stopping after first failure")
+				stopNow = true
 				break
 			}
 		}
 
-		if r.config.FailFast {
-			// Check if any failure occurred
-			for _, result := range results {
-				if !result.Passed {
-					break
-				}
-			}
+		if stopNow {
+			break
 		}
 	}
 
@@ -224,14 +229,15 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 	instanceCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Build command
+	// Build command with resolved binary path
+	binaryPath := instance.BinaryPath(r.config.BinDir)
 	var cmd *exec.Cmd
 	if instance.IsGoTest() {
 		cmd = exec.CommandContext(instanceCtx, "go", instance.ResolveArgs(runDir, seed)...)
+		binaryPath = "go" // go test uses system go
 	} else {
-		binary := instance.BinaryName()
 		args := instance.ResolveArgs(runDir, seed)
-		cmd = exec.CommandContext(instanceCtx, binary, args...)
+		cmd = exec.CommandContext(instanceCtx, binaryPath, args...)
 	}
 
 	// Set environment
@@ -265,11 +271,12 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 	endTime := time.Now()
 
 	result := &RunResult{
-		Instance:  instance,
-		Seed:      seed,
-		RunDir:    runDir,
-		StartTime: startTime,
-		EndTime:   endTime,
+		Instance:   instance,
+		Seed:       seed,
+		RunDir:     runDir,
+		BinaryPath: binaryPath,
+		StartTime:  startTime,
+		EndTime:    endTime,
 	}
 
 	// Check exit code
@@ -287,14 +294,22 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 	}
 
 	// Check stop conditions
-	r.checkStopConditions(result, instance)
+	r.checkStopConditions(result, instance, logPath)
 
-	// Record fingerprint if failed
+	// Classify failure kind and compute fingerprint
 	if !result.Passed && result.FailureReason != "" {
-		result.Fingerprint = ComputeFingerprint(result.FailureReason, logPath)
+		result.FailureKind = classifyFailureKind(result.FailureReason, result.ExitCode)
+		result.Fingerprint = ComputeFingerprint(
+			instance.Name,
+			seed,
+			result.FailureKind,
+			result.FailureReason,
+			logPath,
+		)
 
 		if r.config.KnownFailures != nil && instance.Stop.DedupeByFingerprint {
 			isDup := r.config.KnownFailures.IsDuplicate(result.Fingerprint)
+			result.IsDuplicate = isDup
 			if isDup {
 				r.log("  duplicate failure: %s (fingerprint %s)", result.FailureReason, result.Fingerprint)
 			} else {
@@ -314,11 +329,16 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 }
 
 // checkStopConditions evaluates the stop conditions and sets result.Passed.
-func (r *Runner) checkStopConditions(result *RunResult, instance *Instance) {
+func (r *Runner) checkStopConditions(result *RunResult, instance *Instance, logPath string) {
 	stop := instance.Stop
 
-	// Check termination requirement
-	if stop.RequireTermination && result.ExitCode != 0 {
+	// For stresstest with fault injection, a non-zero exit can be expected due to
+	// injected operational errors even if final verification is clean.
+	// We only relax "exit code must be 0" for stresstest fault-injection runs.
+	allowNonZeroExit := instance.Tool == ToolStress && instance.FaultModel.Kind != FaultNone
+
+	// Check termination requirement (exit code policy)
+	if stop.RequireTermination && result.ExitCode != 0 && !allowNonZeroExit {
 		if result.FailureReason == "" {
 			result.FailureReason = fmt.Sprintf("non-zero exit code: %d", result.ExitCode)
 		}
@@ -326,19 +346,48 @@ func (r *Runner) checkStopConditions(result *RunResult, instance *Instance) {
 		return
 	}
 
-	// Check oracle consistency
-	if stop.RequireOracleCheckConsistencyOK && instance.RequiresOracle && r.config.Oracle != nil {
-		// Find the DB path in the run directory
-		dbPath := filepath.Join(result.RunDir, "db")
-		if _, err := os.Stat(dbPath); err == nil {
-			oracleResult := r.config.Oracle.CheckConsistency(dbPath)
-			result.OracleResult = oracleResult
-
-			if !oracleResult.OK() {
-				result.FailureReason = fmt.Sprintf("oracle checkconsistency failed: %s", oracleResult.Stderr)
+	// Check tool-specific final verification requirement.
+	// This is the "signal" that the tool's end-of-run verification actually passed.
+	if stop.RequireFinalVerificationPass {
+		switch instance.Tool {
+		case ToolStress, ToolCrash:
+			if !finalVerificationPassed(instance.Tool, logPath) {
+				if result.FailureReason == "" {
+					result.FailureReason = "final verification not observed as passed in output log"
+				}
 				result.Passed = false
 				return
 			}
+		default:
+			// For other tools, RequireTermination + exit code policy is the signal.
+			// Nothing additional to check here.
+		}
+	}
+
+	// Check oracle consistency
+	if stop.RequireOracleCheckConsistencyOK && instance.RequiresOracle && r.config.Oracle != nil {
+		// Try common DB snapshot paths
+		dbPath := r.discoverDBPath(result.RunDir)
+		if dbPath == "" {
+			if result.FailureReason == "" {
+				result.FailureReason = "oracle checkconsistency required but database snapshot path was not found"
+			}
+			result.Passed = false
+			return
+		}
+
+		oracleResult := r.config.Oracle.CheckConsistency(dbPath)
+		result.OracleResult = oracleResult
+
+		// Write oracle artifacts to oracle/ subdirectory
+		if err := r.writeOracleArtifacts(result.RunDir, oracleResult); err != nil {
+			r.log("warning: failed to write oracle artifacts: %v", err)
+		}
+
+		if !oracleResult.OK() {
+			result.FailureReason = fmt.Sprintf("oracle checkconsistency failed: %s", oracleResult.Stderr)
+			result.Passed = false
+			return
 		}
 	}
 
@@ -348,7 +397,133 @@ func (r *Runner) checkStopConditions(result *RunResult, instance *Instance) {
 	}
 }
 
+// finalVerificationPassed returns true if the tool's output log indicates that
+// the tool's end-of-run verification passed.
+//
+// This is intentionally string-based to avoid tool-specific file contracts.
+func finalVerificationPassed(tool Tool, logPath string) bool {
+	if logPath == "" {
+		return false
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return false
+	}
+	s := string(data)
+	switch tool {
+	case ToolStress:
+		// stresstest can exit non-zero due to expected injected operational errors
+		// even when final verification is clean. Treat "0 failures" in the final
+		// verification section as the success signal.
+		return strings.Contains(s, "Running final verification") && strings.Contains(s, ", 0 failures")
+	case ToolCrash:
+		return strings.Contains(s, "Final verification passed")
+	default:
+		return false
+	}
+}
+
+// discoverDBPath finds the database snapshot path in the run directory.
+// Tries common layouts used by different tools.
+func (r *Runner) discoverDBPath(runDir string) string {
+	// Common paths used by test tools
+	candidates := []string{
+		filepath.Join(runDir, "db"),                     // Standard layout
+		filepath.Join(runDir, "artifacts/db"),           // crashtest layout
+		filepath.Join(runDir, "db_sync"),                // status.durability.wal_sync layout
+		filepath.Join(runDir, "db_faultfs_disable_wal"), // disablewal layout
+	}
+
+	for _, path := range candidates {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			// Prefer the directory that actually contains CURRENT.
+			if hasCurrentFile(path) {
+				return path
+			}
+			// Some tools/DB paths create a nested "db/" subdirectory containing the actual DB.
+			nested := filepath.Join(path, "db")
+			if hasCurrentFile(nested) {
+				return nested
+			}
+		}
+	}
+
+	return ""
+}
+
+func hasCurrentFile(dbDir string) bool {
+	if dbDir == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dbDir, "CURRENT"))
+	return err == nil
+}
+
+// writeOracleArtifacts writes oracle output to stable files in oracle/ subdirectory.
+func (r *Runner) writeOracleArtifacts(runDir string, result *ToolResult) error {
+	oracleDir := filepath.Join(runDir, "oracle")
+	if err := EnsureDir(oracleDir); err != nil {
+		return err
+	}
+
+	// Write ldb checkconsistency output
+	if result.Stdout != "" {
+		if err := os.WriteFile(
+			filepath.Join(oracleDir, "ldb_checkconsistency.stdout.txt"),
+			[]byte(result.Stdout),
+			0o644,
+		); err != nil {
+			return err
+		}
+	}
+
+	if result.Stderr != "" {
+		if err := os.WriteFile(
+			filepath.Join(oracleDir, "ldb_checkconsistency.stderr.txt"),
+			[]byte(result.Stderr),
+			0o644,
+		); err != nil {
+			return err
+		}
+	}
+
+	// Write exit code
+	exitCodeContent := fmt.Sprintf("%d\n", result.ExitCode)
+	return os.WriteFile(
+		filepath.Join(oracleDir, "ldb_checkconsistency.exitcode"),
+		[]byte(exitCodeContent),
+		0o644,
+	)
+}
+
 // log writes a message to the output.
 func (r *Runner) log(format string, args ...any) {
 	fmt.Fprintf(r.config.Output, format+"\n", args...)
+}
+
+// classifyFailureKind categorizes a failure for fingerprinting.
+func classifyFailureKind(failureReason string, exitCode int) string {
+	switch {
+	case exitCode == -1:
+		return "timeout"
+	case exitCode == 137:
+		return "killed" // SIGKILL
+	case exitCode == 143:
+		return "terminated" // SIGTERM
+	case containsIgnoreCase(failureReason, "oracle") || containsIgnoreCase(failureReason, "consistency"):
+		return "oracle_failure"
+	case containsIgnoreCase(failureReason, "verification"):
+		return "verification_failure"
+	case containsIgnoreCase(failureReason, "corruption"):
+		return "corruption"
+	case containsIgnoreCase(failureReason, "timeout"):
+		return "timeout"
+	default:
+		return "exit_error"
+	}
+}
+
+// containsIgnoreCase checks if s contains substr (case-insensitive).
+func containsIgnoreCase(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

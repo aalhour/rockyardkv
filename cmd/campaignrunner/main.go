@@ -15,7 +15,6 @@
 // Groups:
 //
 //	stress, crash, golden - standard test campaigns
-//	status.golden - C++ compatibility (go test -run Golden)
 //	status.durability - durability scenarios (wal_sync, disablewal_faultfs, etc.)
 //	status.adversarial - corruption attack suite
 //
@@ -49,6 +48,7 @@ func run() error {
 	tier := flag.String("tier", "quick", "Campaign tier: quick or nightly")
 	group := flag.String("group", "", "Instance group to run (e.g., status.durability, stress)")
 	runRoot := flag.String("run-root", "", "Root directory for run artifacts (required)")
+	binDir := flag.String("bin-dir", "./bin", "Directory containing test binaries (stresstest, crashtest, etc.)")
 	failFast := flag.Bool("fail-fast", false, "Stop on first failure")
 	verbose := flag.Bool("v", false, "Verbose output")
 	instanceTimeout := flag.Int("instance-timeout", 0, "Per-instance timeout in seconds (0 = default for tier)")
@@ -103,6 +103,7 @@ func run() error {
 	config := campaign.RunnerConfig{
 		Tier:            t,
 		RunRoot:         *runRoot,
+		BinDir:          *binDir,
 		Oracle:          oracle,
 		KnownFailures:   kf,
 		FailFast:        *failFast,

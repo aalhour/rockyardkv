@@ -19,7 +19,8 @@ func QuickInstances() []Instance {
 				"-reopen=2s",
 				"-keys=5000",
 				"-threads=32",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 				"-cleanup",
 				"-v",
@@ -49,7 +50,8 @@ func QuickInstances() []Instance {
 				"-reopen=2s",
 				"-keys=5000",
 				"-threads=32",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 				"-cleanup",
 				"-v",
@@ -79,7 +81,8 @@ func QuickInstances() []Instance {
 				"-reopen=2s",
 				"-keys=5000",
 				"-threads=32",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 				"-cleanup",
 				"-v",
@@ -109,7 +112,8 @@ func QuickInstances() []Instance {
 				"-reopen=2s",
 				"-keys=5000",
 				"-threads=32",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 				"-cleanup",
 				"-v",
@@ -135,7 +139,8 @@ func QuickInstances() []Instance {
 				"-duration=2m",
 				"-sync",
 				"-kill-mode=random",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 			},
 			Seeds: []int64{12345},
@@ -246,7 +251,8 @@ func NightlyInstances() []Instance {
 				"-duration=5m",
 				"-sync",
 				"-kill-mode=random",
-				"-run-dir", "<RUN_DIR>",
+				"-db", "<RUN_DIR>/db",
+				"-run-dir", "<RUN_DIR>/artifacts",
 				"-seed", "<SEED>",
 			},
 			Seeds: []int64{12345, 12346, 12347},
@@ -261,13 +267,24 @@ func NightlyInstances() []Instance {
 }
 
 // GetInstances returns the instances for the specified tier.
+// Includes both campaign instances (stress, crash, golden) and status instances (durability, adversarial).
 func GetInstances(tier Tier) []Instance {
+	var base []Instance
 	switch tier {
 	case TierQuick:
-		return QuickInstances()
+		base = QuickInstances()
 	case TierNightly:
-		return NightlyInstances()
+		base = NightlyInstances()
 	default:
-		return QuickInstances()
+		base = QuickInstances()
 	}
+
+	// Include status instances that match the tier
+	for _, inst := range StatusInstances() {
+		if inst.Tier == tier || inst.Tier == TierQuick {
+			base = append(base, inst)
+		}
+	}
+
+	return base
 }

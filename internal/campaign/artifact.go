@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -21,6 +22,9 @@ type RunResult struct {
 
 	// RunDir is the directory containing all run artifacts.
 	RunDir string
+
+	// BinaryPath is the resolved path to the binary that was executed.
+	BinaryPath string
 
 	// StartTime is when the run started.
 	StartTime time.Time
@@ -37,9 +41,15 @@ type RunResult struct {
 	// FailureReason describes why the run failed (if it did).
 	FailureReason string
 
+	// FailureKind categorizes the failure type for fingerprinting.
+	FailureKind string
+
 	// Fingerprint is the failure fingerprint for deduplication.
 	// Empty string if the run passed.
 	Fingerprint string
+
+	// IsDuplicate indicates if this failure fingerprint was already known.
+	IsDuplicate bool
 
 	// OracleResult is the result of oracle verification (if performed).
 	OracleResult *ToolResult
@@ -54,29 +64,36 @@ func (r *RunResult) Duration() time.Duration {
 type RunArtifact struct {
 	Instance       string    `json:"instance"`
 	Seed           int64     `json:"seed"`
+	BinaryPath     string    `json:"binary_path"`
 	StartTime      time.Time `json:"start_time"`
 	EndTime        time.Time `json:"end_time"`
 	DurationMs     int64     `json:"duration_ms"`
 	ExitCode       int       `json:"exit_code"`
 	Passed         bool      `json:"passed"`
 	Failure        string    `json:"failure,omitempty"`
+	FailureKind    string    `json:"failure_kind,omitempty"`
 	Fingerprint    string    `json:"fingerprint,omitempty"`
+	IsDuplicate    bool      `json:"is_duplicate,omitempty"`
 	OracleExitCode *int      `json:"oracle_exit_code,omitempty"`
 	OracleOutput   string    `json:"oracle_output,omitempty"`
 }
 
 // WriteRunArtifact writes the run.json file to the run directory.
+// Also writes duplicate_of.txt if the failure is a duplicate.
 func WriteRunArtifact(result *RunResult) error {
 	artifact := RunArtifact{
 		Instance:    result.Instance.Name,
 		Seed:        result.Seed,
+		BinaryPath:  result.BinaryPath,
 		StartTime:   result.StartTime,
 		EndTime:     result.EndTime,
 		DurationMs:  result.Duration().Milliseconds(),
 		ExitCode:    result.ExitCode,
 		Passed:      result.Passed,
 		Failure:     result.FailureReason,
+		FailureKind: result.FailureKind,
 		Fingerprint: result.Fingerprint,
+		IsDuplicate: result.IsDuplicate,
 	}
 
 	if result.OracleResult != nil {
@@ -90,7 +107,20 @@ func WriteRunArtifact(result *RunResult) error {
 		return fmt.Errorf("marshal run artifact: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+
+	// Write duplicate_of.txt marker if this is a duplicate failure
+	if result.IsDuplicate && result.Fingerprint != "" {
+		markerPath := filepath.Join(result.RunDir, "duplicate_of.txt")
+		markerContent := fmt.Sprintf("fingerprint: %s\n", result.Fingerprint)
+		if err := os.WriteFile(markerPath, []byte(markerContent), 0o644); err != nil {
+			return fmt.Errorf("write duplicate marker: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // CampaignSummary is the JSON structure written to summary.json after a campaign.
@@ -161,10 +191,26 @@ func WriteCampaignSummary(runRoot string, tier Tier, startTime, endTime time.Tim
 	return os.WriteFile(path, data, 0o644)
 }
 
-// ComputeFingerprint computes a failure fingerprint from the failure reason
-// and log output. Uses SHA-256 truncated to 16 hex chars for uniqueness.
-func ComputeFingerprint(failureReason string, logPath string) string {
+// ComputeFingerprint computes a failure fingerprint that includes:
+// - Instance name (to avoid collisions across instances)
+// - Seed (to identify specific run)
+// - Failure kind (enum-like category)
+// - Failure reason (specific message)
+// - Log tail (for extra signal)
+//
+// Uses SHA-256 truncated to 16 hex chars for uniqueness.
+func ComputeFingerprint(instanceName string, seed int64, failureKind, failureReason, logPath string) string {
 	h := sha256.New()
+
+	// Include instance identity and seed
+	h.Write([]byte(instanceName))
+	h.Write([]byte(":"))
+	h.Write([]byte(strconv.FormatInt(seed, 10)))
+	h.Write([]byte(":"))
+
+	// Include failure classification
+	h.Write([]byte(failureKind))
+	h.Write([]byte(":"))
 	h.Write([]byte(failureReason))
 
 	// Include key lines from log if available

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 // Oracle provides access to the C++ RocksDB tools (ldb, sst_dump).
@@ -132,8 +133,12 @@ func (o *Oracle) DumpSST(sstPath string, args ...string) *ToolResult {
 }
 
 // runTool executes an oracle tool and captures output.
+// Handles library path setup for macOS (DYLD_LIBRARY_PATH).
 func (o *Oracle) runTool(tool string, args ...string) *ToolResult {
 	cmd := exec.Command(tool, args...)
+
+	// Set up environment with library path for RocksDB dependencies
+	cmd.Env = o.toolEnv()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -157,6 +162,48 @@ func (o *Oracle) runTool(tool string, args ...string) *ToolResult {
 	}
 
 	return result
+}
+
+// toolEnv returns the environment for running oracle tools.
+// On macOS, sets DYLD_LIBRARY_PATH to include RocksDB library directory.
+// On Linux, sets LD_LIBRARY_PATH.
+func (o *Oracle) toolEnv() []string {
+	env := os.Environ()
+
+	if o.RocksDBPath == "" {
+		return env
+	}
+
+	// Common library directories within RocksDB build
+	libDirs := []string{
+		o.RocksDBPath,
+		filepath.Join(o.RocksDBPath, "lib"),
+		filepath.Join(o.RocksDBPath, "build"),
+	}
+
+	libPath := ""
+	for _, dir := range libDirs {
+		if _, err := os.Stat(dir); err == nil {
+			if libPath != "" {
+				libPath += string(filepath.ListSeparator)
+			}
+			libPath += dir
+		}
+	}
+
+	if libPath == "" {
+		return env
+	}
+
+	// Set the appropriate library path variable for the platform
+	switch runtime.GOOS {
+	case "darwin":
+		env = append(env, "DYLD_LIBRARY_PATH="+libPath)
+	case "linux":
+		env = append(env, "LD_LIBRARY_PATH="+libPath)
+	}
+
+	return env
 }
 
 // GateCheck verifies that the oracle is available if required by the instance.
