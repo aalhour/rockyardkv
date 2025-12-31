@@ -80,6 +80,7 @@ rockyardkv-*/
 *.db/
 *.sst
 !testdata/**/*.sst
+campaign-runs/**/*
 
 # RocksDB lock files
 LOCK
