@@ -17,15 +17,35 @@ import (
 
 // Writer writes trace records to an output stream.
 type Writer struct {
-	mu     sync.Mutex
-	w      io.Writer
-	closed bool
-	count  uint64
+	mu           sync.Mutex
+	w            io.Writer
+	closed       bool
+	count        uint64
+	bytesWritten int64
+	maxBytes     int64 // 0 = unlimited
+	truncated    bool
+}
+
+// WriterOption configures a Writer.
+type WriterOption func(*Writer)
+
+// WithMaxBytes sets the maximum bytes to write before stopping.
+// When the limit is reached, subsequent writes are silently dropped.
+// Use 0 (default) for unlimited.
+func WithMaxBytes(maxBytes int64) WriterOption {
+	return func(tw *Writer) {
+		tw.maxBytes = maxBytes
+	}
 }
 
 // NewWriter creates a new trace writer.
-func NewWriter(w io.Writer) (*Writer, error) {
+func NewWriter(w io.Writer, opts ...WriterOption) (*Writer, error) {
 	tw := &Writer{w: w}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(tw)
+	}
 
 	// Write header
 	header := &Header{
@@ -36,6 +56,9 @@ func NewWriter(w io.Writer) (*Writer, error) {
 		return nil, err
 	}
 
+	// Account for header size (approximate)
+	tw.bytesWritten = 16 // Magic(8) + Version(4) + padding
+
 	return tw, nil
 }
 
@@ -45,12 +68,19 @@ func (tw *Writer) Write(recordType RecordType, payload []byte) error {
 }
 
 // WriteAt writes a trace record with a specific timestamp.
+// If a max size is configured and exceeded, the write is silently dropped.
 func (tw *Writer) WriteAt(timestamp time.Time, recordType RecordType, payload []byte) error {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 
 	if tw.closed {
 		return io.ErrClosedPipe
+	}
+
+	// Check size limit before writing
+	if tw.maxBytes > 0 && tw.bytesWritten >= tw.maxBytes {
+		tw.truncated = true
+		return nil // Silently drop - limit reached
 	}
 
 	record := &Record{
@@ -63,6 +93,8 @@ func (tw *Writer) WriteAt(timestamp time.Time, recordType RecordType, payload []
 		return err
 	}
 
+	// Approximate record size: timestamp(8) + type(1) + length(4) + payload
+	tw.bytesWritten += 13 + int64(len(payload))
 	tw.count++
 	return nil
 }
@@ -109,6 +141,20 @@ func (tw *Writer) Count() uint64 {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 	return tw.count
+}
+
+// BytesWritten returns the approximate number of bytes written.
+func (tw *Writer) BytesWritten() int64 {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	return tw.bytesWritten
+}
+
+// Truncated returns true if the writer stopped accepting records due to size limit.
+func (tw *Writer) Truncated() bool {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	return tw.truncated
 }
 
 // Close marks the writer as closed.

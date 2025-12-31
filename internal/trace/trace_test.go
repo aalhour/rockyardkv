@@ -454,3 +454,99 @@ func TestIterateEarlyExit(t *testing.T) {
 		t.Errorf("Expected 3 iterations, got %d", count)
 	}
 }
+
+// Contract: Writer with no max size writes unlimited records.
+func TestWriterNoMaxSize(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write many records
+	for range 100 {
+		if err := writer.WriteGet(0, []byte("key")); err != nil {
+			t.Fatalf("WriteGet failed: %v", err)
+		}
+	}
+
+	if writer.Count() != 100 {
+		t.Errorf("Expected 100 records, got %d", writer.Count())
+	}
+	if writer.Truncated() {
+		t.Error("Expected not truncated")
+	}
+}
+
+// Contract: Writer with max size stops accepting records when limit is reached.
+func TestWriterWithMaxSize(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Set a small max size (100 bytes)
+	writer, err := NewWriter(&buf, WithMaxBytes(100))
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Write records until truncated
+	for range 50 {
+		_ = writer.WriteGet(0, []byte("this-is-a-key"))
+	}
+
+	// Should have stopped writing at some point
+	if writer.Count() >= 50 {
+		t.Errorf("Expected fewer than 50 records due to size limit, got %d", writer.Count())
+	}
+	if !writer.Truncated() {
+		t.Error("Expected truncated after exceeding size limit")
+	}
+	if writer.BytesWritten() > 100 {
+		// May slightly exceed due to last record
+		t.Logf("BytesWritten %d slightly exceeded max 100", writer.BytesWritten())
+	}
+}
+
+// Contract: Writer stops accepting records silently (no error) when limit reached.
+func TestWriterMaxSizeSilentDrop(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf, WithMaxBytes(50))
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	// Fill up the buffer
+	for range 10 {
+		err := writer.WriteGet(0, []byte("key"))
+		if err != nil {
+			t.Fatalf("WriteGet should not error even when truncated: %v", err)
+		}
+	}
+
+	// The writer should eventually be truncated
+	if !writer.Truncated() {
+		t.Error("Expected truncated")
+	}
+}
+
+// Contract: BytesWritten tracks approximate bytes.
+func TestWriterBytesWritten(t *testing.T) {
+	var buf bytes.Buffer
+
+	writer, err := NewWriter(&buf)
+	if err != nil {
+		t.Fatalf("NewWriter failed: %v", err)
+	}
+
+	initial := writer.BytesWritten()
+	if initial == 0 {
+		t.Error("Expected non-zero initial bytes (header)")
+	}
+
+	writer.WriteGet(0, []byte("key"))
+	after := writer.BytesWritten()
+	if after <= initial {
+		t.Errorf("Expected bytes to increase after write: before=%d after=%d", initial, after)
+	}
+}
