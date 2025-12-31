@@ -1,7 +1,23 @@
-# Golden Tests (C++ Oracle)
+# Golden tests (C++ oracle)
 
 Golden tests validate on-disk compatibility with RocksDB v10.7.5.
 They check that C++ RocksDB tools can read Go-written files and that RockyardKV can read C++-generated fixtures.
+
+## Table of contents
+
+- [Purpose](#purpose)
+- [Test structure](#test-structure)
+- [Test files](#test-files)
+- [Run golden tests](#run-golden-tests)
+- [Prerequisites](#prerequisites)
+- [Fixtures](#fixtures)
+- [C++ tool integration](#c-tool-integration)
+- [Format version matrix](#format-version-matrix)
+- [Compression matrix](#compression-matrix)
+- [Test patterns](#test-patterns)
+- [Debugging format issues](#debugging-format-issues)
+- [External corpus tests](#external-corpus-tests)
+- [References](#references)
 
 ## Purpose
 
@@ -10,15 +26,15 @@ Golden tests answer: "Can C++ RocksDB read what Go writes, and vice versa?"
 This is the strongest compatibility signal in this repository.
 If a golden test passes, the tested file shape is compatible with the oracle for that scenario.
 
-## Test Structure
+## Test structure
 
 Golden tests are standard Go tests that:
 
-1. Read C++-generated fixtures from `testdata/cpp_generated/`
+1. Read C++-generated fixtures from `testdata/rocksdb/v10.7.5/`
 2. Write Go artifacts and verify with C++ tools (`ldb`, `sst_dump`)
 3. Test format version × compression matrices
 
-## Test Files
+## Test files
 
 | File | Tests |
 |------|-------|
@@ -30,7 +46,7 @@ Golden tests are standard Go tests that:
 | `sst_contract_test.go` | Behavioral edge cases (binary keys, deletions) |
 | `wal_test.go` | WAL round-trip and C++ compatibility |
 
-## Run Golden Tests
+## Run golden tests
 
 Using make:
 
@@ -88,14 +104,14 @@ directory too (e.g., a Homebrew/Conda lib directory).
 
 ## Fixtures
 
-Fixtures are the tests. Each file in `testdata/cpp_generated/` is automatically tested.
+Fixtures are the tests. Each file in `testdata/rocksdb/v10.7.5/` is automatically tested.
 
 ### Adding Fixtures
 
 When you fix a format bug:
 
 1. Generate a C++ fixture that exercises the bug
-2. Add it to `testdata/cpp_generated/`
+2. Add it to `testdata/rocksdb/v10.7.5/` (see `testdata/rocksdb/README.md` for layout)
 3. The golden test suite automatically picks it up
 
 ### Fixture Categories
@@ -107,7 +123,7 @@ When you fix a format bug:
 | `wal/` | WAL files with various record types |
 | `manifest/` | MANIFEST files with version edits |
 
-## C++ Tool Integration
+## C++ tool integration
 
 Golden tests use C++ RocksDB tools as oracles:
 
@@ -116,7 +132,7 @@ Golden tests use C++ RocksDB tools as oracles:
 | `ldb` | Database operations, manifest dump, scan |
 | `sst_dump` | SST file inspection, checksum verification |
 
-### ldb Commands
+### ldb commands
 
 ```bash
 # Dump manifest
@@ -129,17 +145,20 @@ Golden tests use C++ RocksDB tools as oracles:
 ./ldb --db=/path/to/db get mykey
 ```
 
-### sst_dump Commands
+### sst_dump commands
 
 ```bash
 # Check SST integrity
-./sst_dump --file=/path/to/file.sst --command=check --verify_checksums
+./sst_dump --file=/path/to/file.sst --command=check
 
-# Dump SST contents
+# Verify checksums
+./sst_dump --file=/path/to/file.sst --command=verify
+
+# Scan SST contents
 ./sst_dump --file=/path/to/file.sst --command=scan
 ```
 
-## Format Version Matrix
+## Format version matrix
 
 Golden tests cover all supported format versions:
 
@@ -151,7 +170,7 @@ Golden tests cover all supported format versions:
 | 5 | Full filter, compression dictionary |
 | 6 | Indexed filter, cache-friendly format |
 
-## Compression Matrix
+## Compression matrix
 
 Golden tests cover all supported compression types:
 
@@ -163,14 +182,14 @@ Golden tests cover all supported compression types:
 | LZ4 | Very fast |
 | Zstd | Best ratio |
 
-## Test Patterns
+## Test patterns
 
-### Go Reads C++ Fixture
+### Go reads C++ fixture
 
 ```go
 func TestSST_ReadCppFixture(t *testing.T) {
     // Load C++ generated SST
-    reader, err := table.OpenReader(fs, "testdata/cpp_generated/sst/v6.sst")
+    reader, err := table.OpenReader(fs, "testdata/rocksdb/v10.7.5/sst_samples/v6.sst")
     require.NoError(t, err)
     defer reader.Close()
     
@@ -180,7 +199,7 @@ func TestSST_ReadCppFixture(t *testing.T) {
 }
 ```
 
-### Go Writes, C++ Verifies
+### Go writes, C++ verifies
 
 ```go
 func TestSST_CppVerifiesGoOutput(t *testing.T) {
@@ -193,7 +212,7 @@ func TestSST_CppVerifiesGoOutput(t *testing.T) {
 }
 ```
 
-### Round-Trip Test
+### Round-trip test
 
 ```go
 func TestDB_RoundTrip(t *testing.T) {
@@ -303,4 +322,3 @@ Verify these conditions:
 - RocksDB format specifications
 - `include/rocksdb/table.h` — format version history
 - `table/format.cc` — footer and block encoding
-

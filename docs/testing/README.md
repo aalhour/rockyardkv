@@ -1,9 +1,19 @@
-# Testing Guide
+# Testing guide
 
 RockyardKV uses a layered testing strategy to guarantee correctness, durability, and compatibility.
 This guide describes the testing infrastructure and how to use it.
 
-## Quick Start
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Documentation index](#documentation-index)
+- [Testing layers](#testing-layers)
+- [Quality guarantees](#quality-guarantees)
+- [Build tags](#build-tags)
+- [Test locations](#test-locations)
+- [References](#references)
+
+## Quick start
 
 ```bash
 make check              # Lint + short tests
@@ -13,20 +23,26 @@ make test-e2e-crash     # Crash recovery tests
 make test-e2e-stress    # Concurrency tests
 ```
 
-## Documentation Index
+Fixture hygiene helper:
+
+```bash
+scripts/check-testdata.sh
+```
+
+## Documentation index
 
 | Document | Description |
 |----------|-------------|
 | [PHILOSOPHY.md](PHILOSOPHY.md) | Testing principles and when to use each approach |
-| [JEPSEN_STYLE.md](JEPSEN_STYLE.md) | Jepsen-style test classes and capability matrix |
+| [CAMPAIGN_RUNNER.md](CAMPAIGN_RUNNER.md) | Oracle-gated campaign runner and its artifact contracts |
 | [WHITEBOX.md](WHITEBOX.md) | Deterministic crash testing with kill points |
 | [BLACKBOX.md](BLACKBOX.md) | Chaos testing: crash, stress, adversarial |
-| [FAULT_INJECTION.md](FAULT_INJECTION.md) | VFS-based fault simulation and lie modes |
+| [VFS_FAULT_INJECTION.md](VFS_FAULT_INJECTION.md) | VFS-based fault simulation and lie modes |
 | [GOLDEN.md](GOLDEN.md) | C++ oracle compatibility testing |
 | [TOOLS.md](TOOLS.md) | Database inspection and analysis tools |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to add new tests |
 
-## Testing Layers
+## Testing layers
 
 RockyardKV organizes tests into layers. Use them in order, from bottom to top.
 
@@ -40,7 +56,7 @@ RockyardKV organizes tests into layers. Use them in order, from bottom to top.
 | **Whitebox Crash Tests** | Deterministic crashes at 21 code points | `cmd/crashtest/` |
 | **Golden Tests** | Byte-level RocksDB v10.7.5 compatibility | `cmd/goldentest/` |
 
-## Quality Guarantees
+## Quality guarantees
 
 These tests collectively validate:
 
@@ -52,7 +68,7 @@ These tests collectively validate:
 | **Concurrency** | Stress tests with race detector |
 | **Robustness** | Adversarial tests, fuzz tests |
 
-## Build Tags
+## Build tags
 
 Some tests require build tags:
 
@@ -63,7 +79,7 @@ Some tests require build tags:
 
 Without tags, whitebox hooks compile to no-ops with zero runtime overhead.
 
-## Test Locations
+## Test locations
 
 | Test type | Location |
 |-----------|----------|
@@ -79,4 +95,3 @@ Without tags, whitebox hooks compile to no-ops with zero runtime overhead.
 
 - [RocksDB Testing Philosophy](https://github.com/facebook/rocksdb/wiki/Stress-test)
 - [Jepsen Testing Methodology](https://jepsen.io/analyses)
-
