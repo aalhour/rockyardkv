@@ -790,15 +790,6 @@ jepsen-quick: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) orac
 	@echo ""
 	$(CAMPAIGN_BIN) -tier=quick -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -v
 
-.PHONY: jepsen-nightly
-jepsen-nightly: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run Jepsen-style campaign (nightly tier, ~8 hours)
-	@echo ""
-	@echo "╔══════════════════════════════════════════════════════════════════╗"
-	@echo "║              🔬 Jepsen Campaign: Nightly Tier                    ║"
-	@echo "╚══════════════════════════════════════════════════════════════════╝"
-	@echo ""
-	$(CAMPAIGN_BIN) -tier=nightly -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -v
-
 .PHONY: jepsen-quick-failfast
 jepsen-quick-failfast: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run quick campaign, stop on first failure
 	@echo ""
@@ -808,26 +799,14 @@ jepsen-quick-failfast: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_
 	@echo ""
 	$(CAMPAIGN_BIN) -tier=quick -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -fail-fast -v
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Jepsen Status Scenarios (via campaign runner)
-# These mirror scripts/status/run_durability_repros.sh but use the runner.
-# ─────────────────────────────────────────────────────────────────────────────
-
-.PHONY: jepsen-status-golden
-jepsen-status-golden: $(CAMPAIGN_BIN) oracle-check ## Run status.golden via campaign runner
-	$(CAMPAIGN_BIN) -group=status.golden -run-root=$(CAMPAIGN_RUN_ROOT)/status-golden -v
-
-.PHONY: jepsen-status-durability
-jepsen-status-durability: $(CAMPAIGN_BIN) $(CRASH_BIN) oracle-check ## Run all status.durability.* scenarios via campaign runner
-	$(CAMPAIGN_BIN) -group=status.durability -run-root=$(CAMPAIGN_RUN_ROOT)/status-durability -v
-
-.PHONY: jepsen-status-adversarial
-jepsen-status-adversarial: $(CAMPAIGN_BIN) $(ADVERSARIAL_BIN) ## Run status.adversarial.corruption via campaign runner
-	$(CAMPAIGN_BIN) -group=status.adversarial -run-root=$(CAMPAIGN_RUN_ROOT)/status-adversarial -v
-
-.PHONY: jepsen-status
-jepsen-status: jepsen-status-golden jepsen-status-durability jepsen-status-adversarial ## Run all status scenarios via campaign runner
-	@echo "✅ All status scenarios complete"
+.PHONY: jepsen-nightly
+jepsen-nightly: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run Jepsen-style campaign (nightly tier, ~8 hours)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🔬 Jepsen Campaign: Nightly Tier                    ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	$(CAMPAIGN_BIN) -tier=nightly -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -v
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CI/CD

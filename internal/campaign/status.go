@@ -1,30 +1,8 @@
 package campaign
 
 // StatusInstances returns the instance matrix for status/durability checks.
-// These instances mirror the existing scripts/status/run_durability_repros.sh scenarios.
 func StatusInstances() []Instance {
 	return []Instance{
-		// Golden compatibility (go test)
-		{
-			Name:           "status.golden",
-			Tier:           TierQuick,
-			RequiresOracle: true,
-			Tool:           ToolGolden,
-			Args: []string{
-				"test", "-v", "-run", "Golden", "./...",
-			},
-			Seeds: []int64{0},
-			FaultModel: FaultModel{
-				Kind: FaultNone,
-			},
-			Stop: StopCondition{
-				RequireTermination:              true,
-				RequireFinalVerificationPass:    true,
-				RequireOracleCheckConsistencyOK: false,
-				DedupeByFingerprint:             true,
-			},
-		},
-
 		// WAL+sync crash durability
 		{
 			Name:           "status.durability.wal_sync",
@@ -197,7 +175,6 @@ func AllGroups() []string {
 		"stress",
 		"crash",
 		"golden",
-		"status.golden",
 		"status.durability",
 		"status.adversarial",
 	}
