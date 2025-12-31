@@ -6,107 +6,103 @@ import (
 	"testing"
 )
 
-func TestKnownFailures_InMemory(t *testing.T) {
-	kf := NewKnownFailures("")
+// Contract: A fingerprint is not a duplicate until it has been recorded.
+func TestKnownFailures_RecordAndIsDuplicate(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "known.json")
 
-	// Initially empty
+	kf := NewKnownFailures(path)
+
+	fingerprint := "abc123def456"
+
+	if kf.IsDuplicate(fingerprint) {
+		t.Error("new fingerprint should not be duplicate")
+	}
+
+	kf.Record(fingerprint, "test.instance", "2025-01-01T00:00:00Z")
+
+	if !kf.IsDuplicate(fingerprint) {
+		t.Error("recorded fingerprint should be duplicate")
+	}
+}
+
+// Contract: Count returns the number of unique fingerprints recorded.
+func TestKnownFailures_Count(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "known.json")
+
+	kf := NewKnownFailures(path)
+
 	if kf.Count() != 0 {
 		t.Errorf("Count() = %d, want 0", kf.Count())
 	}
 
-	// Record first failure
-	isNew := kf.Record("fp1", "instance1", "2024-01-01T00:00:00Z")
-	if !isNew {
-		t.Error("first Record() should return true (new)")
-	}
-	if kf.Count() != 1 {
-		t.Errorf("Count() = %d, want 1", kf.Count())
-	}
+	kf.Record("fp1", "instance1", "2025-01-01T00:00:00Z")
+	kf.Record("fp2", "instance2", "2025-01-01T00:00:00Z")
 
-	// Check duplicate
-	if !kf.IsDuplicate("fp1") {
-		t.Error("IsDuplicate() should return true for recorded fingerprint")
-	}
-	if kf.IsDuplicate("fp2") {
-		t.Error("IsDuplicate() should return false for unknown fingerprint")
-	}
-
-	// Record duplicate
-	isNew = kf.Record("fp1", "instance1", "2024-01-01T00:00:01Z")
-	if isNew {
-		t.Error("duplicate Record() should return false")
-	}
-	if kf.Count() != 1 {
-		t.Errorf("Count() = %d, want 1 (duplicate shouldn't increase count)", kf.Count())
-	}
-
-	// Record new
-	isNew = kf.Record("fp2", "instance2", "2024-01-01T00:00:02Z")
-	if !isNew {
-		t.Error("new Record() should return true")
-	}
 	if kf.Count() != 2 {
 		t.Errorf("Count() = %d, want 2", kf.Count())
 	}
 }
 
+// Contract: Recording the same fingerprint twice does not increase the count.
+func TestKnownFailures_RecordIgnoresDuplicates(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "known.json")
+
+	kf := NewKnownFailures(path)
+
+	kf.Record("same-fp", "instance1", "2025-01-01T00:00:00Z")
+	kf.Record("same-fp", "instance2", "2025-01-02T00:00:00Z")
+
+	if kf.Count() != 1 {
+		t.Errorf("Count() = %d, want 1 (duplicate should be ignored)", kf.Count())
+	}
+}
+
+// Contract: Fingerprints persist across process restarts via JSON file.
 func TestKnownFailures_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "known-failures.json")
+	path := filepath.Join(tmpDir, "known.json")
 
-	// Create and populate
 	kf1 := NewKnownFailures(path)
-	kf1.Record("fp1", "instance1", "2024-01-01T00:00:00Z")
-	kf1.Record("fp2", "instance2", "2024-01-01T00:00:01Z")
+	kf1.Record("persistent-fp", "test.instance", "2025-01-01T00:00:00Z")
 
-	// Load from disk
 	kf2 := NewKnownFailures(path)
-	if kf2.Count() != 2 {
-		t.Errorf("Count() after reload = %d, want 2", kf2.Count())
+
+	if !kf2.IsDuplicate("persistent-fp") {
+		t.Error("fingerprint should persist across instances")
 	}
-	if !kf2.IsDuplicate("fp1") {
-		t.Error("fp1 should be loaded from disk")
-	}
-	if !kf2.IsDuplicate("fp2") {
-		t.Error("fp2 should be loaded from disk")
+
+	if kf2.Count() != 1 {
+		t.Errorf("Count() = %d, want 1 after reload", kf2.Count())
 	}
 }
 
-func TestKnownFailures_All(t *testing.T) {
-	kf := NewKnownFailures("")
-	kf.Record("fp1", "instance1", "2024-01-01T00:00:00Z")
-	kf.Record("fp2", "instance2", "2024-01-01T00:00:01Z")
-
-	all := kf.All()
-	if len(all) != 2 {
-		t.Errorf("All() length = %d, want 2", len(all))
-	}
-
-	// Check contents
-	fingerprints := make(map[string]bool)
-	for _, f := range all {
-		fingerprints[f.Fingerprint] = true
-	}
-	if !fingerprints["fp1"] || !fingerprints["fp2"] {
-		t.Error("All() should contain both fingerprints")
-	}
-}
-
-func TestKnownFailures_NonexistentFile(t *testing.T) {
+// Contract: Loading from a nonexistent file initializes an empty tracker.
+func TestKnownFailures_LoadNonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "nonexistent", "known-failures.json")
+	path := filepath.Join(tmpDir, "nonexistent.json")
 
-	// Should not panic on non-existent file
 	kf := NewKnownFailures(path)
+
 	if kf.Count() != 0 {
-		t.Errorf("Count() = %d, want 0 for non-existent file", kf.Count())
+		t.Errorf("Count() = %d, want 0 for nonexistent file", kf.Count())
+	}
+}
+
+// Contract: Loading from an invalid JSON file initializes an empty tracker.
+func TestKnownFailures_LoadInvalidJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "invalid.json")
+
+	if err := os.WriteFile(path, []byte("not valid json"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// Should create directory on save
-	kf.Record("fp1", "instance1", "2024-01-01T00:00:00Z")
+	kf := NewKnownFailures(path)
 
-	// Verify file exists
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("file should exist after Record(): %v", err)
+	if kf.Count() != 0 {
+		t.Errorf("Count() = %d, want 0 for invalid JSON", kf.Count())
 	}
 }

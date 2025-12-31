@@ -32,7 +32,6 @@ func TestStatusInstanceNames(t *testing.T) {
 	}
 
 	expected := []string{
-		"status.golden",
 		"status.durability.wal_sync",
 		"status.durability.wal_sync_sweep",
 		"status.durability.disablewal_faultfs",
@@ -68,15 +67,15 @@ func TestGetStatusInstances_Durability(t *testing.T) {
 	}
 }
 
-func TestGetStatusInstances_Golden(t *testing.T) {
-	golden := GetStatusInstances("status.golden")
+func TestGetStatusInstances_Adversarial(t *testing.T) {
+	adversarial := GetStatusInstances("status.adversarial")
 
-	if len(golden) != 1 {
-		t.Errorf("GetStatusInstances(\"status.golden\") length = %d, want 1", len(golden))
+	if len(adversarial) != 1 {
+		t.Errorf("GetStatusInstances(\"status.adversarial\") length = %d, want 1", len(adversarial))
 	}
 
-	if len(golden) > 0 && golden[0].Name != "status.golden" {
-		t.Errorf("golden[0].Name = %q, want %q", golden[0].Name, "status.golden")
+	if len(adversarial) > 0 && adversarial[0].Name != "status.adversarial.corruption" {
+		t.Errorf("adversarial[0].Name = %q, want %q", adversarial[0].Name, "status.adversarial.corruption")
 	}
 }
 
@@ -86,10 +85,10 @@ func TestMatchesGroup(t *testing.T) {
 		group    string
 		expected bool
 	}{
-		{"status.golden", "status", true},
-		{"status.golden", "status.golden", true},
-		{"status.golden", "status.durability", false},
+		{"status.durability.wal_sync", "status", true},
 		{"status.durability.wal_sync", "status.durability", true},
+		{"status.durability.wal_sync", "status.adversarial", false},
+		{"status.adversarial.corruption", "status.adversarial", true},
 		{"stress.read.corruption", "stress", true},
 		{"stress.read.corruption", "crash", false},
 	}
@@ -114,7 +113,7 @@ func TestAllGroups(t *testing.T) {
 	expected := []string{
 		"stress",
 		"crash",
-		"status.golden",
+		"golden",
 		"status.durability",
 		"status.adversarial",
 	}
