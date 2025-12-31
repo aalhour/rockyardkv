@@ -14,7 +14,8 @@ func TestClassifyFailureKind(t *testing.T) {
 		exitCode      int
 		want          string
 	}{
-		{"timeout exit code", "", -1, "timeout"},
+		{"exit code -1 without timeout reason", "", -1, "exit_error"},
+		{"timeout exit code", "timeout", -1, "timeout"},
 		{"sigkill", "", 137, "killed"},
 		{"sigterm", "", 143, "terminated"},
 		{"oracle failure", "oracle checkconsistency failed", 1, "oracle_failure"},
@@ -173,5 +174,112 @@ func TestNewRunner_PreservesCustomValues(t *testing.T) {
 
 	if r.config.GlobalTimeout != 1800 {
 		t.Errorf("GlobalTimeout = %d, want %d", r.config.GlobalTimeout, 1800)
+	}
+}
+
+// Contract: passedStr returns "PASS" for true and "FAIL" for false.
+func TestPassedStr(t *testing.T) {
+	if passedStr(true) != "PASS" {
+		t.Error("passedStr(true) should return PASS")
+	}
+	if passedStr(false) != "FAIL" {
+		t.Error("passedStr(false) should return FAIL")
+	}
+}
+
+// Contract: writeOracleArtifacts writes stable files to oracle/ subdirectory.
+// This test is hermetic: no shelling out to ldb, uses fake oracle result.
+func TestRunner_writeOracleArtifacts_WritesStableFiles(t *testing.T) {
+	runDir := t.TempDir()
+	r := NewRunner(RunnerConfig{})
+
+	// Fake oracle result with non-empty stdout/stderr
+	result := &ToolResult{
+		ExitCode: 0,
+		Stdout:   "OK\n",
+		Stderr:   "warning: some message\n",
+	}
+
+	if err := r.writeOracleArtifacts(runDir, result); err != nil {
+		t.Fatalf("writeOracleArtifacts() error = %v", err)
+	}
+
+	// Assert stable file paths exist
+	expectedFiles := []string{
+		"oracle/ldb_checkconsistency.stdout.txt",
+		"oracle/ldb_checkconsistency.stderr.txt",
+		"oracle/ldb_checkconsistency.exitcode",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(runDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected file %s does not exist", f)
+		}
+	}
+
+	// Verify exit code content
+	exitCodePath := filepath.Join(runDir, "oracle/ldb_checkconsistency.exitcode")
+	content, err := os.ReadFile(exitCodePath)
+	if err != nil {
+		t.Fatalf("ReadFile(exitcode) error = %v", err)
+	}
+	if string(content) != "0\n" {
+		t.Errorf("exitcode content = %q, want %q", content, "0\n")
+	}
+}
+
+// Contract: writeOracleArtifacts writes files even when stdout/stderr are empty.
+// Avoid "paper success" where empty results don't produce evidence files.
+func TestRunner_writeOracleArtifacts_WritesEmptyFiles(t *testing.T) {
+	runDir := t.TempDir()
+	r := NewRunner(RunnerConfig{})
+
+	// Empty stdout/stderr
+	result := &ToolResult{
+		ExitCode: 1,
+		Stdout:   "",
+		Stderr:   "",
+	}
+
+	if err := r.writeOracleArtifacts(runDir, result); err != nil {
+		t.Fatalf("writeOracleArtifacts() error = %v", err)
+	}
+
+	// All three files must exist even with empty output
+	expectedFiles := []string{
+		"oracle/ldb_checkconsistency.stdout.txt",
+		"oracle/ldb_checkconsistency.stderr.txt",
+		"oracle/ldb_checkconsistency.exitcode",
+	}
+
+	for _, f := range expectedFiles {
+		path := filepath.Join(runDir, f)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected file %s must exist even with empty output", f)
+		}
+	}
+
+	// Exit code file must contain "1\n"
+	exitCodePath := filepath.Join(runDir, "oracle/ldb_checkconsistency.exitcode")
+	content, err := os.ReadFile(exitCodePath)
+	if err != nil {
+		t.Fatalf("ReadFile(exitcode) error = %v", err)
+	}
+	if string(content) != "1\n" {
+		t.Errorf("exitcode content = %q, want %q", content, "1\n")
+	}
+
+	// Stdout and stderr files must be empty (zero bytes)
+	stdoutPath := filepath.Join(runDir, "oracle/ldb_checkconsistency.stdout.txt")
+	stdoutContent, _ := os.ReadFile(stdoutPath)
+	if len(stdoutContent) != 0 {
+		t.Errorf("stdout file should be empty, got %d bytes", len(stdoutContent))
+	}
+
+	stderrPath := filepath.Join(runDir, "oracle/ldb_checkconsistency.stderr.txt")
+	stderrContent, _ := os.ReadFile(stderrPath)
+	if len(stderrContent) != 0 {
+		t.Errorf("stderr file should be empty, got %d bytes", len(stderrContent))
 	}
 }

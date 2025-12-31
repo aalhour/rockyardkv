@@ -129,3 +129,99 @@ func TestAllGroups(t *testing.T) {
 		}
 	}
 }
+
+// Contract: StatusCompositeInstances returns composite instances with required fields.
+func TestStatusCompositeInstances(t *testing.T) {
+	composites := StatusCompositeInstances()
+
+	if len(composites) == 0 {
+		t.Fatal("StatusCompositeInstances() should return at least one composite")
+	}
+
+	for _, c := range composites {
+		if c.Name == "" {
+			t.Error("composite Name should not be empty")
+		}
+		if len(c.Steps) == 0 {
+			t.Errorf("composite %q should have at least one step", c.Name)
+		}
+		if len(c.Seeds) == 0 {
+			t.Errorf("composite %q Seeds should not be empty", c.Name)
+		}
+	}
+}
+
+// Contract: StatusCompositeInstances includes internal_key_collision composite.
+func TestStatusCompositeInstances_Names(t *testing.T) {
+	composites := StatusCompositeInstances()
+
+	names := make(map[string]bool)
+	for _, c := range composites {
+		names[c.Name] = true
+	}
+
+	expected := []string{
+		"status.composite.internal_key_collision",
+		"status.composite.internal_key_collision_only",
+	}
+
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("StatusCompositeInstances() should include %q", name)
+		}
+	}
+}
+
+// Contract: StatusSweepInstances returns sweep instances with required fields.
+func TestStatusSweepInstances(t *testing.T) {
+	sweeps := StatusSweepInstances()
+
+	if len(sweeps) == 0 {
+		t.Fatal("StatusSweepInstances() should return at least one sweep")
+	}
+
+	for _, s := range sweeps {
+		if s.Base.Name == "" {
+			t.Error("sweep Base.Name should not be empty")
+		}
+		// Sweeps must have either Params or Cases
+		if len(s.Params) == 0 && len(s.Cases) == 0 {
+			t.Errorf("sweep %q should have at least one param or case", s.Base.Name)
+		}
+	}
+}
+
+// Contract: StatusSweepInstances includes disablewal_faultfs_minimize sweep.
+func TestStatusSweepInstances_Names(t *testing.T) {
+	sweeps := StatusSweepInstances()
+
+	found := false
+	for _, s := range sweeps {
+		if s.Base.Name == "status.sweep.disablewal_faultfs_minimize" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("StatusSweepInstances() should include status.sweep.disablewal_faultfs_minimize")
+	}
+}
+
+// Contract: disableWALFaultFSMinimizeCases returns sweep cases with IDs and params.
+func TestDisableWALFaultFSMinimizeCases_Status(t *testing.T) {
+	cases := disableWALFaultFSMinimizeCases()
+
+	if len(cases) == 0 {
+		t.Fatal("disableWALFaultFSMinimizeCases() should return at least one case")
+	}
+
+	for _, c := range cases {
+		if c.ID == "" {
+			t.Error("case ID should not be empty")
+		}
+		if len(c.Params) == 0 {
+			t.Errorf("case %q should have at least one param", c.ID)
+		}
+	}
+}

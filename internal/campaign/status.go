@@ -1,6 +1,8 @@
 package campaign
 
-// StatusInstances returns the instance matrix for status/durability checks.
+// StatusInstances returns the simple instance matrix for status/durability checks.
+// For composite instances (multi-step), see StatusCompositeInstances().
+// For sweep instances (parameter expansion), see StatusSweepInstances().
 func StatusInstances() []Instance {
 	return []Instance{
 		// WAL+sync crash durability
@@ -177,5 +179,192 @@ func AllGroups() []string {
 		"golden",
 		"status.durability",
 		"status.adversarial",
+		"status.composite",
+		"status.sweep",
+	}
+}
+
+// StatusCompositeInstances returns composite (multi-step) instances.
+// These instances execute multiple steps with a gating policy.
+func StatusCompositeInstances() []CompositeInstance {
+	return []CompositeInstance{
+		// Internal-key collision check (both steps must pass)
+		{
+			Instance: Instance{
+				Name:           "status.composite.internal_key_collision",
+				Tier:           TierQuick,
+				RequiresOracle: true,
+				Seeds:          []int64{8201},
+				FaultModel: FaultModel{
+					Kind:  FaultCrash,
+					Scope: ScopeGlobal,
+				},
+				Stop: DefaultStopCondition(),
+			},
+			Steps: []Step{
+				{
+					Name:           "crashtest",
+					Tool:           ToolCrash,
+					RequiresOracle: false,
+					Args: []string{
+						"-seed", "<SEED>",
+						"-cycles=4",
+						"-duration=3m",
+						"-interval=6s",
+						"-min-interval=0.5s",
+						"-kill-mode=sigterm",
+						"-crash-schedule=5.327s,10.839s,10.547s,10.065s",
+						"-disable-wal",
+						"-faultfs",
+						"-faultfs-drop-unsynced",
+						"-faultfs-delete-unsynced",
+						"-db", "<RUN_DIR>/db",
+						"-run-dir", "<RUN_DIR>/artifacts",
+						"-trace-dir", "<RUN_DIR>/traces",
+						"-keep",
+						"-v",
+					},
+					DiscoverDBPath: true,
+				},
+				{
+					Name:           "collision-check",
+					Tool:           ToolSSTDump,
+					RequiresOracle: true,
+					Args: []string{
+						"--command=collision-check",
+						"--dir", "<DB_DIR>",
+						"--max-collisions=1",
+					},
+				},
+			},
+			GatingPolicy: GateAllSteps,
+		},
+
+		// Internal-key collision check (only collision-check gates)
+		{
+			Instance: Instance{
+				Name:           "status.composite.internal_key_collision_only",
+				Tier:           TierQuick,
+				RequiresOracle: true,
+				Seeds:          []int64{8201},
+				FaultModel: FaultModel{
+					Kind:  FaultCrash,
+					Scope: ScopeGlobal,
+				},
+				Stop: DefaultStopCondition(),
+			},
+			Steps: []Step{
+				{
+					Name:           "crashtest",
+					Tool:           ToolCrash,
+					RequiresOracle: false,
+					Args: []string{
+						"-seed", "<SEED>",
+						"-cycles=4",
+						"-duration=3m",
+						"-interval=6s",
+						"-min-interval=0.5s",
+						"-kill-mode=sigterm",
+						"-crash-schedule=5.327s,10.839s,10.547s,10.065s",
+						"-disable-wal",
+						"-faultfs",
+						"-faultfs-drop-unsynced",
+						"-faultfs-delete-unsynced",
+						"-db", "<RUN_DIR>/db",
+						"-run-dir", "<RUN_DIR>/artifacts",
+						"-trace-dir", "<RUN_DIR>/traces",
+						"-keep",
+						"-v",
+					},
+					DiscoverDBPath: true,
+				},
+				{
+					Name:           "collision-check",
+					Tool:           ToolSSTDump,
+					RequiresOracle: true,
+					Args: []string{
+						"--command=collision-check",
+						"--dir", "<DB_DIR>",
+						"--max-collisions=1",
+					},
+				},
+			},
+			GatingPolicy: GateLastStep,
+		},
+	}
+}
+
+// StatusSweepInstances returns sweep (parameter expansion) instances.
+// These instances expand into multiple concrete runs.
+func StatusSweepInstances() []SweepInstance {
+	return []SweepInstance{
+		// DisableWAL + faultfs minimization sweep
+		{
+			Base: Instance{
+				Name:           "status.sweep.disablewal_faultfs_minimize",
+				Tier:           TierNightly,
+				RequiresOracle: true,
+				Tool:           ToolCrash,
+				Args: []string{
+					"-seed", "<SEED>",
+					"-cycles=<CYCLES>",
+					"-duration=8m",
+					"-interval=6s",
+					"-min-interval=0.5s",
+					"-kill-mode=sigterm",
+					"-disable-wal",
+					"-faultfs",
+					"-db", "<RUN_DIR>/db_faultfs_disable_wal",
+					"-run-dir", "<RUN_DIR>/artifacts",
+					"-keep",
+					"-v",
+				},
+				Seeds: []int64{8201},
+				FaultModel: FaultModel{
+					Kind:  FaultCrash,
+					Scope: ScopeGlobal,
+				},
+				Stop: DefaultStopCondition(),
+			},
+			Cases: disableWALFaultFSMinimizeCases(),
+		},
+	}
+}
+
+// disableWALFaultFSMinimizeCases returns the sweep cases for disablewal-faultfs-minimize.
+func disableWALFaultFSMinimizeCases() []SweepCase {
+	return []SweepCase{
+		{
+			ID: "drop_cycles_4",
+			Params: map[string]string{
+				"CYCLES":                  "4",
+				"FAULTFS_DROP_UNSYNCED":   "-faultfs-drop-unsynced",
+				"FAULTFS_DELETE_UNSYNCED": "",
+			},
+		},
+		{
+			ID: "delete_cycles_4",
+			Params: map[string]string{
+				"CYCLES":                  "4",
+				"FAULTFS_DROP_UNSYNCED":   "",
+				"FAULTFS_DELETE_UNSYNCED": "-faultfs-delete-unsynced",
+			},
+		},
+		{
+			ID: "drop_plus_delete_cycles_4",
+			Params: map[string]string{
+				"CYCLES":                  "4",
+				"FAULTFS_DROP_UNSYNCED":   "-faultfs-drop-unsynced",
+				"FAULTFS_DELETE_UNSYNCED": "-faultfs-delete-unsynced",
+			},
+		},
+		{
+			ID: "drop_plus_delete_cycles_6",
+			Params: map[string]string{
+				"CYCLES":                  "6",
+				"FAULTFS_DROP_UNSYNCED":   "-faultfs-drop-unsynced",
+				"FAULTFS_DELETE_UNSYNCED": "-faultfs-delete-unsynced",
+			},
+		},
 	}
 }

@@ -145,3 +145,68 @@ func TestCopyFile(t *testing.T) {
 		t.Errorf("copied content = %q, want %q", string(copied), string(content))
 	}
 }
+
+// Contract: WriteCampaignSummary writes a summary.json file with run results.
+func TestWriteCampaignSummary(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	start := time.Now()
+	end := start.Add(10 * time.Second)
+
+	instance1 := &Instance{Name: "test.pass"}
+	instance2 := &Instance{Name: "test.fail"}
+
+	results := []*RunResult{
+		{
+			Instance:    instance1,
+			Seed:        1,
+			RunDir:      filepath.Join(tmpDir, "run1"),
+			StartTime:   start,
+			EndTime:     end,
+			Passed:      true,
+			Fingerprint: "",
+		},
+		{
+			Instance:      instance2,
+			Seed:          2,
+			RunDir:        filepath.Join(tmpDir, "run2"),
+			StartTime:     start,
+			EndTime:       end,
+			Passed:        false,
+			FailureReason: "exit code 1",
+			Fingerprint:   "abc123",
+		},
+	}
+
+	err := WriteCampaignSummary(tmpDir, TierQuick, start, end, results, nil)
+	if err != nil {
+		t.Fatalf("WriteCampaignSummary() error = %v", err)
+	}
+
+	// Read and verify
+	data, err := os.ReadFile(filepath.Join(tmpDir, "summary.json"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	var summary CampaignSummary
+	if err := json.Unmarshal(data, &summary); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if summary.Tier != "quick" {
+		t.Errorf("summary.Tier = %q, want %q", summary.Tier, "quick")
+	}
+	if summary.TotalRuns != 2 {
+		t.Errorf("summary.TotalRuns = %d, want 2", summary.TotalRuns)
+	}
+	if summary.PassedRuns != 1 {
+		t.Errorf("summary.PassedRuns = %d, want 1", summary.PassedRuns)
+	}
+	if summary.FailedRuns != 1 {
+		t.Errorf("summary.FailedRuns = %d, want 1", summary.FailedRuns)
+	}
+	if summary.UniqueErrors != 1 {
+		t.Errorf("summary.UniqueErrors = %d, want 1", summary.UniqueErrors)
+	}
+}

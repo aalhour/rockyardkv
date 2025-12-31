@@ -47,6 +47,24 @@ type RunnerConfig struct {
 	// GlobalTimeout is the global campaign timeout in seconds.
 	// If 0, uses the default for the tier.
 	GlobalTimeout int
+
+	// Trace controls trace capture behavior.
+	Trace TraceConfig
+
+	// Minimize controls minimization behavior.
+	Minimize MinimizeConfig
+
+	// Filter restricts which instances to run.
+	// If nil, all instances are run.
+	Filter *Filter
+
+	// RequireQuarantine enforces that repeat failures must be quarantined.
+	// If true, unquarantined duplicate failures cause the campaign to fail.
+	RequireQuarantine bool
+
+	// SkipPolicies defines instance-level skip policies.
+	// Instances matching a skip policy are not run and are recorded as skipped.
+	SkipPolicies *InstanceSkipPolicies
 }
 
 // Runner executes campaign instances.
@@ -75,13 +93,53 @@ func NewRunner(config RunnerConfig) *Runner {
 // Returns the campaign summary and any error.
 func (r *Runner) Run(ctx context.Context) (*CampaignSummary, error) {
 	instances := GetInstances(r.config.Tier)
+	instances = FilterInstances(instances, r.config.Filter)
 	return r.RunInstances(ctx, instances)
 }
 
 // RunGroup executes instances matching the group prefix.
 // If group is empty, runs all instances for the tier.
 // If group starts with "status.", runs status instances.
+// Special groups "status.composite" and "status.sweep" run composite/sweep instances.
 func (r *Runner) RunGroup(ctx context.Context, group string) (*CampaignSummary, error) {
+	// Handle composite instances
+	if group == "status.composite" || (len(group) > 16 && group[:16] == "status.composite") {
+		composites := StatusCompositeInstances()
+		if group != "status.composite" {
+			// Filter by specific composite name
+			var filtered []CompositeInstance
+			for _, c := range composites {
+				if matchesGroup(c.Name, group) {
+					filtered = append(filtered, c)
+				}
+			}
+			composites = filtered
+		}
+		if len(composites) == 0 {
+			return nil, fmt.Errorf("no composite instances match group %q", group)
+		}
+		return r.RunCompositeInstances(ctx, composites)
+	}
+
+	// Handle sweep instances
+	if group == "status.sweep" || (len(group) > 12 && group[:12] == "status.sweep") {
+		sweeps := StatusSweepInstances()
+		if group != "status.sweep" {
+			// Filter by specific sweep name
+			var filtered []SweepInstance
+			for _, s := range sweeps {
+				if matchesGroup(s.Base.Name, group) {
+					filtered = append(filtered, s)
+				}
+			}
+			sweeps = filtered
+		}
+		if len(sweeps) == 0 {
+			return nil, fmt.Errorf("no sweep instances match group %q", group)
+		}
+		return r.RunSweepInstances(ctx, sweeps)
+	}
+
 	var instances []Instance
 
 	if group == "" {
@@ -102,6 +160,12 @@ func (r *Runner) RunGroup(ctx context.Context, group string) (*CampaignSummary, 
 		return nil, fmt.Errorf("no instances match group %q", group)
 	}
 
+	// Apply tag filter if configured
+	instances = FilterInstances(instances, r.config.Filter)
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no instances match group %q after applying filter", group)
+	}
+
 	return r.RunInstances(ctx, instances)
 }
 
@@ -114,19 +178,41 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 		return nil, fmt.Errorf("create run root: %w", err)
 	}
 
-	// Gate check: verify oracle for instances that require it
+	// Track skipped instances for summary reporting
+	var skipped []SkipSummary
+
+	// Gate check and skip policy: verify oracle and check skip policies
+	var instancesToRun []Instance
 	for i := range instances {
-		if err := GateCheck(&instances[i], r.config.Oracle); err != nil {
+		instance := &instances[i]
+
+		// Check skip policy first (before oracle gate)
+		if r.config.SkipPolicies != nil {
+			if skipResult := r.config.SkipPolicies.ShouldSkip(instance); skipResult != nil {
+				r.log("⏭️  SKIP %s: %s", instance.Name, skipResult.Reason)
+				skipped = append(skipped, SkipSummary{
+					Instance: skipResult.InstanceName,
+					Reason:   skipResult.Reason,
+					IssueID:  skipResult.IssueID,
+				})
+				continue
+			}
+		}
+
+		// Oracle gate check
+		if err := GateCheck(instance, r.config.Oracle); err != nil {
 			return nil, err
 		}
+
+		instancesToRun = append(instancesToRun, *instance)
 	}
 
 	var results []*RunResult
 
-	// Run all instances
+	// Run all non-skipped instances
 	stopNow := false
-	for i := range instances {
-		instance := &instances[i]
+	for i := range instancesToRun {
+		instance := &instancesToRun[i]
 
 		// Run each seed
 		for _, seed := range instance.Seeds {
@@ -134,7 +220,7 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 			case <-ctx.Done():
 				r.log("campaign cancelled")
 				endTime := time.Now()
-				if err := WriteCampaignSummary(r.config.RunRoot, r.config.Tier, startTime, endTime, results); err != nil {
+				if err := WriteCampaignSummary(r.config.RunRoot, r.config.Tier, startTime, endTime, results, skipped); err != nil {
 					r.log("warning: failed to write campaign summary: %v", err)
 				}
 				return nil, ctx.Err()
@@ -142,6 +228,27 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 			}
 
 			result := r.runInstance(ctx, instance, seed)
+
+			// Run minimization if applicable
+			if r.config.Minimize.Enabled && !result.Passed && !result.IsDuplicate {
+				minimizer := NewMinimizer(r, r.config.Minimize)
+				if minimizer.ShouldMinimize(result) {
+					r.log("  minimizing failure...")
+					minResult, err := minimizer.Minimize(ctx, result)
+					if err != nil {
+						r.log("  minimization failed: %v", err)
+					} else {
+						result.MinimizeResult = minResult
+						if minResult.Success {
+							r.log("  minimized to: duration=%s threads=%d keys=%d",
+								minResult.FinalDuration, minResult.FinalThreads, minResult.FinalKeys)
+						} else {
+							r.log("  minimization did not reduce parameters")
+						}
+					}
+				}
+			}
+
 			results = append(results, result)
 
 			if err := WriteRunArtifact(result); err != nil {
@@ -163,32 +270,33 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 	endTime := time.Now()
 
 	// Write campaign summary
-	if err := WriteCampaignSummary(r.config.RunRoot, r.config.Tier, startTime, endTime, results); err != nil {
+	if err := WriteCampaignSummary(r.config.RunRoot, r.config.Tier, startTime, endTime, results, skipped); err != nil {
 		r.log("warning: failed to write campaign summary: %v", err)
 	}
 
-	// Build summary struct
-	fingerprints := make(map[string]struct{})
-	summary := &CampaignSummary{
-		Tier:       string(r.config.Tier),
-		StartTime:  startTime,
-		EndTime:    endTime,
-		DurationMs: endTime.Sub(startTime).Milliseconds(),
-		TotalRuns:  len(results),
-		AllPassed:  true,
+	// Write governance report for artifact-first triage
+	if err := WriteGovernanceReport(r.config.RunRoot, results, skipped, r.config.KnownFailures); err != nil {
+		r.log("warning: failed to write governance report: %v", err)
 	}
 
-	for _, result := range results {
-		rs := RunSummary{
-			Instance:    result.Instance.Name,
-			Seed:        result.Seed,
-			Passed:      result.Passed,
-			Failure:     result.FailureReason,
-			Fingerprint: result.Fingerprint,
-			DurationMs:  result.Duration().Milliseconds(),
-		}
-		summary.Runs = append(summary.Runs, rs)
+	// Return the same summary structure we persist to disk, so CLI output and enforcement
+	// (e.g., -require-quarantine) reflect the canonical artifact.
+	if summary, err := ReadCampaignSummary(r.config.RunRoot); err == nil {
+		return summary, nil
+	}
 
+	// Fallback: return a minimal in-memory summary.
+	fingerprints := make(map[string]struct{})
+	summary := &CampaignSummary{
+		Tier:        string(r.config.Tier),
+		StartTime:   startTime,
+		EndTime:     endTime,
+		DurationMs:  endTime.Sub(startTime).Milliseconds(),
+		TotalRuns:   len(results),
+		SkippedRuns: len(skipped),
+		AllPassed:   true,
+	}
+	for _, result := range results {
 		if result.Passed {
 			summary.PassedRuns++
 		} else {
@@ -200,7 +308,6 @@ func (r *Runner) RunInstances(ctx context.Context, instances []Instance) (*Campa
 		}
 	}
 	summary.UniqueErrors = len(fingerprints)
-
 	return summary, nil
 }
 
@@ -224,6 +331,18 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 
 	startTime := time.Now()
 
+	// Create trace directory if trace capture is enabled
+	traceConfig := r.config.Trace
+	if r.config.Minimize.Enabled {
+		// Auto-enable trace when minimization is enabled
+		traceConfig.Enabled = true
+	}
+	if traceConfig.Enabled && instance.Tool == ToolStress {
+		if err := EnsureTraceDir(runDir, traceConfig); err != nil {
+			r.log("warning: failed to create trace dir: %v", err)
+		}
+	}
+
 	// Create timeout context
 	timeout := time.Duration(r.config.InstanceTimeout) * time.Second
 	instanceCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -237,6 +356,10 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 		binaryPath = "go" // go test uses system go
 	} else {
 		args := instance.ResolveArgs(runDir, seed)
+		// Inject trace args for stresstest if trace capture is enabled
+		if traceConfig.Enabled && instance.Tool == ToolStress {
+			args, _ = InjectTraceArgs(args, runDir, traceConfig)
+		}
 		cmd = exec.CommandContext(instanceCtx, binaryPath, args...)
 	}
 
@@ -308,13 +431,37 @@ func (r *Runner) runInstance(ctx context.Context, instance *Instance, seed int64
 		)
 
 		if r.config.KnownFailures != nil && instance.Stop.DedupeByFingerprint {
-			isDup := r.config.KnownFailures.IsDuplicate(result.Fingerprint)
-			result.IsDuplicate = isDup
-			if isDup {
-				r.log("  duplicate failure: %s (fingerprint %s)", result.FailureReason, result.Fingerprint)
-			} else {
-				r.config.KnownFailures.Record(result.Fingerprint, instance.Name, startTime.Format(time.RFC3339))
-				r.log("  NEW failure: %s (fingerprint %s)", result.FailureReason, result.Fingerprint)
+			result.FailureClass, result.QuarantinePolicy, result.IsDuplicate = r.classifyFailure(
+				result.Fingerprint, instance.Name, startTime.Format(time.RFC3339))
+		} else {
+			// Default classification for runs without dedupe
+			result.FailureClass = FailureClassNew
+		}
+	}
+
+	// Collect trace result and check truncation
+	if traceConfig.Enabled && instance.Tool == ToolStress {
+		dbPath := r.discoverDBPath(runDir)
+		result.TraceResult = CollectTraceResult(runDir, dbPath, r.config.BinDir, traceConfig)
+
+		// Check trace size and write truncation marker if needed
+		if result.TraceResult != nil && result.TraceResult.Path != "" {
+			size, exceeded, err := CheckTraceSize(result.TraceResult.Path, traceConfig)
+			if err == nil {
+				result.TraceResult.BytesWritten = size
+				if exceeded {
+					result.TraceResult.Truncated = true
+					if err := WriteTruncatedMarker(runDir, traceConfig, size); err != nil {
+						r.log("warning: failed to write truncated marker: %v", err)
+					}
+				}
+			}
+		}
+
+		// Write replay script if trace was captured (use TraceResult.Path, not local tracePath)
+		if result.TraceResult != nil && result.TraceResult.Path != "" && dbPath != "" {
+			if err := WriteReplayScript(runDir, result.TraceResult.Path, dbPath, r.config.BinDir); err != nil {
+				r.log("warning: failed to write replay script: %v", err)
 			}
 		}
 	}
@@ -460,31 +607,30 @@ func hasCurrentFile(dbDir string) bool {
 }
 
 // writeOracleArtifacts writes oracle output to stable files in oracle/ subdirectory.
+// Files are written even when stdout/stderr are empty to avoid "paper success"
+// where empty results don't produce evidence files.
 func (r *Runner) writeOracleArtifacts(runDir string, result *ToolResult) error {
 	oracleDir := filepath.Join(runDir, "oracle")
 	if err := EnsureDir(oracleDir); err != nil {
 		return err
 	}
 
-	// Write ldb checkconsistency output
-	if result.Stdout != "" {
-		if err := os.WriteFile(
-			filepath.Join(oracleDir, "ldb_checkconsistency.stdout.txt"),
-			[]byte(result.Stdout),
-			0o644,
-		); err != nil {
-			return err
-		}
+	// Always write stdout file (even if empty)
+	if err := os.WriteFile(
+		filepath.Join(oracleDir, "ldb_checkconsistency.stdout.txt"),
+		[]byte(result.Stdout),
+		0o644,
+	); err != nil {
+		return err
 	}
 
-	if result.Stderr != "" {
-		if err := os.WriteFile(
-			filepath.Join(oracleDir, "ldb_checkconsistency.stderr.txt"),
-			[]byte(result.Stderr),
-			0o644,
-		); err != nil {
-			return err
-		}
+	// Always write stderr file (even if empty)
+	if err := os.WriteFile(
+		filepath.Join(oracleDir, "ldb_checkconsistency.stderr.txt"),
+		[]byte(result.Stderr),
+		0o644,
+	); err != nil {
+		return err
 	}
 
 	// Write exit code
@@ -501,11 +647,45 @@ func (r *Runner) log(format string, args ...any) {
 	fmt.Fprintf(r.config.Output, format+"\n", args...)
 }
 
+// classifyFailure determines the failure class and quarantine policy for a fingerprint.
+// Returns (FailureClass, QuarantinePolicy, isDuplicate).
+func (r *Runner) classifyFailure(fingerprint, instanceName, timestamp string) (FailureClass, QuarantinePolicy, bool) {
+	kf := r.config.KnownFailures
+	if kf == nil {
+		return FailureClassNew, QuarantineNone, false
+	}
+
+	existing := kf.Get(fingerprint)
+	if existing == nil {
+		// First time seeing this fingerprint - record it
+		kf.Record(fingerprint, instanceName, timestamp)
+		r.log("  NEW failure (fingerprint %s)", fingerprint)
+		return FailureClassNew, QuarantineNone, false
+	}
+
+	// Fingerprint is known
+	if existing.Quarantine != QuarantineNone {
+		// Known and quarantined
+		r.log("  known failure: %s (quarantine=%s, issue=%s)", fingerprint, existing.Quarantine, existing.IssueID)
+		kf.Record(fingerprint, instanceName, timestamp) // Update count
+		return FailureClassKnown, existing.Quarantine, true
+	}
+
+	// Known but not quarantined - this is a duplicate
+	r.log("  duplicate failure (fingerprint %s, seen %d times)", fingerprint, existing.Count+1)
+	kf.Record(fingerprint, instanceName, timestamp) // Update count
+	return FailureClassDuplicate, QuarantineNone, true
+}
+
 // classifyFailureKind categorizes a failure for fingerprinting.
 func classifyFailureKind(failureReason string, exitCode int) string {
 	switch {
-	case exitCode == -1:
+	case exitCode == -1 && containsIgnoreCase(failureReason, "timeout"):
 		return "timeout"
+	case exitCode == -1:
+		// When we fail to start the tool (for example, exec errors), ExitCode is -1.
+		// Treat these as generic execution failures, not timeouts.
+		return "exit_error"
 	case exitCode == 137:
 		return "killed" // SIGKILL
 	case exitCode == 143:
@@ -526,4 +706,368 @@ func classifyFailureKind(failureReason string, exitCode int) string {
 // containsIgnoreCase checks if s contains substr (case-insensitive).
 func containsIgnoreCase(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// RunCompositeInstances executes composite (multi-step) instances with Phase-1-grade artifacts.
+func (r *Runner) RunCompositeInstances(ctx context.Context, composites []CompositeInstance) (*CampaignSummary, error) {
+	startTime := time.Now()
+
+	// Create run root
+	if err := EnsureDir(r.config.RunRoot); err != nil {
+		return nil, fmt.Errorf("create run root: %w", err)
+	}
+
+	var results []*RunResult
+	fingerprints := make(map[string]struct{})
+
+	for _, composite := range composites {
+		for _, seed := range composite.Seeds {
+			result := r.runCompositeInstance(ctx, &composite, seed)
+			results = append(results, result)
+
+			if !result.Passed && result.Fingerprint != "" {
+				fingerprints[result.Fingerprint] = struct{}{}
+			}
+
+			if !result.Passed && r.config.FailFast {
+				break
+			}
+		}
+		if r.config.FailFast && len(results) > 0 && !results[len(results)-1].Passed {
+			break
+		}
+	}
+
+	endTime := time.Now()
+
+	// Write campaign summary file
+	if err := WriteCampaignSummary(r.config.RunRoot, r.config.Tier, startTime, endTime, results, nil); err != nil {
+		r.log("warning: failed to write campaign summary: %v", err)
+	}
+
+	// Return canonical persisted summary.
+	if summary, err := ReadCampaignSummary(r.config.RunRoot); err == nil {
+		return summary, nil
+	}
+
+	// Fallback: return a minimal in-memory summary.
+	summary := &CampaignSummary{
+		Tier:         string(r.config.Tier),
+		StartTime:    startTime,
+		EndTime:      endTime,
+		DurationMs:   endTime.Sub(startTime).Milliseconds(),
+		TotalRuns:    len(results),
+		UniqueErrors: len(fingerprints),
+		AllPassed:    true,
+	}
+	for _, result := range results {
+		if result.Passed {
+			summary.PassedRuns++
+		} else {
+			summary.FailedRuns++
+			summary.AllPassed = false
+		}
+	}
+	return summary, nil
+}
+
+// runCompositeInstance runs a multi-step composite instance with Phase-1-grade artifacts.
+func (r *Runner) runCompositeInstance(ctx context.Context, composite *CompositeInstance, seed int64) *RunResult {
+	runDir := composite.RunDir(r.config.RunRoot, seed)
+	startTime := time.Now()
+
+	if err := EnsureDir(runDir); err != nil {
+		return &RunResult{
+			Instance:      &composite.Instance,
+			Seed:          seed,
+			RunDir:        runDir,
+			StartTime:     startTime,
+			EndTime:       time.Now(),
+			Passed:        false,
+			FailureReason: fmt.Sprintf("create run dir: %v", err),
+			ExitCode:      -1,
+		}
+	}
+
+	// Strict oracle gating: check before running any steps
+	if composite.RequiresOracle && (r.config.Oracle == nil || !r.config.Oracle.Available()) {
+		result := &RunResult{
+			Instance:      &composite.Instance,
+			Seed:          seed,
+			RunDir:        runDir,
+			StartTime:     startTime,
+			EndTime:       time.Now(),
+			ExitCode:      -1,
+			Passed:        false,
+			FailureReason: "oracle required but not available",
+		}
+		// Write run.json even for failures
+		if err := WriteRunArtifact(result); err != nil {
+			r.log("warning: failed to write run artifact: %v", err)
+		}
+		return result
+	}
+
+	r.log("Running composite: %s (seed=%d)", composite.Name, seed)
+
+	steps := composite.ToSteps()
+	compositeResult := &CompositeResult{
+		GatingPolicy: composite.GatingPolicy,
+	}
+
+	var lastDBPath string
+
+	// Create timeout context for the entire composite instance
+	timeout := time.Duration(r.config.InstanceTimeout) * time.Second
+	instanceCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for i, step := range steps {
+		// Check context for timeout
+		if instanceCtx.Err() != nil {
+			stepResult := StepResult{
+				StepName:      step.Name,
+				Passed:        false,
+				ExitCode:      -1,
+				FailureReason: "timeout",
+			}
+			compositeResult.Steps = append(compositeResult.Steps, stepResult)
+			break
+		}
+
+		// Check for per-step oracle requirement
+		if step.RequiresOracle && (r.config.Oracle == nil || !r.config.Oracle.Available()) {
+			stepResult := StepResult{
+				StepName:      step.Name,
+				Passed:        false,
+				ExitCode:      -1,
+				FailureReason: "oracle required but not available",
+			}
+			compositeResult.Steps = append(compositeResult.Steps, stepResult)
+			break
+		}
+
+		// Per-step timeout (configurable, or fraction of instance timeout)
+		// Minimum 30s per step
+		stepTimeout := max(timeout/time.Duration(len(steps)), 30*time.Second)
+		stepCtx, stepCancel := context.WithTimeout(instanceCtx, stepTimeout)
+
+		stepResult := r.runStep(stepCtx, &step, runDir, seed, lastDBPath, composite.Stop)
+		stepCancel()
+
+		compositeResult.Steps = append(compositeResult.Steps, stepResult)
+
+		// Update lastDBPath if this step discovered it
+		if stepResult.DBPath != "" {
+			lastDBPath = stepResult.DBPath
+		}
+
+		r.log("  Step %d/%d %s: %s (exit=%d, %dms)",
+			i+1, len(steps), step.Name, passedStr(stepResult.Passed),
+			stepResult.ExitCode, stepResult.DurationMs)
+
+		// For GateAllSteps, stop on first failure
+		if composite.GatingPolicy == GateAllSteps && !stepResult.Passed {
+			break
+		}
+	}
+
+	// Compute overall pass/fail based on gating policy
+	compositeResult.ComputePassed()
+
+	endTime := time.Now()
+
+	// Build combined log path from step logs
+	var combinedLogPath string
+	if len(compositeResult.Steps) > 0 {
+		combinedLogPath = compositeResult.Steps[len(compositeResult.Steps)-1].LogPath
+	}
+
+	// Determine exit code (last step's exit code)
+	exitCode := 0
+	if len(compositeResult.Steps) > 0 {
+		exitCode = compositeResult.Steps[len(compositeResult.Steps)-1].ExitCode
+	}
+
+	// Build result
+	result := &RunResult{
+		Instance:      &composite.Instance,
+		Seed:          seed,
+		RunDir:        runDir,
+		StartTime:     startTime,
+		EndTime:       endTime,
+		ExitCode:      exitCode,
+		Passed:        compositeResult.Passed,
+		FailureReason: compositeResult.FailureReason,
+	}
+
+	// Apply stop conditions if applicable
+	if composite.Stop.RequireOracleCheckConsistencyOK && lastDBPath != "" && r.config.Oracle != nil {
+		oracleResult := r.config.Oracle.CheckConsistency(lastDBPath)
+		result.OracleResult = oracleResult
+		if !oracleResult.OK() {
+			result.Passed = false
+			if result.FailureReason == "" {
+				result.FailureReason = "oracle consistency check failed"
+			}
+		}
+		// Write oracle artifacts
+		if err := r.writeOracleArtifacts(runDir, oracleResult); err != nil {
+			r.log("warning: failed to write oracle artifacts: %v", err)
+		}
+	}
+
+	// Compute fingerprint and handle dedupe
+	if !result.Passed && result.FailureReason != "" {
+		result.FailureKind = classifyFailureKind(result.FailureReason, result.ExitCode)
+		result.Fingerprint = ComputeFingerprint(
+			composite.Name,
+			seed,
+			result.FailureKind,
+			result.FailureReason,
+			combinedLogPath,
+		)
+
+		if r.config.KnownFailures != nil && composite.Stop.DedupeByFingerprint {
+			result.FailureClass, result.QuarantinePolicy, result.IsDuplicate = r.classifyFailure(
+				result.Fingerprint, composite.Name, startTime.Format(time.RFC3339))
+		} else {
+			result.FailureClass = FailureClassNew
+		}
+	}
+
+	// Write run.json (Phase-1-grade artifact)
+	if err := WriteRunArtifact(result); err != nil {
+		r.log("warning: failed to write run artifact: %v", err)
+	}
+
+	if result.Passed {
+		r.log("  PASS (%s)", result.Duration())
+	} else {
+		r.log("  FAIL: %s (%s)", result.FailureReason, result.Duration())
+	}
+
+	return result
+}
+
+// runStep executes a single step of a composite instance.
+// stop contains the composite instance's stop conditions for verification enforcement.
+func (r *Runner) runStep(ctx context.Context, step *Step, runDir string, seed int64, dbPath string, stop StopCondition) StepResult {
+	stepDir := StepRunDir(runDir, step.Name)
+	if err := EnsureDir(stepDir); err != nil {
+		return StepResult{
+			StepName:      step.Name,
+			Passed:        false,
+			ExitCode:      -1,
+			FailureReason: fmt.Sprintf("create step dir: %v", err),
+		}
+	}
+
+	startTime := time.Now()
+
+	// Resolve args
+	args := ResolveStepArgs(step.Args, runDir, seed, dbPath)
+
+	// Build command
+	var binaryPath string
+	switch step.Tool {
+	case ToolSSTDump:
+		binaryPath = filepath.Join(r.config.BinDir, "sstdump")
+	case ToolCrash:
+		binaryPath = filepath.Join(r.config.BinDir, "crashtest")
+	case ToolStress:
+		binaryPath = filepath.Join(r.config.BinDir, "stresstest")
+	case ToolAdversarial:
+		binaryPath = filepath.Join(r.config.BinDir, "adversarialtest")
+	default:
+		binaryPath = string(step.Tool)
+	}
+
+	// Execute
+	logPath := filepath.Join(stepDir, "output.log")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return StepResult{
+			StepName:      step.Name,
+			Passed:        false,
+			ExitCode:      -1,
+			FailureReason: fmt.Sprintf("create log file: %v", err),
+		}
+	}
+	defer func() { _ = logFile.Close() }()
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
+	// Add environment
+	cmd.Env = os.Environ()
+	for k, v := range step.Env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	err = cmd.Run()
+	exitCode := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = -1
+		}
+	}
+
+	durationMs := time.Since(startTime).Milliseconds()
+
+	result := StepResult{
+		StepName:   step.Name,
+		Passed:     exitCode == 0,
+		ExitCode:   exitCode,
+		DurationMs: durationMs,
+		LogPath:    logPath,
+	}
+
+	if !result.Passed {
+		result.FailureReason = fmt.Sprintf("exit code %d", exitCode)
+	}
+
+	// Enforce RequireFinalVerificationPass for tools that produce verification markers.
+	// This matches the behavior of checkStopConditions() in RunInstances.
+	if stop.RequireFinalVerificationPass && result.Passed {
+		switch step.Tool {
+		case ToolStress, ToolCrash:
+			if !finalVerificationPassed(step.Tool, logPath) {
+				result.Passed = false
+				result.FailureReason = "final verification not observed as passed in output log"
+			}
+		}
+	}
+
+	// Discover DB path if requested
+	if step.DiscoverDBPath {
+		result.DBPath = r.discoverDBPath(runDir)
+	}
+
+	return result
+}
+
+// passedStr returns "PASS" or "FAIL" based on passed.
+func passedStr(passed bool) string {
+	if passed {
+		return "PASS"
+	}
+	return "FAIL"
+}
+
+// RunSweepInstances expands and runs sweep instances.
+func (r *Runner) RunSweepInstances(ctx context.Context, sweeps []SweepInstance) (*CampaignSummary, error) {
+	// Expand all sweeps into concrete instances
+	var instances []Instance
+	for _, sweep := range sweeps {
+		expanded := sweep.Expand()
+		instances = append(instances, expanded...)
+	}
+
+	// Run as regular instances
+	return r.RunInstances(ctx, instances)
 }

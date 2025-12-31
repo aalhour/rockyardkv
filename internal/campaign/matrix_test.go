@@ -2,6 +2,22 @@ package campaign
 
 import "testing"
 
+func argsContainDBUnderRunDir(args []string) bool {
+	for i, arg := range args {
+		if arg != "-db" {
+			continue
+		}
+		if i+1 >= len(args) {
+			continue
+		}
+		v := args[i+1]
+		if len(v) >= len("<RUN_DIR>/") && v[:len("<RUN_DIR>/")] == "<RUN_DIR>/" {
+			return true
+		}
+	}
+	return false
+}
+
 // Contract: QuickInstances returns at least one instance.
 func TestQuickInstances_NotEmpty(t *testing.T) {
 	instances := QuickInstances()
@@ -130,6 +146,18 @@ func TestGetInstances_IncludesStatusInstances(t *testing.T) {
 	for _, inst := range status {
 		if inst.Tier == TierQuick && !quickNames[inst.Name] {
 			t.Errorf("GetInstances(TierQuick) should include status instance %q", inst.Name)
+		}
+	}
+}
+
+// Contract: Any oracle-required stresstest/crashtest instance places its DB under <RUN_DIR>
+// so the runner can locate it for oracle checks (on both success and failure).
+func TestNightlyInstances_OracleRequiredToolsHaveDBUnderRunDir(t *testing.T) {
+	for _, inst := range NightlyInstances() {
+		if inst.RequiresOracle && (inst.Tool == ToolStress || inst.Tool == ToolCrash) {
+			if !argsContainDBUnderRunDir(inst.Args) {
+				t.Errorf("nightly instance %q requires oracle but does not specify -db <RUN_DIR>/... in args", inst.Name)
+			}
 		}
 	}
 }

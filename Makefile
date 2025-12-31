@@ -302,58 +302,6 @@ test-e2e: test-e2e-smoke test-e2e-stress test-e2e-crash test-e2e-adversarial tes
 	@echo "✅ All E2E tests complete ($(TIER) tier)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Status checks (durability/compatibility snapshots)
-# ─────────────────────────────────────────────────────────────────────────────
-
-STATUS_RUN_ROOT ?= crashtest-artifacts/status/$(shell date +%Y%m%d-%H%M%S)
-
-.PHONY: status-golden
-status-golden: test-e2e-golden ## Status: Always-on compatibility gate (golden tests)
-
-.PHONY: status-durability-wal-sync
-status-durability-wal-sync: build ## Status: Repro WAL+sync crash durability behavior (writes artifacts)
-	@echo "💥 Running durability repro (wal-sync) ..."
-	@bash scripts/status/run_durability_repros.sh wal-sync "$(STATUS_RUN_ROOT)/wal-sync"
-
-.PHONY: status-durability-wal-sync-sweep
-status-durability-wal-sync-sweep: build ## Status: Seed sweep for WAL+sync crash durability (writes artifacts)
-	@echo "💥 Running durability sweep (wal-sync-sweep) ..."
-	@bash scripts/status/run_durability_repros.sh wal-sync-sweep "$(STATUS_RUN_ROOT)/wal-sync-sweep"
-
-.PHONY: status-durability-disablewal-faultfs
-status-durability-disablewal-faultfs: build ## Status: Repro DisableWAL+faultfs crash durability behavior (writes artifacts)
-	@echo "💥 Running durability repro (disablewal-faultfs) ..."
-	@bash scripts/status/run_durability_repros.sh disablewal-faultfs "$(STATUS_RUN_ROOT)/disablewal-faultfs"
-
-.PHONY: status-durability-disablewal-faultfs-minimize
-status-durability-disablewal-faultfs-minimize: build ## Status: Minimization sweep for DisableWAL+faultfs durability (writes artifacts)
-	@echo "💥 Running durability minimization (disablewal-faultfs-minimize) ..."
-	@bash scripts/status/run_durability_repros.sh disablewal-faultfs-minimize "$(STATUS_RUN_ROOT)/disablewal-faultfs-minimize"
-
-.PHONY: status-adversarial-corruption
-status-adversarial-corruption: build ## Status: Run adversarial corruption suite (writes artifacts)
-	@echo "🧨 Running adversarial corruption suite ..."
-	@bash scripts/status/run_durability_repros.sh adversarial-corruption "$(STATUS_RUN_ROOT)/adversarial-corruption"
-
-.PHONY: status-durability-internal-key-collision
-status-durability-internal-key-collision: build ## Status: Repro + detect internal-key collisions across SSTs (writes artifacts)
-	@echo "🧪 Running internal-key collision repro/check ..."
-	@bash scripts/status/run_durability_repros.sh internal-key-collision "$(STATUS_RUN_ROOT)/internal-key-collision"
-
-.PHONY: status-durability-internal-key-collision-only
-status-durability-internal-key-collision-only: build ## Status: Collision-check-only gate (ignores DisableWAL verifier failures; HARNESS-02 pending)
-	@echo "🧪 Running internal-key collision CHECK-ONLY gate ..."
-	@bash scripts/status/run_durability_repros.sh internal-key-collision-only "$(STATUS_RUN_ROOT)/internal-key-collision-only"
-
-.PHONY: status-durability
-status-durability: status-durability-wal-sync status-durability-wal-sync-sweep status-durability-disablewal-faultfs status-durability-disablewal-faultfs-minimize status-durability-internal-key-collision ## Status: Run durability repros (writes artifacts)
-	@echo "✅ Durability repros complete"
-
-.PHONY: status-check
-status-check: status-golden status-durability status-adversarial-corruption ## Status: Run golden tests and repro suite
-	@echo "✅ Status check complete"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Benchmark Tests
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -785,6 +733,23 @@ ci: deps lint test coverage smoke ## Run full CI pipeline (deps, lint, test, cov
 pre-commit: fmt lint test-short ## Run pre-commit checks (fmt, lint, test-short)
 	@echo "✅ Pre-commit checks passed"
 
+.PHONY: jepsen-ci
+jepsen-ci: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-check ## Run Jepsen campaign for CI (quick tier, require-quarantine, fail-fast)
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║              🔬 Jepsen Campaign: CI Mode                         ║"
+	@echo "║  • Quick tier with oracle gating                                 ║"
+	@echo "║  • -require-quarantine: repeat failures must be tracked          ║"
+	@echo "║  • -fail-fast: stops on first failure                            ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@if [ -z "$$ROCKSDB_PATH" ]; then \
+		echo "❌ ROCKSDB_PATH not set. Oracle is required for CI mode."; \
+		echo "   Set ROCKSDB_PATH to point to your RocksDB build directory."; \
+		exit 1; \
+	fi
+	$(CAMPAIGN_BIN) -tier=quick -run-root=$(CAMPAIGN_RUN_ROOT) -known-failures=$(KNOWN_FAILURES_PATH) -require-quarantine -fail-fast -v
+
 # ═══════════════════════════════════════════════════════════════════════════
 # EXAMPLES
 # ═══════════════════════════════════════════════════════════════════════════
@@ -849,7 +814,7 @@ clean: clean-build clean-test clean-fuzz clean-reports ## Remove all build artif
 .PHONY: help
 help: ## Show this help message
 	@echo ""
-	@echo "\033[1mRockyardKV\033[0m - Pure Go reimplementation of RocksDB v10.7.5"
+	@echo "\033[1mRockyardKV\033[0m - a pure Go implementation of RocksDB (v10.7.5)"
 	@echo ""
 	@echo "\033[1mUsage:\033[0m make \033[36m<target>\033[0m [TIER=quick|long|marathon]"
 	@echo ""
@@ -888,7 +853,7 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^clean' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1m\033[32mCI/CD\033[0m"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(ci|ci-local|pre-commit):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | grep -E '^(ci|ci-local|pre-commit|jepsen-ci):' | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "\033[1mExamples:\033[0m"
 	@echo "  make test                   Run Go tests (quick)"
