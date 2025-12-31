@@ -702,41 +702,6 @@ todo: ## List TODO/FIXME items in code
 	@grep -rn "TODO\|FIXME\|XXX\|HACK" --include="*.go" . | head -20
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLEANUP
-# ═══════════════════════════════════════════════════════════════════════════
-
-.PHONY: clean-build
-clean-build: ## Remove all build artifacts
-	@echo "🧹 Cleaning build artifacts..."
-	rm -rf $(BIN_DIR)
-	rm -rf $(COV_DIR)
-	rm -rf $(DIST_DIR)
-	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump manifestdump
-	rm -rf crashtest-artifacts
-	rm -f profile.cov coverage.out
-	rm -f *.test
-	rm -f *.out
-	$(GO) clean -cache -modcache
-
-.PHONY: clean-test
-clean-test: ## Clean test cache only
-	@echo "🧹 Cleaning test cache..."
-	$(GO) clean -testcache -fuzzcache
-
-.PHONY: clean-fuzz
-clean-fuzz: ## Clean fuzz corpus
-	@echo "🧹 Cleaning fuzz cache..."
-	rm -rf testdata/fuzz
-
-.PHONY: clean-reports
-clean-reports: ## Remove generated refactoring reports (staticcheck, modernize, gocyclo, gocritic)
-	@echo "🧹 Cleaning refactoring reports..."
-	@rm -f $(MODERNIZE_REPORT) $(STATICCHECK_REPORT) $(GOCYCLO_REPORT) $(GO_CRITIC_REPORT)
-
-.PHONY: clean
-clean: clean-build clean-test clean-fuzz clean-reports ## Remove all build artifacts, test cache, fuzz corpus, and refactoring reports (staticcheck, modernize, gocyclo, gocritic)
-
-# ═══════════════════════════════════════════════════════════════════════════
 # JEPSEN-STYLE CAMPAIGN RUNNER
 # ═══════════════════════════════════════════════════════════════════════════
 #
@@ -819,6 +784,63 @@ ci: deps lint test coverage smoke ## Run full CI pipeline (deps, lint, test, cov
 .PHONY: pre-commit
 pre-commit: fmt lint test-short ## Run pre-commit checks (fmt, lint, test-short)
 	@echo "✅ Pre-commit checks passed"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXAMPLES
+# ═══════════════════════════════════════════════════════════════════════════
+
+EXAMPLES := $(shell find examples -name main.go -type f | xargs -n1 dirname | sort)
+
+.PHONY: examples
+examples: ## Run all examples one by one
+	@echo ""
+	@echo "╔══════════════════════════════════════════════════════════════════╗"
+	@echo "║                      📚 Running Examples                         ║"
+	@echo "╚══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@for dir in $(EXAMPLES); do \
+		echo "─────────────────────────────────────────────────────────────────"; \
+		echo "▶ Running $$dir"; \
+		echo "─────────────────────────────────────────────────────────────────"; \
+		(cd $$dir && $(GO) run . ) || exit 1; \
+		echo ""; \
+	done
+	@echo "✅ All examples completed successfully"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLEANUP
+# ═══════════════════════════════════════════════════════════════════════════
+
+.PHONY: clean-build
+clean-build: ## Remove all build artifacts
+	@echo "🧹 Cleaning build artifacts..."
+	rm -rf $(BIN_DIR)
+	rm -rf $(COV_DIR)
+	rm -rf $(DIST_DIR)
+	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump manifestdump
+	rm -rf crashtest-artifacts
+	rm -f profile.cov coverage.out
+	rm -f *.test
+	rm -f *.out
+	$(GO) clean -cache -modcache
+
+.PHONY: clean-test
+clean-test: ## Clean test cache only
+	@echo "🧹 Cleaning test cache..."
+	$(GO) clean -testcache -fuzzcache
+
+.PHONY: clean-fuzz
+clean-fuzz: ## Clean fuzz corpus
+	@echo "🧹 Cleaning fuzz cache..."
+	rm -rf testdata/fuzz
+
+.PHONY: clean-reports
+clean-reports: ## Remove generated refactoring reports (staticcheck, modernize, gocyclo, gocritic)
+	@echo "🧹 Cleaning refactoring reports..."
+	@rm -f $(MODERNIZE_REPORT) $(STATICCHECK_REPORT) $(GOCYCLO_REPORT) $(GO_CRITIC_REPORT)
+
+.PHONY: clean
+clean: clean-build clean-test clean-fuzz clean-reports ## Remove all build artifacts, test cache, fuzz corpus, and refactoring reports (staticcheck, modernize, gocyclo, gocritic)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # HELP
