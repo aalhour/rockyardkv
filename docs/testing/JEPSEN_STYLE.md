@@ -4,11 +4,38 @@ This document describes the Jepsen-style test classes that exist in RockyardKV.
 You use it to understand what the test harness validates today.
 You use it to identify missing instances within a test class.
 
+## Table of contents
+
+- [What Jepsen-style means in this repo](#what-jepsen-style-means-in-this-repo)
+- [Inspiration (external patterns)](#inspiration-external-patterns)
+- [Supported instances map](#supported-instances-map)
+- [Capability matrix](#capability-matrix)
+- [Missing instances checklist](#missing-instances-checklist)
+
 ## What Jepsen-style means in this repo
 
 You treat failures as invariant breaches.
 You collect artifacts for each breach.
 You use RocksDB v10.7.5 as the oracle when the on-disk format or recovery classification matters.
+
+For the Jepsen-style testing mindset and how you use `bin/campaignrunner`, refer to [Testing philosophy](PHILOSOPHY.md).
+
+## Inspiration (external patterns)
+
+This repo borrows ideas from mature systems, but adapts them to RockyardKV’s shape (single-node engine + file durability + on-disk format oracle).
+
+- **CockroachDB `roachtest`**: a runner binary with a registry of named tests in code, plus listing/filtering and consistent artifact capture.
+  - Reference: [roachtest README](https://github.com/cockroachdb/cockroach/blob/master/pkg/cmd/roachtest/README.md)
+- **RocksDB `db_stress` / crash harness**: “one powerful engine + many knobs”, run by fixed seed sets and parameter matrices for reproducibility.
+  - Reference: [db_stress_tool](https://github.com/facebook/rocksdb/tree/main/db_stress_tool)
+- **FoundationDB simulation testing**: make concurrency and fault injection repeatable; explore huge seed spaces nightly and treat reproducibility as a first-class goal.
+  - Reference: [FoundationDB testing: Simulation and Testing](https://apple.github.io/foundationdb/testing.html)
+- **etcd robustness tests**: record histories, check them against a model, and support re-evaluating old reports as validators improve.
+  - Reference: [etcd robustness tests](https://github.com/etcd-io/etcd/blob/main/tests/robustness/README.md)
+- **Antithesis**: deterministic simulation framing—fault injection is most valuable when it yields stable replay and fast minimization.
+  - Reference: [Deterministic simulation testing](https://antithesis.com/resources/deterministic_simulation_testing/)
+- **Jepsen itself**: explicit workload + nemesis + checker framing, where failures are invariant breaches backed by a history.
+  - Reference: [Jepsen README](https://github.com/jepsen-io/jepsen)
 
 ## Supported instances map
 

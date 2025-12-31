@@ -1,5 +1,19 @@
 # Testing philosophy
 
+## Table of contents
+
+- [Test contracts, not bugs](#test-contracts-not-bugs)
+- [Naming conventions](#naming-conventions)
+- [Contract test categories](#contract-test-categories)
+- [The testing pyramid](#the-testing-pyramid)
+- [Contract documentation pattern](#contract-documentation-pattern)
+- [Invariants as contracts](#invariants-as-contracts)
+- [Campaign mindset (Jepsen-style, adapted)](#campaign-mindset-jepsen-style-adapted)
+- [Table-driven tests](#table-driven-tests)
+- [Prevent regressions](#prevent-regressions)
+- [Prefer tests that fail on real bugs](#prefer-tests-that-fail-on-real-bugs)
+- [References](#references)
+
 ## Test contracts, not bugs
 
 RockyardKV tests _contracts_, not _bugs_.
@@ -213,10 +227,47 @@ When you write a contract test:
 1. Make the test pass when the contract is satisfied
 1. Ensure the test survives implementation changes
 
-## Jepsen-style invariants
+## Invariants as contracts
 
 Treat these as contracts.
 Keep them strict.
+
+## Campaign mindset (Jepsen-style, adapted)
+
+This repo treats failures as **invariant breaches** backed by evidence.
+You avoid “rerun until it feels OK” workflows.
+You ratchet coverage by adding or refining contracts and the campaigns that exercise them.
+
+Key practices:
+
+- **Name the scenario**: a failure is only actionable when you can describe the workload, the fault model, and the checker.
+- **Make it reproducible**: record seeds and knobs so a run can be reproduced without guesswork.
+- **Treat the oracle as truth**: when on-disk format or recovery classification matters, validate against the RocksDB tools.
+- **Prefer evidence over reruns**: failures should persist enough artifacts to debug without repeating the campaign.
+- **Deduplicate**: repeated failures should not bury novel ones.
+
+### External inspiration (workflows worth copying)
+
+These are patterns we reuse because they scale testing beyond ad-hoc runs:
+
+- **Registry-in-code runners** (e.g., CockroachDB `roachtest`): a single runner owns the list of named tests and supports selecting subsets.
+- **Seeded stress engines** (e.g., RocksDB `db_stress`): one powerful engine explored by fixed seed sets and parameter matrices.
+- **Repeatability-first fault injection** (e.g., FoundationDB simulation, Antithesis): faults are most valuable when they lead to stable replay and faster minimization.
+- **Report re-evaluation** (e.g., etcd robustness): validators improve over time; old artifacts should remain useful.
+
+These inspirations inform the testing workflow, but the operational details live in the testing tool docs (e.g., blackbox/whitebox and campaign runner docs).
+
+### How you use it in development and review
+
+Use the runner to make coverage reviewable.
+Add or update an instance when you add a new fault model, checker, or durability promise.
+Review changes by asking which instance covers the new behavior and what evidence it records.
+
+### How you use it in nightly and pre release
+
+Use a fixed nightly matrix to explore failure space systematically.
+Use a fixed pre release matrix to gate durability and compatibility claims.
+Treat oracle required instances as setup requirements, not optional checks.
 
 ### Acknowledge and durability must match
 

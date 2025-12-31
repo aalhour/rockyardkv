@@ -1,7 +1,19 @@
-# Blackbox Testing
+# Blackbox testing
 
 Blackbox tests find bugs through randomization and chaos.
 Unlike whitebox tests (specific crash points), blackbox tests use random timing to discover unexpected failure modes.
+
+## Table of contents
+
+- [Overview](#overview)
+- [Stress Tests](#stress-tests)
+- [Crash Tests](#crash-tests)
+- [Fault Injection](#fault-injection)
+- [Adversarial Tests](#adversarial-tests)
+- [Smoke Tests](#smoke-tests)
+- [Fuzz Tests](#fuzz-tests)
+- [Evidence and Reproducibility](#evidence-and-reproducibility)
+- [References](#references)
 
 ## Overview
 
@@ -12,7 +24,7 @@ Unlike whitebox tests (specific crash points), blackbox tests use random timing 
 | Adversarial tests | `cmd/adversarialtest/` | Hostile inputs and fault injection |
 | Smoke tests | `cmd/smoketest/` | Fast end-to-end sanity checks |
 
-## Stress Tests
+## Stress tests
 
 Stress tests run concurrent workloads and verify results using an expected-state oracle.
 They target concurrency bugs, deadlocks, and hidden correctness drift.
@@ -29,7 +41,7 @@ The oracle uses:
 - Pending state tracking for operations that need commit semantics
 - Pre and post read snapshots to tolerate concurrent mutation
 
-### Run Stress Tests
+### Run stress tests
 
 ```bash
 make test-e2e-stress
@@ -42,7 +54,7 @@ Or run directly:
 ./bin/stresstest -duration 5m -ops-per-worker 10000
 ```
 
-### Expected-State Oracle
+### Expected-state oracle
 
 The stress tool persists expected state to disk. Crash tests depend on this.
 
@@ -55,7 +67,7 @@ The stress tool persists expected state to disk. Crash tests depend on this.
 SIGKILL can prevent the oracle state from reaching disk.
 Use periodic persistence when running crash tests.
 
-### Durability Flags
+### Durability flags
 
 | Flag | Purpose |
 |------|---------|
@@ -65,14 +77,14 @@ Use periodic persistence when running crash tests.
 Use `-sync` when recovery should preserve acknowledged writes.
 Use `-disable-wal` to isolate memtable flush and MANIFEST behavior.
 
-### Cleanup Flags
+### Cleanup flags
 
 | Flag | Purpose |
 |------|---------|
 | `-cleanup` | Remove old test directories before run |
 | `-keep` | Keep DB directory after run for debugging |
 
-## Crash Tests
+## Crash tests
 
 Crash tests simulate process death under load.
 They use SIGKILL to approximate process-level power loss.
@@ -107,7 +119,7 @@ go test ./cmd/crashtest/... -run TestScenario
 | `TestScenario_WriteBatchAtomicity` | Batch writes are all-or-nothing |
 | `TestScenario_DoubleCrashRecovery` | Recovery is stable after multiple crashes |
 
-### Run Crash Tests
+### Run crash tests
 
 ```bash
 make test-e2e-crash
@@ -120,7 +132,7 @@ Or run directly:
 ./bin/crashtest -cycles=10 -sync
 ```
 
-### Crash Flags
+### Crash flags
 
 | Flag | Purpose |
 |------|---------|
@@ -132,21 +144,21 @@ Or run directly:
 | `-disable-wal` | Run without WAL |
 | `-run-dir` | Collect artifacts on failure |
 
-## Fault Injection
+## Fault injection
 
 Fault injection tests verify durability under filesystem anomalies.
 They use `FaultInjectionFS`, a virtual filesystem wrapper.
 
-For detailed documentation on all fault injection mechanisms, refer to [Fault injection](FAULT_INJECTION.md).
+For detailed documentation on all fault injection mechanisms, refer to [VFS fault injection](VFS_FAULT_INJECTION.md).
 
-### Simulated Anomalies
+### Simulated anomalies
 
 | Anomaly | Description |
 |---------|-------------|
 | Fsync lies | Data appears synced but isn't. On crash, unsynced data is lost. |
 | Directory sync anomalies | File renames not durable until parent directory synced. |
 
-### Fault Injection Flags
+### Fault injection flags
 
 | Flag | Effect |
 |------|--------|
@@ -154,7 +166,7 @@ For detailed documentation on all fault injection mechanisms, refer to [Fault in
 | `-faultfs-drop-unsynced` | Simulate fsync lies |
 | `-faultfs-delete-unsynced` | Simulate directory sync anomalies |
 
-### Durability Scenario Tests
+### Durability scenario tests
 
 ```bash
 go test ./cmd/crashtest/... -run 'TestScenario_Fsync|TestScenario_DirSync|TestScenario_Multiple'
@@ -168,13 +180,13 @@ go test ./cmd/crashtest/... -run 'TestScenario_Fsync|TestScenario_DirSync|TestSc
 | `TestScenario_DirSync_RecoveryAfterUnsyncedDataLoss` | Recovery consistent after unsynced loss |
 | `TestScenario_MultipleFlushCycles_DurabilityCheckpoints` | Each flush creates durable checkpoint |
 
-### Run with Fault Injection
+### Run with fault injection
 
 ```bash
 ./bin/crashtest -faultfs -faultfs-drop-unsynced -cycles 5 -duration 2m
 ```
 
-## Adversarial Tests
+## Adversarial tests
 
 Adversarial tests try to violate invariants with hostile inputs.
 They probe error paths and corruption handling.
@@ -189,7 +201,7 @@ Or run directly:
 ./bin/adversarialtest -run-dir ./artifacts
 ```
 
-## Smoke Tests
+## Smoke tests
 
 Smoke tests provide fast end-to-end checks.
 They are not a substitute for crash or stress testing.
@@ -198,7 +210,7 @@ They are not a substitute for crash or stress testing.
 make test-e2e-smoke
 ```
 
-## Fuzz Tests
+## Fuzz tests
 
 Fuzz tests target parsers and codecs.
 They should assert semantic properties, not just "no crash."
@@ -207,12 +219,12 @@ They should assert semantic properties, not just "no crash."
 make test-fuzz
 ```
 
-## Evidence and Reproducibility
+## Evidence and reproducibility
 
 Test failures require evidence.
 Use artifact collection and trace emission to capture context.
 
-### Artifact Collection
+### Artifact collection
 
 Use `-run-dir` to collect artifacts on failure:
 
@@ -229,7 +241,7 @@ Artifacts include:
 - `expected_state.bin` — Expected-state oracle file
 - `stdout.log`, `stderr.log` — Captured output
 
-### Trace Emission
+### Trace emission
 
 Record operations during stress test:
 
@@ -239,29 +251,29 @@ Record operations during stress test:
 
 The trace includes operation types, keys, values, and timestamps.
 
-### Trace Replay
+### Trace replay
 
 Replay against a fresh database:
 
 ```bash
-./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false replay ./trace.bin
+./bin/traceanalyzer -db /path/to/replay_db -create=true -dry-run=false replay ./trace.bin
 ```
 
 Use `-dry-run` to count operations without applying:
 
 ```bash
-./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=true replay ./trace.bin
+./bin/traceanalyzer -db /path/to/replay_db -create=true -dry-run=true replay ./trace.bin
 ```
 
 Use `-preserve-timing` to replay at original pace:
 
 ```bash
-./bin/traceanalyzer -db /tmp/replay_db -create=true -dry-run=false -preserve-timing replay ./trace.bin
+./bin/traceanalyzer -db /path/to/replay_db -create=true -dry-run=false -preserve-timing replay ./trace.bin
 ```
 
 ## References
 
-- Refer to [Fault injection](FAULT_INJECTION.md) for VFS-based fault simulation details
+- Refer to [VFS fault injection](VFS_FAULT_INJECTION.md) for VFS-based fault simulation details
 - Refer to [Whitebox crash testing](WHITEBOX.md) for deterministic crash testing
 - RocksDB `db_crashtest.py`
 - RocksDB `db_stress`

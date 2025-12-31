@@ -84,12 +84,12 @@ bash scripts/status/run_durability_repros.sh wal-sync "<RUN_DIR>"
 bash scripts/status/run_durability_repros.sh disablewal-faultfs "<RUN_DIR>"
 ```
 
-Use the Makefile targets:
+Use the campaign runner groups (recommended):
 
 ```bash
-make status-golden
-make status-durability
-make status-check
+./bin/campaignrunner -tier=quick  -group=status.durability.wal_sync        -run-root "<RUN_DIR>"
+./bin/campaignrunner -tier=quick  -group=status.durability.disablewal_faultfs -run-root "<RUN_DIR>"
+./bin/campaignrunner -tier=nightly -group=status.durability.wal_sync_sweep -run-root "<RUN_DIR>"
 ```
 
 ### What you get from a failing run
@@ -156,7 +156,7 @@ Treat that data loss as expected in DisableWAL+faultfs mode.
 ### Verification command
 
 ```bash
-make status-durability-internal-key-collision
+./bin/campaignrunner -tier=quick -group=status.composite.internal_key_collision -run-root "<RUN_DIR>"
 ```
 
 Expected evidence:

@@ -1,14 +1,28 @@
-# Contributing Tests
+# Contributing tests
 
 This guide explains how to add new tests to RockyardKV.
 
-## Decision Tree: Where to Add Coverage
+## Table of contents
+
+- [Decision Tree: Where to Add Coverage](#decision-tree-where-to-add-coverage)
+- [Naming Conventions](#naming-conventions)
+- [Adding Unit Tests](#adding-unit-tests)
+- [Adding Golden Tests](#adding-golden-tests)
+- [Adding Whitebox Tests](#adding-whitebox-tests)
+- [Adding Blackbox Scenario Tests](#adding-blackbox-scenario-tests)
+- [Adding Fuzz Tests](#adding-fuzz-tests)
+- [Adding Stress Test Scenarios](#adding-stress-test-scenarios)
+- [Test Quality Checklist](#test-quality-checklist)
+- [Running Tests Locally](#running-tests-locally)
+- [CI Requirements](#ci-requirements)
+
+## Decision tree: where to add coverage
 
 ```
 Where should I add test coverage?
 │
 ├── Is it a format compatibility issue?
-│   ├── Yes → Add fixture to testdata/cpp_generated/
+│   ├── Yes → Add fixture to testdata/rocksdb/v10.7.5/
 │   │         + golden test in cmd/goldentest/
 │   └── No ↓
 │
@@ -36,7 +50,7 @@ Where should I add test coverage?
               internal/*_test.go
 ```
 
-## Naming Conventions
+## Naming conventions
 
 Name tests after the behavior they verify, not the bug they fix.
 
@@ -46,7 +60,7 @@ Name tests after the behavior they verify, not the bug they fix.
 | `TestWAL_Recovery_SyncedWritesSurvive` | `TestFixIssue456` |
 | `TestSST_ReadZlibCompressed_FormatV6` | `TestZlibFix` |
 
-## Adding Unit Tests
+## Adding unit tests
 
 Unit tests live in `*_test.go` files next to the code they test.
 
@@ -89,17 +103,17 @@ func TestSST_FormatMatrix(t *testing.T) {
 }
 ```
 
-## Adding Golden Tests
+## Adding golden tests
 
 Golden tests live in `cmd/goldentest/`.
 
-### Add a C++ Fixture
+### Add a C++ fixture
 
 1. Generate the fixture with C++ RocksDB
-2. Place it in `testdata/cpp_generated/`
+2. Place it in `testdata/rocksdb/v10.7.5/` (see `testdata/rocksdb/README.md` for layout)
 3. The test suite automatically picks it up
 
-### Add a Go-Writes-C++-Verifies Test
+### Add a Go-writes-C++-verifies test
 
 ```go
 func TestSST_CppVerifiesGoOutput(t *testing.T) {
@@ -113,11 +127,11 @@ func TestSST_CppVerifiesGoOutput(t *testing.T) {
 }
 ```
 
-## Adding Whitebox Tests
+## Adding whitebox tests
 
 Whitebox tests live in `cmd/crashtest/scenario_whitebox_test.go`.
 
-### Add a Kill Point
+### Add a kill point
 
 1. Define the constant in `internal/testutil/killpoint.go`:
    ```go
@@ -162,7 +176,7 @@ Whitebox tests live in `cmd/crashtest/scenario_whitebox_test.go`.
    }
    ```
 
-## Adding Blackbox Scenario Tests
+## Adding blackbox scenario tests
 
 Scenario tests live in `cmd/crashtest/scenario_test.go`.
 
@@ -190,7 +204,7 @@ func TestScenario_ContractDescription(t *testing.T) {
 }
 ```
 
-## Adding Fuzz Tests
+## Adding fuzz tests
 
 Fuzz tests live next to their targets.
 
@@ -216,17 +230,17 @@ func FuzzComponent_Method(f *testing.F) {
 }
 ```
 
-## Adding Stress Test Scenarios
+## Adding stress test scenarios
 
 Extend `cmd/stresstest/` for new operation types.
 
-### Add a New Operation
+### Add a new operation
 
 1. Define operation in `operations.go`
 2. Add to operation generator
 3. Add oracle validation
 
-## Test Quality Checklist
+## Test quality checklist
 
 Before submitting:
 
@@ -238,7 +252,7 @@ Before submitting:
 - [ ] Matrix tests cover relevant combinations
 - [ ] Golden tests use C++ oracle when applicable
 
-## Running Tests Locally
+## Running tests locally
 
 ```bash
 # Quick check
@@ -257,7 +271,7 @@ go test -tags crashtest ./cmd/crashtest/...
 go test -tags synctest ./internal/testutil/...
 ```
 
-## CI Requirements
+## CI requirements
 
 All PRs must pass:
 
@@ -269,4 +283,3 @@ Long-running tests run nightly:
 
 - `make test-e2e-crash-long`
 - `make test-e2e-stress-long`
-
