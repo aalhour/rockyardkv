@@ -363,7 +363,7 @@ func TestWAL_RoundTrip_Recyclable(t *testing.T) {
 // Note: C++ WAL files are often empty after compaction, so this test reads
 // from the full database recovery path instead.
 func TestWAL_CppWritesGoReads(t *testing.T) {
-	goldenPath := "testdata/cpp_generated/sst/simple_db"
+	goldenPath := filepath.Join("..", "..", "testdata", "rocksdb", "v10.7.5", "db_samples", "simple_db")
 
 	// Find any WAL files
 	files, err := filepath.Glob(filepath.Join(goldenPath, "*.log"))

@@ -35,7 +35,7 @@ import (
 //
 // Contract: Go reads C++ fixtures without errors; this is the oracle direction.
 func TestCppWritesGoReads_Fixtures(t *testing.T) {
-	goldenPath := "testdata/cpp_generated/sst/simple_db"
+	goldenPath := filepath.Join("..", "..", "testdata", "rocksdb", "v10.7.5", "db_samples", "simple_db")
 
 	files, err := filepath.Glob(filepath.Join(goldenPath, "*.sst"))
 	if err != nil || len(files) == 0 {

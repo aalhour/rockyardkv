@@ -32,7 +32,7 @@ import (
 //
 // Contract: Go can parse VersionEdit records from C++ MANIFEST.
 func TestManifest_Contract_CppWritesGoReads(t *testing.T) {
-	goldenPath := "testdata/cpp_generated/sst/simple_db"
+	goldenPath := filepath.Join("..", "..", "testdata", "rocksdb", "v10.7.5", "db_samples", "simple_db")
 
 	// Find MANIFEST files
 	files, err := filepath.Glob(filepath.Join(goldenPath, "MANIFEST-*"))
