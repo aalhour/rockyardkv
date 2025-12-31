@@ -1,3 +1,7 @@
+// tags.go defines the structured tag set for instances.
+//
+// Tags provide metadata for filtering, grouping, and classification.
+// Each instance computes its tags from its configuration (tier, tool, etc.).
 package campaign
 
 // Tags represents the structured tag set for an instance.

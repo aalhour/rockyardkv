@@ -1,3 +1,12 @@
+// recheck.go implements artifact rechecking for policy re-evaluation.
+//
+// Recheck mode allows re-evaluating existing campaign artifacts against
+// current policies and oracle tools. This is useful when:
+//   - Oracle tools become available after initial run
+//   - Quarantine policies change
+//   - Stop conditions are updated
+//
+// Recheck does not re-run the tool; it only re-evaluates persisted artifacts.
 package campaign
 
 import (

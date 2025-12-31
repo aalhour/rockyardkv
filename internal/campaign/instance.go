@@ -1,3 +1,11 @@
+// instance.go defines the Instance type and instance-level operations.
+//
+// An Instance is a named, reproducible test configuration specifying:
+//   - Which tool to run (stresstest, crashtest, goldentest, adversarialtest)
+//   - Command-line arguments with placeholders (<SEED>, <RUN_DIR>, <DB_PATH>)
+//   - Seeds for deterministic reproduction
+//   - Stop conditions defining pass/fail criteria
+//   - Oracle requirements for C++ verification
 package campaign
 
 import (

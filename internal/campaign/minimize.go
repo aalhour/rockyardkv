@@ -1,3 +1,10 @@
+// minimize.go implements failure minimization for stresstest runs.
+//
+// When a stresstest fails, minimization attempts to reduce the reproduction
+// parameters (duration, threads, keys) to find the smallest configuration
+// that still reproduces the failure. This makes debugging faster.
+//
+// Reduction strategy: binary search on each dimension independently.
 package campaign
 
 import (

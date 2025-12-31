@@ -1,3 +1,12 @@
+// oracle.go provides access to C++ RocksDB tools for consistency verification.
+//
+// The oracle uses ldb and sst_dump from a RocksDB build to verify that
+// Go-produced databases are bit-compatible with the C++ implementation.
+//
+// Environment variables:
+//   - ROCKSDB_PATH: path to RocksDB build directory (derives ldb and sst_dump)
+//   - LDB_PATH: explicit path to ldb binary (overrides ROCKSDB_PATH)
+//   - SST_DUMP_PATH: explicit path to sst_dump binary (overrides ROCKSDB_PATH)
 package campaign
 
 import (
