@@ -37,6 +37,9 @@ const (
 
 	// ToolGolden runs the goldentest suite for C++ compatibility.
 	ToolGolden Tool = "goldentest"
+
+	// ToolSSTDump runs the sstdump binary for SST inspection/verification.
+	ToolSSTDump Tool = "sstdump"
 )
 
 // FaultKind represents the type of fault to inject.

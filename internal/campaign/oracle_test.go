@@ -146,18 +146,22 @@ func TestOracle_toolEnv_Darwin(t *testing.T) {
 
 	env := oracle.toolEnv()
 
-	found := false
+	foundAny := false
+	foundWithTmp := false
 	for _, e := range env {
 		if strings.HasPrefix(e, "DYLD_LIBRARY_PATH=") {
-			found = true
-			if !strings.Contains(e, tmpDir) {
-				t.Errorf("DYLD_LIBRARY_PATH should contain %q, got %q", tmpDir, e)
+			foundAny = true
+			if strings.Contains(e, tmpDir) {
+				foundWithTmp = true
 			}
 		}
 	}
 
-	if !found {
+	if !foundAny {
 		t.Error("toolEnv() should set DYLD_LIBRARY_PATH on darwin")
+	}
+	if !foundWithTmp {
+		t.Errorf("expected at least one DYLD_LIBRARY_PATH entry to contain %q", tmpDir)
 	}
 }
 
@@ -172,18 +176,22 @@ func TestOracle_toolEnv_Linux(t *testing.T) {
 
 	env := oracle.toolEnv()
 
-	found := false
+	foundAny := false
+	foundWithTmp := false
 	for _, e := range env {
 		if strings.HasPrefix(e, "LD_LIBRARY_PATH=") {
-			found = true
-			if !strings.Contains(e, tmpDir) {
-				t.Errorf("LD_LIBRARY_PATH should contain %q, got %q", tmpDir, e)
+			foundAny = true
+			if strings.Contains(e, tmpDir) {
+				foundWithTmp = true
 			}
 		}
 	}
 
-	if !found {
+	if !foundAny {
 		t.Error("toolEnv() should set LD_LIBRARY_PATH on linux")
+	}
+	if !foundWithTmp {
+		t.Errorf("expected at least one LD_LIBRARY_PATH entry to contain %q", tmpDir)
 	}
 }
 

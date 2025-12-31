@@ -68,6 +68,8 @@ func (i *Instance) BinaryName() string {
 		return "adversarialtest"
 	case ToolGolden:
 		return "go" // go test
+	case ToolSSTDump:
+		return "sstdump"
 	default:
 		return string(i.Tool)
 	}

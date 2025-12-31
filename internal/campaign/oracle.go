@@ -33,13 +33,28 @@ var ErrOracleNotConfigured = errors.New("oracle not configured: set ROCKSDB_PATH
 var ErrOracleToolNotFound = errors.New("oracle tool not found")
 
 // NewOracleFromEnv creates an Oracle from environment variables.
-// Uses ROCKSDB_PATH if set, otherwise returns nil.
+//
+// Environment variable precedence:
+//   - LDB_PATH: explicit path to ldb binary (overrides ROCKSDB_PATH-derived path)
+//   - SST_DUMP_PATH: explicit path to sst_dump binary (overrides ROCKSDB_PATH-derived path)
+//   - ROCKSDB_PATH: path to RocksDB build directory (derives ldb and sst_dump from it)
+//
+// Returns nil if neither ROCKSDB_PATH nor the tool-specific paths are set.
 func NewOracleFromEnv() *Oracle {
 	rocksdbPath := os.Getenv("ROCKSDB_PATH")
-	if rocksdbPath == "" {
+	ldbPath := os.Getenv("LDB_PATH")
+	sstDumpPath := os.Getenv("SST_DUMP_PATH")
+
+	// Need at least one source
+	if rocksdbPath == "" && ldbPath == "" && sstDumpPath == "" {
 		return nil
 	}
-	return &Oracle{RocksDBPath: rocksdbPath}
+
+	return &Oracle{
+		RocksDBPath: rocksdbPath,
+		LDBPath:     ldbPath,
+		SSTDumpPath: sstDumpPath,
+	}
 }
 
 // Available returns true if the oracle tools are configured and accessible.

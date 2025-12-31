@@ -106,3 +106,36 @@ func TestKnownFailures_LoadInvalidJSON(t *testing.T) {
 		t.Errorf("Count() = %d, want 0 for invalid JSON", kf.Count())
 	}
 }
+
+// Contract: All returns all recorded failures.
+func TestKnownFailures_All(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "known.json")
+
+	kf := NewKnownFailures(path)
+
+	// Empty tracker returns empty slice
+	all := kf.All()
+	if len(all) != 0 {
+		t.Errorf("All() length = %d, want 0", len(all))
+	}
+
+	// Record some failures
+	kf.Record("fp1", "instance1", "2025-01-01T00:00:00Z")
+	kf.Record("fp2", "instance2", "2025-01-02T00:00:00Z")
+
+	all = kf.All()
+	if len(all) != 2 {
+		t.Errorf("All() length = %d, want 2", len(all))
+	}
+
+	// Verify the returned failures contain expected data
+	fpMap := make(map[string]bool)
+	for _, f := range all {
+		fpMap[f.Fingerprint] = true
+	}
+
+	if !fpMap["fp1"] || !fpMap["fp2"] {
+		t.Error("All() should contain both recorded fingerprints")
+	}
+}

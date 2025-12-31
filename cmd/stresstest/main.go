@@ -132,7 +132,8 @@ var (
 	runDir = flag.String("run-dir", "", "Directory for artifact collection on failure (default: none)")
 
 	// Trace emission
-	traceOut = flag.String("trace-out", "", "Path to write operation trace file for replay")
+	traceOut     = flag.String("trace-out", "", "Path to write operation trace file for replay")
+	traceMaxSize = flag.Int64("trace-max-size", 0, "Maximum trace file size in bytes (0 = unlimited)")
 
 	// Seqno-prefix verification (oracle-aligned model).
 	// Replaces the "durable-state >=" verification with a "seqno-prefix (no holes)" model.
@@ -333,7 +334,7 @@ func main() {
 
 	// Setup trace emission (if trace-out specified)
 	if *traceOut != "" {
-		if err := setupTraceWriter(*traceOut); err != nil {
+		if err := setupTraceWriter(*traceOut, *traceMaxSize); err != nil {
 			fmt.Printf("⚠️  Failed to create trace file: %v\n", err)
 		} else {
 			defer closeTraceWriter()
@@ -2623,7 +2624,8 @@ func GetFaultFS() *vfs.FaultInjectionFS {
 
 // setupTraceWriter initializes the trace writer.
 // The trace file uses a standard binary format (see internal/trace/trace.go).
-func setupTraceWriter(path string) error {
+// If -trace-max-size is set, the writer will stop accepting records when the limit is reached.
+func setupTraceWriter(path string, maxSize int64) error {
 	var err error
 	traceFile, err = os.Create(path)
 	if err != nil {
@@ -2633,7 +2635,11 @@ func setupTraceWriter(path string) error {
 	// Create trace writer with standard binary header.
 	// Configuration metadata (seed, keys, etc.) is not included in the trace file.
 	// Use -v flag output or artifact bundle run.json for this information.
-	globalTraceWriter, err = trace.NewWriter(traceFile)
+	var opts []trace.WriterOption
+	if maxSize > 0 {
+		opts = append(opts, trace.WithMaxBytes(maxSize))
+	}
+	globalTraceWriter, err = trace.NewWriter(traceFile, opts...)
 	if err != nil {
 		traceFile.Close()
 		return err
@@ -2647,7 +2653,10 @@ func closeTraceWriter() {
 	if globalTraceWriter != nil {
 		_ = globalTraceWriter.Close()
 		if *verbose {
-			fmt.Printf("📝 Trace records written: %d\n", globalTraceWriter.Count())
+			fmt.Printf("📝 Trace records written: %d (bytes: %d, truncated: %v)\n",
+				globalTraceWriter.Count(),
+				globalTraceWriter.BytesWritten(),
+				globalTraceWriter.Truncated())
 		}
 	}
 	if traceFile != nil {

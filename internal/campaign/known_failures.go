@@ -7,6 +7,18 @@ import (
 	"sync"
 )
 
+// QuarantinePolicy defines how a known failure should be handled.
+type QuarantinePolicy string
+
+const (
+	// QuarantineNone means the failure is not quarantined and will fail the campaign.
+	QuarantineNone QuarantinePolicy = ""
+	// QuarantineAllowed means the failure is expected and allowed to occur.
+	QuarantineAllowed QuarantinePolicy = "allowed"
+	// QuarantineSkip means the instance should be skipped entirely.
+	QuarantineSkip QuarantinePolicy = "skip"
+)
+
 // KnownFailure represents a previously seen failure fingerprint.
 type KnownFailure struct {
 	Fingerprint string `json:"fingerprint"`
@@ -14,6 +26,13 @@ type KnownFailure struct {
 	FirstSeen   string `json:"first_seen"`
 	Count       int    `json:"count"`
 	Description string `json:"description,omitempty"`
+
+	// IssueID links the failure to a tracking issue (e.g., "GH-123").
+	IssueID string `json:"issue_id,omitempty"`
+
+	// Quarantine defines how this known failure should be handled.
+	// If empty, the failure is not quarantined and will fail the campaign.
+	Quarantine QuarantinePolicy `json:"quarantine,omitempty"`
 }
 
 // KnownFailures tracks failure fingerprints for deduplication.
@@ -126,4 +145,32 @@ func (kf *KnownFailures) All() []*KnownFailure {
 		result = append(result, f)
 	}
 	return result
+}
+
+// Get returns the known failure for a fingerprint, or nil if not found.
+func (kf *KnownFailures) Get(fingerprint string) *KnownFailure {
+	kf.mu.RLock()
+	defer kf.mu.RUnlock()
+	return kf.failures[fingerprint]
+}
+
+// IsQuarantined returns true if the fingerprint is known AND has a quarantine policy.
+func (kf *KnownFailures) IsQuarantined(fingerprint string) bool {
+	kf.mu.RLock()
+	defer kf.mu.RUnlock()
+	if f, ok := kf.failures[fingerprint]; ok {
+		return f.Quarantine != QuarantineNone
+	}
+	return false
+}
+
+// GetQuarantinePolicy returns the quarantine policy for a fingerprint.
+// Returns QuarantineNone if the fingerprint is not known or not quarantined.
+func (kf *KnownFailures) GetQuarantinePolicy(fingerprint string) QuarantinePolicy {
+	kf.mu.RLock()
+	defer kf.mu.RUnlock()
+	if f, ok := kf.failures[fingerprint]; ok {
+		return f.Quarantine
+	}
+	return QuarantineNone
 }
