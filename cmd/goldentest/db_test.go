@@ -304,7 +304,7 @@ func TestDatabaseRoundTrip_Iterator(t *testing.T) {
 //
 // Contract: Go can open and read databases created by C++ RocksDB.
 func TestDatabase_Contract_CppWritesGoReads(t *testing.T) {
-	goldenPath := "testdata/cpp_generated/sst/simple_db"
+	goldenPath := filepath.Join("..", "..", "testdata", "rocksdb", "v10.7.5", "db_samples", "simple_db")
 
 	if _, err := os.Stat(goldenPath); os.IsNotExist(err) {
 		t.Skip("C++ fixture not found")

@@ -36,7 +36,7 @@ set -euo pipefail
 #   go test -v ./cmd/goldentest -run 'TestCppWritesGoReads_Fixtures|TestManifest_Contract_CppWritesGoReads|TestDatabase_Contract_CppWritesGoReads|TestWAL_CppWritesGoReads'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OUT_DIR="${OUT_DIR:-$ROOT_DIR/cmd/goldentest/testdata/cpp_generated/sst/simple_db}"
+OUT_DIR="${OUT_DIR:-$ROOT_DIR/testdata/rocksdb/v10.7.5/db_samples/simple_db}"
 
 if [[ -z "${ROCKSDB_PATH:-}" ]]; then
   echo "Error: ROCKSDB_PATH is not set" >&2
@@ -50,11 +50,7 @@ DB_BENCH="$ROCKSDB_PATH/db_bench"
 #
 # - RocksDB dylib: in $ROCKSDB_PATH
 # - Optional deps (snappy/lz4/zstd): user-configurable via ROCKSDB_DEPS_LIBDIR
-#   (common local default is /opt/homebrew/anaconda3/lib on this machine).
 DEPS_LIBDIR="${ROCKSDB_DEPS_LIBDIR:-}"
-if [[ -z "$DEPS_LIBDIR" && -d /opt/homebrew/anaconda3/lib ]]; then
-  DEPS_LIBDIR="/opt/homebrew/anaconda3/lib"
-fi
 
 export DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH:-}:$ROCKSDB_PATH${DEPS_LIBDIR:+:$DEPS_LIBDIR}"
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$ROCKSDB_PATH${DEPS_LIBDIR:+:$DEPS_LIBDIR}"
@@ -164,7 +160,22 @@ else
 fi
 
 # Replace the fixture dir atomically-ish.
-rm -rf "$OUT_DIR"
+safe_rm_rf_dir() {
+  local dir="$1"
+  if [[ -z "$dir" ]]; then
+    echo "Error: refusing to rm -rf empty directory path" >&2
+    exit 2
+  fi
+  case "$dir" in
+    "/"|"/tmp"|"/var"|"/var/"*|"$HOME"|"$HOME/"|". "|"."|".." )
+      echo "Error: refusing to rm -rf unsafe directory: $dir" >&2
+      exit 2
+      ;;
+  esac
+  rm -rf "$dir"
+}
+
+safe_rm_rf_dir "$OUT_DIR"
 mkdir -p "$(dirname "$OUT_DIR")"
 cp -R "$TMP_DB" "$OUT_DIR"
 
