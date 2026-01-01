@@ -1,9 +1,10 @@
+package rockyardkv
+
 // db_concurrent_test.go implements db_concurrent_test.go - Concurrency and thread safety tests.
 //
 // These tests verify that the database correctly handles concurrent access
 // from multiple goroutines without data races or corruption.
 
-package rockyardkv
 
 import (
 	"errors"

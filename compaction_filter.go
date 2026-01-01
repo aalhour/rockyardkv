@@ -1,3 +1,5 @@
+package rockyardkv
+
 // compaction_filter.go implements Compaction Filter support.
 //
 // Compaction filters allow users to filter out or modify key-value pairs
@@ -9,7 +11,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/compaction_filter.h
 //   - db/compaction/compaction_iterator.cc
-package rockyardkv
+
 
 import "github.com/aalhour/rockyardkv/internal/dbformat"
 

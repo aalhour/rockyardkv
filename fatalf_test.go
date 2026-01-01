@@ -1,5 +1,7 @@
-// fatalf_test.go implements tests for fatalf.
 package rockyardkv
+
+// fatalf_test.go implements tests for fatalf.
+
 
 import (
 	"errors"

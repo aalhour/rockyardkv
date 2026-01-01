@@ -1,9 +1,11 @@
+package rockyardkv
+
 // db_apis.go implements extended DB APIs.
 //
 // Reference: RocksDB v10.7.5:
 //   - include/rocksdb/db.h (DB interface)
 //   - db/db_impl/db_impl.cc (implementation)
-package rockyardkv
+
 
 import (
 	"errors"

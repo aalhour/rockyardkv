@@ -1,9 +1,10 @@
+package rockyardkv
+
 // db_options_test.go implements db_options_test.go - Options validation and effects tests.
 //
 // These tests verify that database options are correctly validated and
 // applied, affecting database behavior as expected.
 
-package rockyardkv
 
 import (
 	"bytes"

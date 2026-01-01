@@ -1,5 +1,7 @@
-// iterator_test.go implements tests for iterator.
 package rockyardkv
+
+// iterator_test.go implements tests for iterator.
+
 
 import (
 	"bytes"

@@ -1,3 +1,5 @@
+package rockyardkv
+
 // wide_columns.go implements Wide Column support for entity-style storage.
 //
 // Wide Columns allow storing multiple named columns (attributes) for a single key,
@@ -13,7 +15,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/wide_columns.h
 //   - db/wide/wide_column_serialization.cc
-package rockyardkv
+
 
 import (
 	"bytes"

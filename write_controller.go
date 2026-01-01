@@ -1,3 +1,5 @@
+package rockyardkv
+
 // write_controller.go implements WriteController for managing write stalling.
 //
 // Write stalling prevents the database from being overwhelmed when compaction
@@ -8,7 +10,6 @@
 //
 // Reference: RocksDB v10.7.5 db/write_controller.h
 
-package rockyardkv
 
 import (
 	"sync"

@@ -1,3 +1,5 @@
+package rockyardkv
+
 // live_files.go implements live file metadata and management for backups.
 //
 // Reference: RocksDB v10.7.5.
@@ -5,7 +7,6 @@
 //   db/db_filesnapshot.cc - GetLiveFiles, GetLiveFilesMetaData implementations
 //   include/rocksdb/db.h - API definitions
 
-package rockyardkv
 
 import (
 	"fmt"

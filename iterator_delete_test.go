@@ -1,5 +1,7 @@
-// iterator_delete_test.go implements tests for iterator delete.
 package rockyardkv
+
+// iterator_delete_test.go implements tests for iterator delete.
+
 
 import (
 	"fmt"

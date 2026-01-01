@@ -1,3 +1,5 @@
+package rockyardkv
+
 // checkpoint.go implements the Checkpoint feature for creating database backups.
 //
 // A checkpoint is a consistent point-in-time snapshot of the database that
@@ -7,7 +9,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/checkpoint/checkpoint_impl.h
 //   - utilities/checkpoint/checkpoint_impl.cc
-package rockyardkv
+
 
 import (
 	"fmt"

@@ -1,9 +1,10 @@
+package rockyardkv
+
 // db_basic_test.go implements db_basic_test.go - Core database operations: Open/Close, Put/Get/Delete, key-value edge cases.
 //
 // These tests verify the fundamental correctness of basic database operations.
 // They should pass before any other tests are considered.
 
-package rockyardkv
 
 import (
 	"bytes"

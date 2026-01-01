@@ -1,3 +1,5 @@
+package rockyardkv
+
 // backup.go implements BackupEngine for creating and managing database backups.
 //
 // BackupEngine provides:
@@ -9,7 +11,6 @@
 //
 // Reference: RocksDB v10.7.5 utilities/backup/backup_engine.cc
 
-package rockyardkv
 
 import (
 	"encoding/json"

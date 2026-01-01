@@ -1,3 +1,5 @@
+package rockyardkv
+
 // prefix_extractor.go implements PrefixExtractor (SliceTransform in C++) for prefix seek optimization.
 //
 // Prefix seek allows efficient iteration over keys with a common prefix.
@@ -10,7 +12,6 @@
 //   - include/rocksdb/slice_transform.h
 //   - db/db_iter.cc (prefix seeking logic)
 
-package rockyardkv
 
 // PrefixExtractor extracts prefixes from keys for prefix-based operations.
 // This is equivalent to RocksDB's SliceTransform interface.

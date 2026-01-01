@@ -1,3 +1,5 @@
+package rockyardkv
+
 // ttl.go implements TTL (Time-To-Live) support for automatic key expiration.
 //
 // TTL works by:
@@ -8,7 +10,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/ttl/db_ttl_impl.h
 //   - utilities/ttl/db_ttl_impl.cc
-package rockyardkv
+
 
 import (
 	"encoding/binary"

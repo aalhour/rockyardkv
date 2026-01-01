@@ -1,7 +1,9 @@
+package rockyardkv
+
 // write_batch.go implements the public WriteBatch API for atomic writes.
 //
 // Reference: RocksDB v10.7.5 include/rocksdb/write_batch.h
-package rockyardkv
+
 
 import (
 	"github.com/aalhour/rockyardkv/internal/batch"

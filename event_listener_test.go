@@ -1,5 +1,7 @@
-// event_listener_test.go implements tests for event listener.
 package rockyardkv
+
+// event_listener_test.go implements tests for event listener.
+
 
 import (
 	"testing"

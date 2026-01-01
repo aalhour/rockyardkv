@@ -1,3 +1,5 @@
+package rockyardkv
+
 // transaction_db.go implements TransactionDB wrapper for transactional operations.
 //
 // TransactionDB wraps a regular DB and provides pessimistic transactions
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/pessimistic_transaction_db.h
 //   - utilities/transactions/pessimistic_transaction_db.cc
-package rockyardkv
+
 
 import (
 	"sync"

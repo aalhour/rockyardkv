@@ -1,5 +1,7 @@
-// statistics_test.go implements tests for statistics.
 package rockyardkv
+
+// statistics_test.go implements tests for statistics.
+
 
 import (
 	"sync"

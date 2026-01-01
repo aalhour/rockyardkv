@@ -1,3 +1,5 @@
+package rockyardkv
+
 // transaction.go implements optimistic transaction support.
 //
 // Transaction provides atomic, consistent, isolated database operations.
@@ -7,7 +9,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/utilities/transaction.h
 //   - utilities/transactions/optimistic_transaction.h
-package rockyardkv
+
 
 import (
 	"errors"

@@ -1,3 +1,5 @@
+package rockyardkv
+
 // pessimistic_transaction.go implements pessimistic concurrency control.
 //
 // PessimisticTransaction acquires locks before modifying data, preventing
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/pessimistic_transaction.h
 //   - utilities/transactions/pessimistic_transaction.cc
-package rockyardkv
+
 
 import (
 	"errors"

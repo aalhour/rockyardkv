@@ -1,3 +1,5 @@
+package rockyardkv
+
 // db_secondary.go implements Secondary Instance mode.
 // A secondary instance can read data from a primary but cannot write.
 // It can periodically catch up with the primary by tailing the MANIFEST.
@@ -5,7 +7,7 @@
 // Reference: RocksDB v10.7.5
 //   - db/db_impl/db_impl_secondary.cc
 //   - include/rocksdb/db.h (OpenAsSecondary)
-package rockyardkv
+
 
 import (
 	"fmt"

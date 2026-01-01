@@ -1,5 +1,7 @@
-// flush_fault_test.go implements tests for flush fault.
 package rockyardkv
+
+// flush_fault_test.go implements tests for flush fault.
+
 
 import (
 	"errors"

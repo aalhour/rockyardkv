@@ -1,3 +1,5 @@
+package rockyardkv
+
 // column_family.go implements column family management.
 //
 // Column families allow logically partitioning data within a single database.
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - db/column_family.h
 //   - db/column_family.cc
-package rockyardkv
+
 
 import (
 	"errors"

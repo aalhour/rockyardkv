@@ -1,5 +1,7 @@
-// external_sst_compat_test.go implements tests for external sst compat.
 package rockyardkv
+
+// external_sst_compat_test.go implements tests for external sst compat.
+
 
 import (
 	"bytes"

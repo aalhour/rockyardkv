@@ -1,5 +1,7 @@
-// prefix_extractor_test.go implements tests for prefix extractor.
 package rockyardkv
+
+// prefix_extractor_test.go implements tests for prefix extractor.
+
 
 import (
 	"bytes"

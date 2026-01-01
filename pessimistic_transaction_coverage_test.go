@@ -1,5 +1,7 @@
-// pessimistic_transaction_coverage_test.go implements tests for pessimistic transaction coverage.
 package rockyardkv
+
+// pessimistic_transaction_coverage_test.go implements tests for pessimistic transaction coverage.
+
 
 import (
 	"errors"

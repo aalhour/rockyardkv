@@ -1,3 +1,5 @@
+package rockyardkv
+
 // recovery_2pc.go implements 2PC (Two-Phase Commit) recovery for Write-Prepared transactions.
 //
 // During recovery, we scan the WAL for:
@@ -11,7 +13,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/write_prepared_txn_db.cc (RecoverPreparedTransactions)
 //   - db/db_impl/db_impl_open.cc (RecoverLogFiles)
-package rockyardkv
+
 
 import (
 	"github.com/aalhour/rockyardkv/internal/batch"

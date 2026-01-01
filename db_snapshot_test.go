@@ -1,9 +1,10 @@
+package rockyardkv
+
 // db_snapshot_test.go implements db_snapshot_test.go - Snapshot isolation and consistency tests.
 //
 // These tests verify that snapshots provide a consistent point-in-time view
 // of the database, isolating readers from concurrent writes.
 
-package rockyardkv
 
 import (
 	"errors"

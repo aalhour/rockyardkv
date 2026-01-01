@@ -1,5 +1,7 @@
-// merge_test.go implements tests for merge.
 package rockyardkv
+
+// merge_test.go implements tests for merge.
+
 
 import (
 	"errors"

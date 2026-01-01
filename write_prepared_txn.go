@@ -1,3 +1,5 @@
+package rockyardkv
+
 // write_prepared_txn.go implements Write-Prepared Transactions for RocksDB compatibility.
 //
 // Write-Prepared transactions use a two-phase commit protocol:
@@ -12,7 +14,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/write_prepared_txn.cc
 //   - utilities/transactions/write_prepared_txn_db.cc
-package rockyardkv
+
 
 import (
 	"errors"

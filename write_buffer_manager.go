@@ -1,3 +1,5 @@
+package rockyardkv
+
 // write_buffer_manager.go implements write buffer manager.
 //
 // This file implements WriteBufferManager for controlling memory usage
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/write_buffer_manager.h
 //   - memtable/write_buffer_manager.cc
-package rockyardkv
+
 
 import (
 	"sync"

@@ -1,7 +1,9 @@
+package rockyardkv
+
 // db.go implements the core database interface and implementation.
 //
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h
-package rockyardkv
+
 
 import (
 	"bytes"

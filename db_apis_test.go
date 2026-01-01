@@ -1,8 +1,10 @@
+package rockyardkv
+
 // db_apis_test.go implements tests for extended DB APIs.
 //
 // Reference: RocksDB v10.7.5.
 //   - include/rocksdb/db.h
-package rockyardkv
+
 
 import (
 	"os"

@@ -1,5 +1,7 @@
-// property_test.go implements tests for property.
 package rockyardkv
+
+// property_test.go implements tests for property.
+
 
 import (
 	"os"

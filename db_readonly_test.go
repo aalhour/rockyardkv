@@ -1,5 +1,7 @@
-// db_readonly_test.go implements tests for read-only database mode.
 package rockyardkv
+
+// db_readonly_test.go implements tests for read-only database mode.
+
 
 import (
 	"errors"

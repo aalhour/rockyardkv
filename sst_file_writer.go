@@ -1,3 +1,5 @@
+package rockyardkv
+
 // sst_file_writer.go implements external SST file writing.
 //
 // SstFileWriter creates SST files that can be ingested into the database
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/sst_file_writer.h
 //   - table/sst_file_writer.cc
-package rockyardkv
+
 
 import (
 	"bytes"

@@ -1,5 +1,7 @@
-// iterator_contract_test.go implements tests for iterator contract.
 package rockyardkv
+
+// iterator_contract_test.go implements tests for iterator contract.
+
 
 import (
 	"bytes"

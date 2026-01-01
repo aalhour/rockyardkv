@@ -1,3 +1,5 @@
+package rockyardkv
+
 // background.go implements background tasks like flush and compaction.
 //
 // BackgroundWork handles scheduling and execution of background tasks
@@ -12,7 +14,7 @@
 // This file contains sync points (requires -tags synctest) and kill points
 // (requires -tags crashtest) for whitebox testing. In production builds,
 // these compile to no-ops with zero overhead. See docs/testing/README.md for usage.
-package rockyardkv
+
 
 import (
 	"fmt"

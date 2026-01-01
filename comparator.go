@@ -1,3 +1,5 @@
+package rockyardkv
+
 // comparator.go implements key comparison.
 //
 // Comparator defines the total ordering over keys in the database.
@@ -6,7 +8,7 @@
 //
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/comparator.h
-package rockyardkv
+
 
 import "bytes"
 

@@ -1,3 +1,5 @@
+package rockyardkv
+
 // timestamp.go implements user-defined timestamps (UDT) support.
 //
 // User-defined timestamps allow applications to associate a timestamp with
@@ -18,7 +20,7 @@
 //   - include/rocksdb/comparator.h (BytewiseComparatorWithU64Ts)
 //   - util/comparator.cc (timestamp comparator implementation)
 //   - db/dbformat.h (key format with timestamps)
-package rockyardkv
+
 
 import (
 	"bytes"

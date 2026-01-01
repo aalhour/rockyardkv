@@ -1,5 +1,7 @@
-// checkpoint_test.go implements tests for checkpoint.
 package rockyardkv
+
+// checkpoint_test.go implements tests for checkpoint.
+
 
 import (
 	"errors"

@@ -1,5 +1,7 @@
-// wide_columns_test.go implements tests for wide columns.
 package rockyardkv
+
+// wide_columns_test.go implements tests for wide columns.
+
 
 import (
 	"bytes"

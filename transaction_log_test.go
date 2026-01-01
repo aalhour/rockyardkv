@@ -1,5 +1,7 @@
-// transaction_log_test.go implements tests for transaction log.
 package rockyardkv
+
+// transaction_log_test.go implements tests for transaction log.
+
 
 import (
 	"errors"

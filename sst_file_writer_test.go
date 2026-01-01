@@ -1,5 +1,7 @@
-// sst_file_writer_test.go implements tests for sst file writer.
 package rockyardkv
+
+// sst_file_writer_test.go implements tests for sst file writer.
+
 
 import (
 	"bytes"

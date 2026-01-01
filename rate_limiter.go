@@ -1,9 +1,11 @@
+package rockyardkv
+
 // rate_limiter.go implements a Rate Limiter for I/O operations.
 //
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/rate_limiter.h
 //   - util/rate_limiter.cc
-package rockyardkv
+
 
 import (
 	"sync"

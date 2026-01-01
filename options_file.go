@@ -1,3 +1,5 @@
+package rockyardkv
+
 // options_file.go implements OPTIONS file persistence.
 //
 // RocksDB stores database configuration in OPTIONS files for recovery.
@@ -19,7 +21,7 @@
 // Reference: RocksDB v10.7.5
 //   - options/options_helper.cc
 //   - options/db_options.cc
-package rockyardkv
+
 
 import (
 	"bufio"

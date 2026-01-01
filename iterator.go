@@ -1,3 +1,5 @@
+package rockyardkv
+
 // iterator.go implements the database iterator.
 //
 // DBIterator provides a way to iterate over all keys in the database,
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - db/db_iter.h
 //   - db/db_iter.cc
-package rockyardkv
+
 
 import (
 	"bytes"

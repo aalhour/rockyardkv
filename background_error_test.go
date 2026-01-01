@@ -1,5 +1,7 @@
-// background_error_test.go implements tests for background error.
 package rockyardkv
+
+// background_error_test.go implements tests for background error.
+
 
 import (
 	"errors"

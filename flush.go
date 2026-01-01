@@ -1,3 +1,5 @@
+package rockyardkv
+
 // flush.go implements the flush operation that writes memtable to SST files.
 //
 // Reference: RocksDB v10.7.5
@@ -9,7 +11,7 @@
 // This file contains sync points (requires -tags synctest) and kill points
 // (requires -tags crashtest) for whitebox testing. In production builds,
 // these compile to no-ops with zero overhead. See docs/testing/README.md for usage.
-package rockyardkv
+
 
 import (
 	"errors"

@@ -1,5 +1,7 @@
-// db_secondary_test.go implements tests for secondary instance mode.
 package rockyardkv
+
+// db_secondary_test.go implements tests for secondary instance mode.
+
 
 import (
 	"errors"

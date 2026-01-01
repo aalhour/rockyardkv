@@ -1,5 +1,7 @@
-// column_family_test.go implements tests for column family.
 package rockyardkv
+
+// column_family_test.go implements tests for column family.
+
 
 import (
 	"errors"

@@ -1,5 +1,7 @@
-// column_family_durability_test.go implements Column family durability tests for sequence number management.
 package rockyardkv
+
+// column_family_durability_test.go implements Column family durability tests for sequence number management.
+
 
 import (
 	"bytes"

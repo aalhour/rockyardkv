@@ -1,5 +1,7 @@
-// write_controller_test.go implements tests for write controller.
 package rockyardkv
+
+// write_controller_test.go implements tests for write controller.
+
 
 import (
 	"sync"

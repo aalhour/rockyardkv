@@ -1,9 +1,11 @@
+package rockyardkv
+
 // db_readonly.go implements Read-Only database mode.
 //
 // Reference: RocksDB v10.7.5
 //   - db/db_impl/db_impl_readonly.cc
 //   - include/rocksdb/db.h (OpenForReadOnly)
-package rockyardkv
+
 
 import (
 	"errors"

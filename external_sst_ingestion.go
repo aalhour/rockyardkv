@@ -1,3 +1,5 @@
+package rockyardkv
+
 // external_sst_ingestion.go implements external SST file ingestion.
 //
 // IngestExternalFile adds SST files created by SstFileWriter to the database.
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - db/external_sst_file_ingestion_job.h
 //   - db/external_sst_file_ingestion_job.cc
-package rockyardkv
+
 
 import (
 	"bytes"

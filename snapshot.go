@@ -1,3 +1,5 @@
+package rockyardkv
+
 // snapshot.go implements snapshot management.
 //
 // Snapshots provide consistent point-in-time views of the database.
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/snapshot.h
 //   - db/snapshot_impl.h
-package rockyardkv
+
 
 import (
 	"sync/atomic"

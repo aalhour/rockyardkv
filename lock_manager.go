@@ -1,3 +1,5 @@
+package rockyardkv
+
 // lock_manager.go implements the lock manager for pessimistic transactions.
 //
 // LockManager handles point and range locks for transaction isolation.
@@ -6,7 +8,7 @@
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/lock/lock_manager.h
 //   - utilities/transactions/lock/point/point_lock_manager.cc
-package rockyardkv
+
 
 import (
 	"errors"

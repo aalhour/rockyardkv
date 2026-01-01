@@ -1,5 +1,7 @@
-// timestamp_test.go implements tests for timestamp.
 package rockyardkv
+
+// timestamp_test.go implements tests for timestamp.
+
 
 import (
 	"bytes"

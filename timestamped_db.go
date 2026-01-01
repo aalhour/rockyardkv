@@ -1,3 +1,5 @@
+package rockyardkv
+
 // timestamped_db.go implements a timestamped database wrapper.
 //
 // TimestampedDB wraps a regular database and provides timestamp-aware
@@ -7,7 +9,7 @@
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h (Get/Put with timestamp)
 //   - db/db_impl/db_impl.cc (timestamp-aware implementations)
-package rockyardkv
+
 
 import (
 	"errors"

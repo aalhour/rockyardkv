@@ -1,5 +1,7 @@
-// transaction_contract_test.go implements tests for transaction contract.
 package rockyardkv
+
+// transaction_contract_test.go implements tests for transaction contract.
+
 
 import (
 	"errors"

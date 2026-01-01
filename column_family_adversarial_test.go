@@ -1,8 +1,10 @@
+package rockyardkv
+
 // column_family_adversarial_test.go implements adversarial tests for column family isolation.
 //
 // These tests verify that keys from one column family do not leak into another,
 // which was identified as a critical bug in the Red Team audit (Dec 2025).
-package rockyardkv
+
 
 import (
 	"errors"

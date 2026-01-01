@@ -1,10 +1,11 @@
+package rockyardkv
+
 // recovery.go implements WAL recovery/replay.
 //
 // Reference: RocksDB v10.7.5
 //   - db/db_impl/db_impl_open.cc (RecoverLogFiles)
 //   - db/db_impl/db_impl_write.cc
 
-package rockyardkv
 
 import (
 	"errors"

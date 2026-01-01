@@ -1,5 +1,7 @@
-// flush_wal_lognumber_test.go implements tests for WAL log number handling during flush operations.
 package rockyardkv
+
+// flush_wal_lognumber_test.go implements tests for WAL log number handling during flush operations.
+
 
 import (
 	"testing"

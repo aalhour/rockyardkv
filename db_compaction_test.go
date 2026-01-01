@@ -1,9 +1,10 @@
+package rockyardkv
+
 // db_compaction_test.go implements db_compaction_test.go - Compaction behavior tests.
 //
 // These tests verify compaction correctness: deletion markers, L0 ordering,
 // overlapping files, and the interaction between compaction and reads.
 
-package rockyardkv
 
 import (
 	"bytes"

@@ -1,5 +1,7 @@
-// external_sst_stress_test.go implements tests for external sst stress.
 package rockyardkv
+
+// external_sst_stress_test.go implements tests for external sst stress.
+
 
 import (
 	"errors"

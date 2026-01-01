@@ -656,6 +656,12 @@ todo: ## List TODO/FIXME items in code
 	@echo "📝 TODO items:"
 	@grep -rn "TODO\|FIXME\|XXX\|HACK" --include="*.go" . | head -20
 
+.PHONY: doc-server
+doc-server: ## Serve local package docs over HTTP (go doc -http)
+	$(GO) install golang.org/x/pkgsite/cmd/pkgsite@latest
+	@echo "📚 Serving docs at http://localhost:6061 (Ctrl-C to stop)"
+	@pkgsite -http=:6061
+
 # ═══════════════════════════════════════════════════════════════════════════
 # JEPSEN-STYLE CAMPAIGN RUNNER
 # ═══════════════════════════════════════════════════════════════════════════

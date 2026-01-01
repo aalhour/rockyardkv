@@ -1,3 +1,5 @@
+package rockyardkv
+
 // transaction_log.go implements transaction log iteration for replication.
 //
 // TransactionLogIterator allows iterating over WAL records starting from
@@ -8,7 +10,7 @@
 //   - include/rocksdb/transaction_log.h
 //   - db/transaction_log_impl.h
 //   - db/transaction_log_impl.cc
-package rockyardkv
+
 
 import (
 	"errors"

@@ -1,5 +1,7 @@
-// background_test.go implements tests for background.
 package rockyardkv
+
+// background_test.go implements tests for background.
+
 
 import (
 	"errors"

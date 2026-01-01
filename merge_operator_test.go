@@ -1,5 +1,7 @@
-// merge_operator_test.go implements tests for merge operator.
 package rockyardkv
+
+// merge_operator_test.go implements tests for merge operator.
+
 
 import (
 	"bytes"

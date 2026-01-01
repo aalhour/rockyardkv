@@ -1,6 +1,8 @@
+package rockyardkv
+
 // statistics.go implements the Statistics interface for collecting database metrics.
 // Reference: RocksDB v10.7.5 include/rocksdb/statistics.h
-package rockyardkv
+
 
 import (
 	"sync/atomic"

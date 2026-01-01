@@ -1,3 +1,5 @@
+package rockyardkv
+
 // blobdb.go implements BlobDB - integrated blob storage for large values.
 //
 // When a value exceeds the configured threshold (MinBlobSize), it's stored
@@ -8,7 +10,7 @@
 //   - db/blob/blob_file_builder.h
 //   - db/blob/blob_source.h
 //   - include/rocksdb/advanced_options.h (blob_options)
-package rockyardkv
+
 
 import (
 	"fmt"

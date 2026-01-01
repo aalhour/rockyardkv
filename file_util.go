@@ -1,9 +1,11 @@
+package rockyardkv
+
 // file_util.go implements utility functions for file operations.
 //
 // Reference: RocksDB v10.7.5
 //   - file/file_util.h
 //   - file/file_util.cc
-package rockyardkv
+
 
 import (
 	"io"

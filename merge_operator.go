@@ -1,3 +1,5 @@
+package rockyardkv
+
 // merge_operator.go implements merge operator.
 //
 // MergeOperator allows users to define custom merge semantics for
@@ -5,7 +7,7 @@
 //
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/merge_operator.h
-package rockyardkv
+
 
 // MergeOperator is the interface for user-defined merge operations.
 //
