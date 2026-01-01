@@ -518,7 +518,7 @@ func persistSyncpointArtifacts(t *testing.T, testName, syncPoint, dbPath string,
 	// Get artifact base directory
 	artifactBase := os.Getenv("WHITEBOX_ARTIFACT_DIR")
 	if artifactBase == "" {
-		artifactBase = filepath.Join(os.TempDir(), "rockyardkv-syncpoint-artifacts")
+		artifactBase = filepath.Join(t.TempDir(), "rockyardkv-syncpoint-artifacts")
 	}
 
 	// Create unique artifact directory

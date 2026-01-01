@@ -133,7 +133,8 @@ Supported instances:
   - WAL and MANIFEST contracts.
   - C++ fixture reads and Go-written artifact reads by C++ tools.
 - External corpus suite:
-  - `make test-e2e-golden-corpus` (requires `REDTEAM_CPP_CORPUS_ROOT`).
+  - `make test-e2e-golden-corpus` (requires `ROCKYARDKV_CPP_CORPUS_ROOT`).
+    - A “C++ corpus root” is a directory containing multiple C++ RocksDB-generated DB fixture directories. See `docs/testing/GOLDEN.md` (“External corpus tests”).
 - Oracle outputs for crash artifacts:
   - `cmd/crashtest/oracle_helpers.go` runs `ldb` and `sst_dump` when enabled.
 

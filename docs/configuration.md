@@ -253,8 +253,6 @@ Integrated blob storage for large values (reduces write amplification).
 | `EnableBlobGC` | `bool` | `true` | Enable blob garbage collection |
 | `BlobGCAgeCutoff` | `float64` | 0.25 | Age cutoff for GC (0.0–1.0) |
 
-> ⚠️ **Status:** BlobDB cache is not fully implemented (see T05.4).
-
 ---
 
 ## Transactions

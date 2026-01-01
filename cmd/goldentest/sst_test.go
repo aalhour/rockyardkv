@@ -201,18 +201,18 @@ func TestSstDump_ShowProperties(t *testing.T) {
 //
 // Contract: Go reads C++ zlib-compressed SST files correctly.
 func TestCppCorpus_ZlibSST(t *testing.T) {
-	// Look for red team corpus
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	// Look for external C++ corpus fixtures.
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	// Keep this path portable.
-	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
+	// Set ROCKYARDKV_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"
 	zlibDBPath := filepath.Join(corpusPath, "zlib_small_blocks_db", "db")
 	if _, err := os.Stat(zlibDBPath); os.IsNotExist(err) {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (missing zlib_small_blocks_db/db)")
 	}
 
 	// Open the database
@@ -249,9 +249,9 @@ func TestCppCorpus_ZlibSST(t *testing.T) {
 //
 // Contract: Go reads C++ snappy-compressed DBs correctly.
 func TestCppCorpus_SnappySST(t *testing.T) {
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	snappyDBPath := filepath.Join(corpusPath, "snappy_small_blocks_db", "db")
@@ -288,9 +288,9 @@ func TestCppCorpus_SnappySST(t *testing.T) {
 //
 // Contract: Go reads C++ lz4-compressed DBs correctly.
 func TestCppCorpus_LZ4SST(t *testing.T) {
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	lz4DBPath := filepath.Join(corpusPath, "lz4_small_blocks_db", "db")
@@ -327,9 +327,9 @@ func TestCppCorpus_LZ4SST(t *testing.T) {
 //
 // Contract: Go reads C++ zstd-compressed DBs correctly.
 func TestCppCorpus_ZstdSST(t *testing.T) {
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	zstdDBPath := filepath.Join(corpusPath, "zstd_small_blocks_db", "db")
@@ -366,11 +366,11 @@ func TestCppCorpus_ZstdSST(t *testing.T) {
 //
 // Contract: Go reads C++ multi-CF databases correctly.
 func TestCppCorpus_MultiCF(t *testing.T) {
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	// Keep this path portable.
-	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
+	// Set ROCKYARDKV_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"
@@ -400,11 +400,11 @@ func TestCppCorpus_MultiCF(t *testing.T) {
 //
 // Contract: Go reads C++ range deletion databases correctly.
 func TestCppCorpus_RangeDel(t *testing.T) {
-	corpusPath := os.ExpandEnv("$REDTEAM_CPP_CORPUS_ROOT")
+	corpusPath := os.ExpandEnv("$ROCKYARDKV_CPP_CORPUS_ROOT")
 	// Keep this path portable.
-	// Set REDTEAM_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
+	// Set ROCKYARDKV_CPP_CORPUS_ROOT to a local path if you have an external corpus checkout.
 	if corpusPath == "" {
-		t.Skip("Red team corpus not found (set REDTEAM_CPP_CORPUS_ROOT)")
+		t.Skip("C++ corpus not found (set ROCKYARDKV_CPP_CORPUS_ROOT)")
 	}
 
 	// The actual DB is in a subdirectory called "db"

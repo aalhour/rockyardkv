@@ -280,15 +280,15 @@ test-e2e-golden: ## E2E: C++ RocksDB compatibility (tier-independent)
 	$(GO) test -v -run Golden ./...
 
 .PHONY: test-e2e-golden-corpus
-test-e2e-golden-corpus: ## E2E: Run corpus-driven golden tests (requires REDTEAM_CPP_CORPUS_ROOT)
-	@if [ -z "$$REDTEAM_CPP_CORPUS_ROOT" ]; then \
-		echo "❌ REDTEAM_CPP_CORPUS_ROOT is not set"; \
+test-e2e-golden-corpus: ## E2E: Run corpus-driven golden tests (requires ROCKYARDKV_CPP_CORPUS_ROOT)
+	@if [ -z "$$ROCKYARDKV_CPP_CORPUS_ROOT" ]; then \
+		echo "❌ ROCKYARDKV_CPP_CORPUS_ROOT is not set"; \
 		echo "   Set it to the path of the red team C++ corpus, e.g.:"; \
-		echo "   export REDTEAM_CPP_CORPUS_ROOT=/path/to/rockyardkv-tests/redteam/corpus_cpp_generated"; \
+		echo "   export ROCKYARDKV_CPP_CORPUS_ROOT=/path/to/corpus_cpp_generated"; \
 		exit 1; \
 	fi
 	@echo "🥇 Running corpus-driven golden tests..."
-	@echo "   Corpus: $$REDTEAM_CPP_CORPUS_ROOT"
+	@echo "   Corpus: $$ROCKYARDKV_CPP_CORPUS_ROOT"
 	$(GO) test -v -run 'TestCppCorpus' ./cmd/goldentest/...
 
 .PHONY: test-e2e-cross-compat
@@ -661,8 +661,8 @@ todo: ## List TODO/FIXME items in code
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
-CAMPAIGN_RUN_ROOT ?= campaign-runs/$(shell date +%Y%m%d-%H%M%S)
-KNOWN_FAILURES_PATH ?= campaign-runs/known-failures.json
+CAMPAIGN_RUN_ROOT ?= tmp/campaign-runs/$(shell date +%Y%m%d-%H%M%S)
+KNOWN_FAILURES_PATH ?= tmp/campaign-runs/known-failures.json
 
 .PHONY: oracle-tools
 oracle-tools: ## Build C++ oracle tools (ldb, sst_dump) in ROCKSDB_PATH
@@ -783,7 +783,7 @@ clean-build: ## Remove all build artifacts
 	rm -rf $(COV_DIR)
 	rm -rf $(DIST_DIR)
 	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump manifestdump
-	rm -rf crashtest-artifacts
+	rm -rf tmp/crashtest-artifacts
 	rm -f profile.cov coverage.out
 	rm -f *.test
 	rm -f *.out

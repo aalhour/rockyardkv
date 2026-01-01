@@ -24,7 +24,7 @@ func TestDefaultTraceConfig(t *testing.T) {
 // Contract: TracePaths returns consistent paths for trace file and truncated marker.
 func TestTracePaths(t *testing.T) {
 	cfg := DefaultTraceConfig()
-	runDir := "/tmp/test-run"
+	runDir := t.TempDir()
 
 	traceFile, marker := TracePaths(runDir, cfg)
 
@@ -73,7 +73,7 @@ func TestInjectTraceArgs_Disabled(t *testing.T) {
 	cfg.Enabled = false
 
 	original := []string{"-duration", "10s", "-threads", "4"}
-	result, tracePath := InjectTraceArgs(original, "/tmp/run", cfg)
+	result, tracePath := InjectTraceArgs(original, t.TempDir(), cfg)
 
 	if len(result) != len(original) {
 		t.Error("args should not be modified when disabled")
@@ -89,7 +89,7 @@ func TestInjectTraceArgs_Enabled(t *testing.T) {
 	cfg.Enabled = true
 
 	original := []string{"-duration", "10s", "-threads", "4"}
-	result, tracePath := InjectTraceArgs(original, "/tmp/run", cfg)
+	result, tracePath := InjectTraceArgs(original, t.TempDir(), cfg)
 
 	// Should add 4 args: -trace-out, <path>, -trace-max-size, <size>
 	if len(result) != len(original)+4 {

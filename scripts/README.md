@@ -7,6 +7,7 @@ This directory contains helper scripts for building oracle tools and validating 
 - [Oracle tooling](#oracle-tooling)
 - [Fixture validation](#fixture-validation)
 - [Fixture generation](#fixture-generation)
+- [Red Team](#red-team)
 - [Status runners](#status-runners)
 
 ## Oracle tooling
@@ -71,6 +72,26 @@ It does not write into repository `testdata/` by default.
 ```bash
 export ROCKSDB_PATH="$HOME/Workspace/rocksdb"  # or /path/to/rocksdb
 scripts/fixtures/generate_db_stress.sh --out-dir tmp/redteam/fixtures/db_stress_run1 --seconds 20 --seed 12345
+```
+
+## Campaign scripts
+
+### Run all campaign groups
+
+Run **all** runner groups for both `quick` and `nightly` tiers and persist artifacts under `tmp/campaign-runs/run-all/<timestamp>/...`:
+
+```bash
+export ROCKSDB_PATH=/path/to/rocksdb
+scripts/campaigns/run_all.sh
+```
+
+### Reproduce flaky failures (loop until fail)
+
+Loop a targeted runner selection until a failure is captured (always with trace capture enabled):
+
+```bash
+export ROCKSDB_PATH=/path/to/rocksdb
+scripts/campaigns/repro_until_fail.sh --tier quick --group stress --filter 'group=stress.write' --max-tries 50 --minimize
 ```
 
 ## Status runners

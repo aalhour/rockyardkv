@@ -991,7 +991,7 @@ func persistSweepArtifacts(t *testing.T, killPoint, dbPath string, killPointHit 
 
 	artifactBase := os.Getenv("WHITEBOX_ARTIFACT_DIR")
 	if artifactBase == "" {
-		artifactBase = filepath.Join(os.TempDir(), "rockyardkv-sweep-artifacts")
+		artifactBase = filepath.Join(t.TempDir(), "rockyardkv-sweep-artifacts")
 	}
 
 	// Create killpoint-specific artifact directory
@@ -1210,7 +1210,7 @@ func persistWhiteboxArtifacts(t *testing.T, testName, killPoint, dbPath string, 
 	// Get artifact base directory from env or use temp
 	artifactBase := os.Getenv("WHITEBOX_ARTIFACT_DIR")
 	if artifactBase == "" {
-		artifactBase = filepath.Join(os.TempDir(), "rockyardkv-whitebox-artifacts")
+		artifactBase = filepath.Join(t.TempDir(), "rockyardkv-whitebox-artifacts")
 	}
 
 	// Create unique artifact directory

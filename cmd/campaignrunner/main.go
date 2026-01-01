@@ -95,8 +95,9 @@ func run() error {
 
 	// Validate required flags
 	if *runRoot == "" {
-		// Default to timestamped directory under current dir
-		*runRoot = filepath.Join(".", "campaign-runs", time.Now().Format("20060102-150405"))
+		// Default to a timestamped directory under the OS temp directory to avoid
+		// creating repo-local artifact directories when -run-root is omitted.
+		*runRoot = filepath.Join(os.TempDir(), "rockyardkv-campaign-runs", time.Now().Format("20060102-150405"))
 	}
 
 	// Parse tier

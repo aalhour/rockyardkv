@@ -227,7 +227,8 @@ func TestOpenAsSecondaryIterator(t *testing.T) {
 
 // TestOpenAsSecondaryNonExistent tests opening a non-existent primary.
 func TestOpenAsSecondaryNonExistent(t *testing.T) {
-	_, err := OpenAsSecondary("/nonexistent/path/db", "/tmp/sec", nil)
+	secondaryDir := t.TempDir()
+	_, err := OpenAsSecondary("/nonexistent/path/db", secondaryDir, nil)
 	if err == nil {
 		t.Error("Expected error for non-existent primary database")
 	}

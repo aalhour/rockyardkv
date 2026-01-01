@@ -474,8 +474,7 @@ func TestDurability_CURRENTUpdate_NoPendingRenamesAfterShutdown(t *testing.T) {
 
 		// Run oracle checks if enabled
 		if os.Getenv(CppOraclePathEnv) != "" {
-			artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-			_ = os.MkdirAll(artifactDir, 0755)
+			artifactDir := t.TempDir()
 			runCppOracleChecks(t, artifactDir, dir)
 			t.Logf("Oracle artifacts saved to %s", artifactDir)
 		}
@@ -551,8 +550,7 @@ func TestDurability_SyncedCURRENT_SurvivesCrash(t *testing.T) {
 
 	// Run oracle checks if enabled
 	if os.Getenv(CppOraclePathEnv) != "" {
-		artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-		_ = os.MkdirAll(artifactDir, 0755)
+		artifactDir := t.TempDir()
 		runCppOracleChecks(t, artifactDir, dir)
 		t.Logf("Oracle artifacts saved to %s", artifactDir)
 	}
@@ -682,8 +680,7 @@ func TestDurability_TornCURRENT_FailsLoud(t *testing.T) {
 
 			// Step 4: Capture artifacts and run oracle checks
 			if os.Getenv(CppOraclePathEnv) != "" {
-				artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-				_ = os.MkdirAll(artifactDir, 0755)
+				artifactDir := t.TempDir()
 
 				// Save the corrupted CURRENT bytes
 				_ = os.WriteFile(filepath.Join(artifactDir, "CURRENT_corrupted.bin"), content, 0644)
@@ -843,8 +840,7 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 
 		// Run oracle checks if enabled
 		if os.Getenv(CppOraclePathEnv) != "" {
-			artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-			_ = os.MkdirAll(artifactDir, 0755)
+			artifactDir := t.TempDir()
 			runCppOracleChecks(t, artifactDir, dir)
 			t.Logf("Oracle artifacts saved to %s", artifactDir)
 		}
@@ -882,8 +878,7 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 
 		// Run oracle checks if enabled
 		if os.Getenv(CppOraclePathEnv) != "" {
-			artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-			_ = os.MkdirAll(artifactDir, 0755)
+			artifactDir := t.TempDir()
 			runCppOracleChecks(t, artifactDir, dir)
 			t.Logf("Oracle artifacts saved to %s", artifactDir)
 		}
@@ -1276,8 +1271,7 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 		}
 
 		// Run oracle checks if available
-		artifactDir := filepath.Join(os.TempDir(), "rockyardkv-manifest-lie-artifacts")
-		_ = os.MkdirAll(artifactDir, 0755)
+		artifactDir := t.TempDir()
 		runCppOracleChecks(t, artifactDir, dir)
 		return
 	}
@@ -1317,8 +1311,7 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 	}
 
 	// Run oracle checks
-	artifactDir := filepath.Join(os.TempDir(), "rockyardkv-manifest-lie-artifacts")
-	_ = os.MkdirAll(artifactDir, 0755)
+	artifactDir := t.TempDir()
 	runCppOracleChecks(t, artifactDir, dir)
 }
 
@@ -1405,8 +1398,7 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 		}
 
 		// Run oracle checks if available
-		artifactDir := filepath.Join(os.TempDir(), "rockyardkv-current-lie-artifacts")
-		_ = os.MkdirAll(artifactDir, 0755)
+		artifactDir := t.TempDir()
 		runCppOracleChecks(t, artifactDir, dir)
 		return
 	}
@@ -1434,8 +1426,7 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 	}
 
 	// Run oracle checks
-	artifactDir := filepath.Join(os.TempDir(), "rockyardkv-current-lie-artifacts")
-	_ = os.MkdirAll(artifactDir, 0755)
+	artifactDir := t.TempDir()
 	runCppOracleChecks(t, artifactDir, dir)
 }
 
@@ -1521,8 +1512,7 @@ func TestDurability_MissingActiveManifest_FailsLoud(t *testing.T) {
 
 	// Step 5: Capture artifacts and run oracle checks
 	if os.Getenv(CppOraclePathEnv) != "" {
-		artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-		_ = os.MkdirAll(artifactDir, 0755)
+		artifactDir := t.TempDir()
 
 		// Save the CURRENT content
 		_ = os.WriteFile(filepath.Join(artifactDir, "CURRENT_original.txt"), currentContent, 0644)
@@ -1674,8 +1664,7 @@ func TestDurability_ManifestReferencesMissingSST_FailsLoud(t *testing.T) {
 
 	// Step 5: Capture artifacts and run oracle checks
 	if os.Getenv(CppOraclePathEnv) != "" {
-		artifactDir := filepath.Join(os.TempDir(), "rockyardkv-durability-artifacts", t.Name())
-		_ = os.MkdirAll(artifactDir, 0755)
+		artifactDir := t.TempDir()
 
 		// Save info about missing SST
 		_ = os.WriteFile(filepath.Join(artifactDir, "missing_sst_name.txt"),
