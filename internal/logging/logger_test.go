@@ -3,9 +3,12 @@ package logging
 import (
 	"bytes"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
+// Contract: DefaultLogger filters messages by level.
 func TestDefaultLogger_LevelFiltering(t *testing.T) {
 	tests := []struct {
 		level     Level
@@ -25,10 +28,10 @@ func TestDefaultLogger_LevelFiltering(t *testing.T) {
 			var buf bytes.Buffer
 			logger := NewLogger(&buf, tt.level)
 
-			logger.Error("error message")
-			logger.Warn("warn message")
-			logger.Info("info message")
-			logger.Debug("debug message")
+			logger.Errorf("error message")
+			logger.Warnf("warn message")
+			logger.Infof("info message")
+			logger.Debugf("debug message")
 
 			output := buf.String()
 
@@ -48,6 +51,7 @@ func TestDefaultLogger_LevelFiltering(t *testing.T) {
 	}
 }
 
+// Contract: DefaultLogger formats messages correctly.
 func TestDefaultLogger_Formatted(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(&buf, LevelDebug)
@@ -73,41 +77,16 @@ func TestDefaultLogger_Formatted(t *testing.T) {
 	}
 }
 
-func TestDefaultLogger_SetLevel(t *testing.T) {
-	var buf bytes.Buffer
-	logger := NewLogger(&buf, LevelError)
-
-	// Should not log info at error level
-	logger.Info("should not appear")
-	if strings.Contains(buf.String(), "should not appear") {
-		t.Error("info logged at error level")
-	}
-
-	// Change to info level
-	logger.SetLevel(LevelInfo)
-	if logger.Level() != LevelInfo {
-		t.Errorf("Level() = %v, want %v", logger.Level(), LevelInfo)
-	}
-
-	// Now should log info
-	logger.Info("should appear")
-	if !strings.Contains(buf.String(), "should appear") {
-		t.Error("info not logged at info level")
-	}
-}
-
+// Contract: DiscardLogger does not panic.
 func TestDiscardLogger(t *testing.T) {
-	// Just verify it doesn't panic
-	Discard.Error("error")
 	Discard.Errorf("error %d", 1)
-	Discard.Warn("warn")
 	Discard.Warnf("warn %d", 1)
-	Discard.Info("info")
 	Discard.Infof("info %d", 1)
-	Discard.Debug("debug")
 	Discard.Debugf("debug %d", 1)
+	Discard.Fatalf("fatal %d", 1)
 }
 
+// Contract: Level.String() returns human-readable level names.
 func TestLevelString(t *testing.T) {
 	tests := []struct {
 		level Level
@@ -127,8 +106,8 @@ func TestLevelString(t *testing.T) {
 	}
 }
 
+// Contract: Namespace constants are in [name] format.
 func TestNamespaceConstants(t *testing.T) {
-	// Verify namespace constants are defined with brackets
 	namespaces := []string{NSFlush, NSCompact, NSWAL, NSManifest, NSRecovery, NSDB}
 	for _, ns := range namespaces {
 		if !strings.HasPrefix(ns, "[") || !strings.Contains(ns, "]") {
@@ -137,37 +116,201 @@ func TestNamespaceConstants(t *testing.T) {
 	}
 }
 
+// Contract: Log format follows "TIMESTAMP LEVEL [component] message" pattern.
 func TestLogFormat_Standard(t *testing.T) {
-	// Verify the log format follows standard: "TIMESTAMP LEVEL [component] message"
-	// Example: 2025/12/30 18:45:13 INFO [flush] flush started
 	var buf bytes.Buffer
 	logger := NewLogger(&buf, LevelInfo)
 
-	// Log a message with namespace prefix
 	logger.Infof("%s%s", NSFlush, "flush started")
 
 	output := buf.String()
 
-	// Verify no global prefix (should start with timestamp)
-	// Timestamp format: YYYY/MM/DD HH:MM:SS
 	if strings.HasPrefix(output, "rockyardkv") {
 		t.Errorf("output should NOT start with 'rockyardkv', got: %s", output)
 	}
 
-	// Verify level is present (without colon)
 	if !strings.Contains(output, "INFO ") {
 		t.Error("output should contain 'INFO '")
 	}
 
-	// Verify component namespace is present
 	if !strings.Contains(output, "[flush]") {
 		t.Error("output should contain '[flush]'")
 	}
 
-	// Verify message content
 	if !strings.Contains(output, "flush started") {
 		t.Error("output should contain 'flush started'")
 	}
 
 	t.Logf("Log format verified: %s", output)
+}
+
+// Contract: IsNil returns true for nil interface.
+func TestIsNil_NilInterface(t *testing.T) {
+	var l Logger = nil
+	if !IsNil(l) {
+		t.Error("IsNil should return true for nil interface")
+	}
+}
+
+// Contract: IsNil returns true for typed-nil (nil pointer assigned to interface).
+func TestIsNil_TypedNil(t *testing.T) {
+	var dl *DefaultLogger = nil
+	var l Logger = dl
+	if !IsNil(l) {
+		t.Error("IsNil should return true for typed-nil")
+	}
+}
+
+// Contract: IsNil returns false for valid logger.
+func TestIsNil_ValidLogger(t *testing.T) {
+	l := NewDefaultLogger(LevelWarn)
+	if IsNil(l) {
+		t.Error("IsNil should return false for valid logger")
+	}
+}
+
+// Contract: OrDefault returns default logger for nil.
+func TestOrDefault_Nil(t *testing.T) {
+	l := OrDefault(nil)
+	if l == nil {
+		t.Error("OrDefault should return a non-nil logger")
+	}
+	dl, ok := l.(*DefaultLogger)
+	if !ok {
+		t.Error("OrDefault should return a *DefaultLogger")
+	}
+	if dl.Level() != LevelWarn {
+		t.Errorf("OrDefault should return WARN level, got %s", dl.Level())
+	}
+}
+
+// Contract: OrDefault returns default logger for typed-nil.
+func TestOrDefault_TypedNil(t *testing.T) {
+	var dl *DefaultLogger = nil
+	var l Logger = dl
+
+	result := OrDefault(l)
+	if result == nil {
+		t.Error("OrDefault should return a non-nil logger for typed-nil")
+	}
+	resultDL, ok := result.(*DefaultLogger)
+	if !ok {
+		t.Error("OrDefault should return a *DefaultLogger")
+	}
+	if resultDL.Level() != LevelWarn {
+		t.Errorf("OrDefault should return WARN level, got %s", resultDL.Level())
+	}
+}
+
+// Contract: OrDefault returns the provided logger if valid.
+func TestOrDefault_ValidLogger(t *testing.T) {
+	original := NewDefaultLogger(LevelDebug)
+	result := OrDefault(original)
+	if result != original {
+		t.Error("OrDefault should return the same logger if valid")
+	}
+}
+
+// Contract: Fatalf logs at FATAL level regardless of configured level.
+func TestFatalf_AlwaysLogs(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, LevelError) // Lowest level
+
+	logger.Fatalf("fatal error: %s", "corruption detected")
+
+	output := buf.String()
+	if !strings.Contains(output, "FATAL ") {
+		t.Errorf("Fatalf should log at FATAL level, got: %s", output)
+	}
+	if !strings.Contains(output, "fatal error: corruption detected") {
+		t.Errorf("Fatalf message not found, got: %s", output)
+	}
+}
+
+// Contract: Fatalf calls the configured FatalHandler.
+func TestFatalf_CallsFatalHandler(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, LevelWarn)
+
+	var handlerCalled atomic.Bool
+	var capturedMsg string
+	var mu sync.Mutex
+
+	handler := FatalHandler(func(msg string) {
+		mu.Lock()
+		capturedMsg = msg
+		mu.Unlock()
+		handlerCalled.Store(true)
+	})
+	logger.SetFatalHandler(handler)
+
+	logger.Fatalf("invariant violation: %s", "file already compacting")
+
+	if !handlerCalled.Load() {
+		t.Error("FatalHandler was not called")
+	}
+
+	mu.Lock()
+	if !strings.Contains(capturedMsg, "invariant violation: file already compacting") {
+		t.Errorf("FatalHandler received wrong message: %s", capturedMsg)
+	}
+	mu.Unlock()
+}
+
+// Contract: Fatalf without FatalHandler does not panic.
+func TestFatalf_NoHandler_NoPanic(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, LevelWarn)
+	// No handler set
+
+	// Should not panic
+	logger.Fatalf("fatal error")
+
+	output := buf.String()
+	if !strings.Contains(output, "FATAL ") {
+		t.Error("Fatalf should still log even without handler")
+	}
+}
+
+// Contract: DefaultLogger is safe for concurrent use.
+func TestDefaultLogger_Concurrent(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf, LevelDebug)
+
+	var handlerCalls atomic.Int32
+	handler := FatalHandler(func(msg string) {
+		handlerCalls.Add(1)
+	})
+	logger.SetFatalHandler(handler)
+
+	var wg sync.WaitGroup
+	for i := range 100 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			logger.Errorf("error %d", n)
+			logger.Warnf("warn %d", n)
+			logger.Infof("info %d", n)
+			logger.Debugf("debug %d", n)
+			if n%10 == 0 {
+				logger.Fatalf("fatal %d", n)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// 10 Fatalf calls (0, 10, 20, ..., 90)
+	if got := handlerCalls.Load(); got != 10 {
+		t.Errorf("Expected 10 fatal handler calls, got %d", got)
+	}
+}
+
+// Contract: ErrFatal can be detected with errors.Is.
+func TestErrFatal_Sentinel(t *testing.T) {
+	if ErrFatal == nil {
+		t.Error("ErrFatal should not be nil")
+	}
+	if ErrFatal.Error() != "fatal error" {
+		t.Errorf("ErrFatal.Error() = %q, want %q", ErrFatal.Error(), "fatal error")
+	}
 }

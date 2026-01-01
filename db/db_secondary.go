@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/version"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -60,11 +61,8 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 	}
 
 	// Logger configuration: db.logger is NEVER nil.
-	// If opts.Logger is nil, we use a default logger.
-	logger := opts.Logger
-	if logger == nil {
-		logger = newDefaultLogger()
-	}
+	// If opts.Logger is nil or typed-nil, we use a default WARN logger.
+	logger := logging.OrDefault(opts.Logger)
 
 	// Create the base DB implementation (read-only)
 	db := &DBImpl{
@@ -77,6 +75,14 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
 		writeController: NewWriteController(),
 		logger:          logger,
+	}
+
+	// Wire FatalHandler: when Fatalf is called, set background error.
+	// For secondary DB this is less critical but maintains consistency.
+	if dl, ok := logger.(*logging.DefaultLogger); ok {
+		dl.SetFatalHandler(func(msg string) {
+			db.SetBackgroundError(fmt.Errorf("%w: %s", logging.ErrFatal, msg))
+		})
 	}
 
 	// Initialize column family set

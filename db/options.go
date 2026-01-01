@@ -16,11 +16,6 @@ import (
 // This allows users to pass their own logger implementation.
 type Logger = logging.Logger
 
-// newDefaultLogger creates the default logger with warn level.
-func newDefaultLogger() logging.Logger {
-	return logging.NewDefaultLogger(logging.LevelWarn)
-}
-
 // CompressionType is an alias for the compression type.
 type CompressionType = compression.Type
 

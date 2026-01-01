@@ -21,6 +21,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/compaction"
 	"github.com/aalhour/rockyardkv/internal/dbformat"
+	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/memtable"
 	"github.com/aalhour/rockyardkv/internal/rangedel"
@@ -41,6 +42,7 @@ var (
 	ErrCorruption          = errors.New("db: corruption detected")
 	ErrInvalidOptions      = errors.New("db: invalid options")
 	ErrBackgroundError     = errors.New("db: unrecoverable background error")
+	ErrFatal               = logging.ErrFatal // Re-export for convenience
 )
 
 // DB is the main interface for interacting with the database.
@@ -270,12 +272,9 @@ func Open(path string, opts *Options) (DB, error) {
 	}
 
 	// Logger configuration: db.logger is NEVER nil after Open().
-	// If opts.Logger is nil, we use a default logger (LevelWarn).
+	// If opts.Logger is nil or typed-nil, we use a default WARN logger.
 	// This allows all components to call db.logger.Infof(...) without nil checks.
-	logger := opts.Logger
-	if logger == nil {
-		logger = newDefaultLogger()
-	}
+	logger := logging.OrDefault(opts.Logger)
 
 	// Create the DB implementation
 	db := &DBImpl{
@@ -289,6 +288,15 @@ func Open(path string, opts *Options) (DB, error) {
 		writeController: NewWriteController(),
 		logger:          logger,
 	}
+
+	// Wire FatalHandler: when Fatalf is called, set background error to stop writes.
+	// This implements RocksDB-style "stopped" state instead of Pebble-style os.Exit(1).
+	if dl, ok := logger.(*logging.DefaultLogger); ok {
+		dl.SetFatalHandler(func(msg string) {
+			db.SetBackgroundError(fmt.Errorf("%w: %s", logging.ErrFatal, msg))
+		})
+	}
+
 	// Initialize condition variable for immutable memtable waiting
 	db.immCond = sync.NewCond(&db.mu)
 
@@ -1094,7 +1102,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 		// Warn once about data loss risk
 		if !db.walDisabledWarned {
 			db.walDisabledWarned = true
-			db.logger.Warn("[wal] DisableWAL=true: writes will be lost if process crashes before Flush()")
+			db.logger.Warnf("[wal] DisableWAL=true: writes will be lost if process crashes before Flush()")
 		}
 	} else if db.logWriter != nil {
 		// Whitebox [synctest]: barrier before WAL write
@@ -1452,7 +1460,7 @@ func (db *DBImpl) Close() error {
 		return nil
 	}
 	db.closed = true
-	db.logger.Info("[db] closing database")
+	db.logger.Infof("[db] closing database")
 	db.mu.Unlock()
 
 	// Stop background workers first (outside mutex to avoid deadlock)
@@ -1505,6 +1513,12 @@ func (db *DBImpl) GetBackgroundError() error {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.backgroundError
+}
+
+// Logger returns the database logger.
+// This is primarily for testing and debugging purposes.
+func (db *DBImpl) Logger() Logger {
+	return db.logger
 }
 
 // ReleaseWriteStall wakes up all goroutines waiting in MaybeStallWrite.

@@ -1,7 +1,11 @@
 // Package logging provides the logging interface and default implementations for RockyardKV.
 //
-// Design: Simple four-level interface (Error, Warn, Info, Debug) inspired by Badger and Pebble.
+// Design: Five-level interface (Error, Warn, Info, Debug, Fatal) inspired by Badger, Pebble, and RocksDB.
 // Users can wrap their own structured loggers (slog, zap) if needed.
+//
+// Fatalf behavior (RocksDB-style): Logs at FATAL level and calls the configured FatalHandler.
+// The default FatalHandler is a no-op, but DB wires it to set background error (stop writes).
+// Unlike Pebble, Fatalf does NOT call os.Exit(1) by default.
 //
 // Log format: YYYY/MM/DD HH:MM:SS LEVEL [component] message
 //
@@ -19,12 +23,26 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"sync"
+	"reflect"
+	"sync/atomic"
 )
+
+// ErrFatal is the sentinel error wrapped by fatal conditions.
+// Use errors.Is(err, ErrFatal) to detect fatal errors in returned errors.
+var ErrFatal = errors.New("fatal error")
+
+// FatalHandler is called when Fatalf is invoked.
+// The handler receives the formatted fatal message and should transition
+// the system to a stopped state (e.g., reject writes, set background error).
+//
+// Contract: FatalHandler must be safe for concurrent use.
+// Contract: FatalHandler must not call Fatalf (avoid infinite recursion).
+type FatalHandler func(msg string)
 
 // Level represents the logging level.
 type Level int
@@ -57,34 +75,42 @@ func (l Level) String() string {
 }
 
 // Logger defines the interface for database logging.
-// All methods are safe for concurrent use.
+//
+// Concurrency: DefaultLogger and Discard are safe for concurrent use.
+// User-provided Logger implementations MUST be safe for concurrent use,
+// as logging may occur from multiple goroutines simultaneously.
+//
+// Fatalf contract (RocksDB-style):
+//   - Logs the message at FATAL level
+//   - Calls the configured FatalHandler to transition the system to a stopped state
+//   - Does NOT exit the process (unlike Pebble)
+//   - After Fatalf, subsequent writes should be rejected by the DB
 type Logger interface {
-	// Error logs an error message.
-	Error(msg string)
 	// Errorf logs a formatted error message.
 	Errorf(format string, args ...any)
 
-	// Warn logs a warning message.
-	Warn(msg string)
 	// Warnf logs a formatted warning message.
 	Warnf(format string, args ...any)
 
-	// Info logs an informational message.
-	Info(msg string)
 	// Infof logs a formatted informational message.
 	Infof(format string, args ...any)
 
-	// Debug logs a debug message.
-	Debug(msg string)
 	// Debugf logs a formatted debug message.
 	Debugf(format string, args ...any)
+
+	// Fatalf logs a fatal error and triggers the fatal handler.
+	// After Fatalf is called, the DB transitions to a stopped state:
+	// writes are rejected, reads may continue.
+	Fatalf(format string, args ...any)
 }
 
 // DefaultLogger is the default logger that writes to a specified output.
+// It is stateless and safe for concurrent use (log.Logger is thread-safe).
+// Level is read-only after construction — create a new logger to change level.
 type DefaultLogger struct {
-	mu     sync.Mutex
-	logger *log.Logger
-	level  Level
+	logger       *log.Logger
+	level        Level
+	fatalHandler atomic.Pointer[FatalHandler]
 }
 
 // NewDefaultLogger creates a new default logger with the specified level.
@@ -106,89 +132,57 @@ func NewLogger(w io.Writer, level Level) *DefaultLogger {
 	}
 }
 
-// SetLevel sets the logging level.
-func (l *DefaultLogger) SetLevel(level Level) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.level = level
+// SetFatalHandler sets the handler called when Fatalf is invoked.
+// The handler should transition the system to a stopped state.
+// This is typically wired by the DB to set its background error.
+func (l *DefaultLogger) SetFatalHandler(h FatalHandler) {
+	l.fatalHandler.Store(&h)
 }
 
-// Level returns the current logging level.
+// Level returns the logging level.
 func (l *DefaultLogger) Level() Level {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	return l.level
-}
-
-// Error logs an error message.
-func (l *DefaultLogger) Error(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.level >= LevelError {
-		l.logger.Println("ERROR", msg)
-	}
 }
 
 // Errorf logs a formatted error message.
 func (l *DefaultLogger) Errorf(format string, args ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.level >= LevelError {
-		l.logger.Println("ERROR", fmt.Sprintf(format, args...))
-	}
-}
-
-// Warn logs a warning message.
-func (l *DefaultLogger) Warn(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.level >= LevelWarn {
-		l.logger.Println("WARN", msg)
+		_ = l.logger.Output(2, "ERROR "+fmt.Sprintf(format, args...))
 	}
 }
 
 // Warnf logs a formatted warning message.
 func (l *DefaultLogger) Warnf(format string, args ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.level >= LevelWarn {
-		l.logger.Println("WARN", fmt.Sprintf(format, args...))
-	}
-}
-
-// Info logs an informational message.
-func (l *DefaultLogger) Info(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.level >= LevelInfo {
-		l.logger.Println("INFO", msg)
+		_ = l.logger.Output(2, "WARN "+fmt.Sprintf(format, args...))
 	}
 }
 
 // Infof logs a formatted informational message.
 func (l *DefaultLogger) Infof(format string, args ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.level >= LevelInfo {
-		l.logger.Println("INFO", fmt.Sprintf(format, args...))
-	}
-}
-
-// Debug logs a debug message.
-func (l *DefaultLogger) Debug(msg string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.level >= LevelDebug {
-		l.logger.Println("DEBUG", msg)
+		_ = l.logger.Output(2, "INFO "+fmt.Sprintf(format, args...))
 	}
 }
 
 // Debugf logs a formatted debug message.
 func (l *DefaultLogger) Debugf(format string, args ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.level >= LevelDebug {
-		l.logger.Println("DEBUG", fmt.Sprintf(format, args...))
+		_ = l.logger.Output(2, "DEBUG "+fmt.Sprintf(format, args...))
+	}
+}
+
+// Fatalf logs a fatal error and triggers the fatal handler.
+// After Fatalf is called, the DB transitions to a stopped state:
+// writes are rejected, reads may continue.
+func (l *DefaultLogger) Fatalf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	// Always log fatal messages (no level filtering for fatal)
+	_ = l.logger.Output(2, "FATAL "+msg)
+
+	// Call the fatal handler if set
+	if h := l.fatalHandler.Load(); h != nil {
+		(*h)(msg)
 	}
 }
 
@@ -216,3 +210,29 @@ const (
 	// NSTxn is the namespace for transaction operations.
 	NSTxn = "[txn] "
 )
+
+// IsNil returns true if the logger is nil or a typed-nil.
+// A typed-nil occurs when a nil pointer is assigned to an interface:
+//
+//	var l *MyLogger = nil
+//	opts.Logger = l  // Interface is not nil, but underlying pointer is
+//
+// Calling methods on a typed-nil panics, so this function detects both cases.
+func IsNil(l Logger) bool {
+	if l == nil {
+		return true
+	}
+	v := reflect.ValueOf(l)
+	// Check if the underlying value is a nil pointer
+	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
+// OrDefault returns the provided logger if it is valid (non-nil and not typed-nil),
+// otherwise returns a default WARN-level logger.
+// This ensures db.logger is never nil after Open().
+func OrDefault(l Logger) Logger {
+	if IsNil(l) {
+		return NewDefaultLogger(LevelWarn)
+	}
+	return l
+}
