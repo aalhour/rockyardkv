@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-01-01
+
+### Fixed
+- Package docs now render correctly on pkg.go.dev/pkgsite (package comment lives in `doc.go`, and file header comments no longer steal the overview).
+
+### Added
+- Runnable pkg.go.dev example (`ExampleOpen`).
+
 ## [0.3.2] - 2026-01-01
 
 ### Changed

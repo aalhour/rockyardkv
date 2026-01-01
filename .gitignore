@@ -22,6 +22,7 @@ coverage/
 *.prof
 *.pprof
 *-report.txt
+.go/
 .gocache/
 .gomodcache/
 .cache/

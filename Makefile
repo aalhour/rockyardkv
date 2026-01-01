@@ -25,7 +25,7 @@ export GOMODCACHE := $(abspath .)/.gomodcache
 
 # Project metadata
 MODULE := github.com/aalhour/rockyardkv
-VERSION := v0.3.2
+VERSION := v0.3.3
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
