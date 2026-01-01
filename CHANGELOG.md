@@ -5,6 +5,85 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-01-01
+
+### Changed
+
+Package structure:
+- Move `db/*` to module root for cleaner import paths (`github.com/aalhour/rockyardkv`)
+- Reorganize internal docs to `docs-internal/`
+
+### Fixed
+- Clean up `.gitignore` for campaign artifacts
+
+## [0.3.1] - 2026-01-01
+
+### Added
+
+Logging:
+- Production logging interface with `Errorf`, `Warnf`, `Infof`, `Debugf`, `Fatalf`
+- RocksDB-style `Fatalf` behavior (sets DB to stopped state, rejects writes, allows reads)
+- Stateless `DefaultLogger` with configurable level threshold
+- `ErrFatal` sentinel error for `errors.Is()` checks
+
+Campaign runner (C05):
+- Jepsen-style nightly runner with oracle gating
+- Campaign taxonomy (Tier, Tool, FaultKind, FaultScope, FaultErrorType)
+- Fixed instance matrix with reproducible seeds
+- Artifact bundling with `run.json`, logs, and oracle outputs
+- Failure fingerprinting and known-failure quarantine
+- Composite instances for multi-step workflows
+- Sweep instances for parameter matrix expansion
+- Registry introspection with tags and filters
+- Schema versioning for `run.json` and `summary.json`
+- Artifact recheck mode for policy re-evaluation
+- Governance with `-require-quarantine` flag
+- Instance-level skip policies
+- Trace capture and minimization for stresstest failures
+
+Testing:
+- File-level header documentation for `internal/campaign/`
+- RocksDB testdata fixtures for golden tests
+- Column family adversarial tests refactored with `t.TempDir()`
+- Edge case tests for trace writer
+
+### Fixed
+- Goroutine-local fault injection hang in stresstest
+- Golden tests updated for RocksDB v10.7.5 compatibility
+
+## [0.3.0] - 2025-12-30
+
+### Added
+
+VFS fault injection:
+- Goroutine-local fault injection harness for concurrent tests
+- Sync/rename lie modes for durability testing
+- Directory sync anomaly injection
+
+Testing infrastructure:
+- Syncpoint-driven whitebox crash tests (UC-06)
+- MANIFEST corruption adversarial tests (UC.T6)
+- Durability scenarios for C04 VFS tasks
+- Collision-check gate for seqno tests (UC-10)
+- Seqno-domain alignment test (C02-02)
+- Bloom filter compatibility golden test
+
+Tools:
+- Partitioned index unsupported check in SST reader (S05.4)
+- Version-aware trace decoder for v2 traces
+
+Documentation:
+- Jepsen-style testing compatibility matrix
+- Fault injection documentation
+- Multi-distro Docker test images
+
+### Fixed
+- Syncpoint scenario tests for missing call sites (UC.T5)
+- Traceanalyzer uses version-aware decoder
+- ASCII art box border alignment in test harnesses
+- Internal tracker references removed from code comments
+- Local paths replaced with `$ROCKSDB_PATH` placeholders
+
 ## [0.2.0] - 2025-12-29
 
 ### Added
