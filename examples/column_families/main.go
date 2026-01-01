@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -22,17 +22,17 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Open the database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
 	// Create a new column family for user metadata
-	cfOpts := db.DefaultColumnFamilyOptions()
+	cfOpts := rockyardkv.DefaultColumnFamilyOptions()
 	usersCF, err := database.CreateColumnFamily(cfOpts, "users")
 	if err != nil {
 		log.Fatal(err)
@@ -50,7 +50,7 @@ func main() {
 	defaultCF := database.DefaultColumnFamily()
 
 	// Write to different column families
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 
 	// Default column family: application config
 	err = database.PutCF(wo, defaultCF, []byte("app:version"), []byte("1.0.0"))
@@ -77,7 +77,7 @@ func main() {
 	fmt.Println("\nWrote data to all column families")
 
 	// Read from different column families
-	ro := db.DefaultReadOptions()
+	ro := rockyardkv.DefaultReadOptions()
 
 	fmt.Println("\n=== Default CF ===")
 	value, _ := database.GetCF(ro, defaultCF, []byte("app:version"))
@@ -99,7 +99,7 @@ func main() {
 
 	// Atomic write across column families
 	fmt.Println("\n=== Atomic write across column families ===")
-	wb := db.NewWriteBatch()
+	wb := rockyardkv.NewWriteBatch()
 	wb.PutCF(usersCF.ID(), []byte("user:3"), []byte(`{"name":"charlie"}`))
 	wb.PutCF(sessionsCF.ID(), []byte("session:xyz789"), []byte(`{"user_id":3}`))
 	wb.PutCF(defaultCF.ID(), []byte("app:last_user"), []byte("3"))

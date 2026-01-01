@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 // ExampleCompactionFilter removes keys with a "deleted:" prefix
@@ -26,25 +26,25 @@ func (f *ExampleCompactionFilter) Name() string {
 	return "ExampleCompactionFilter"
 }
 
-func (f *ExampleCompactionFilter) Filter(level int, key, existingValue []byte) (db.CompactionFilterDecision, []byte) {
+func (f *ExampleCompactionFilter) Filter(level int, key, existingValue []byte) (rockyardkv.CompactionFilterDecision, []byte) {
 	// Delete keys marked for deletion
 	if bytes.HasPrefix(key, []byte("deleted:")) {
 		f.deletedCount++
-		return db.FilterRemove, nil
+		return rockyardkv.FilterRemove, nil
 	}
 
 	// Transform: uppercase values for keys with "uppercase:" prefix
 	if bytes.HasPrefix(key, []byte("uppercase:")) {
 		f.transformedCount++
-		return db.FilterChange, bytes.ToUpper(existingValue)
+		return rockyardkv.FilterChange, bytes.ToUpper(existingValue)
 	}
 
 	// Keep all other keys unchanged
-	return db.FilterKeep, nil
+	return rockyardkv.FilterKeep, nil
 }
 
-func (f *ExampleCompactionFilter) FilterMergeOperand(level int, key, operand []byte) db.CompactionFilterDecision {
-	return db.FilterKeep
+func (f *ExampleCompactionFilter) FilterMergeOperand(level int, key, operand []byte) rockyardkv.CompactionFilterDecision {
+	return rockyardkv.FilterKeep
 }
 
 func main() {
@@ -55,18 +55,18 @@ func main() {
 
 	// Configure with compaction filter
 	filter := &ExampleCompactionFilter{}
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.CompactionFilter = filter
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
-	wo := db.DefaultWriteOptions()
-	ro := db.DefaultReadOptions()
+	wo := rockyardkv.DefaultWriteOptions()
+	ro := rockyardkv.DefaultReadOptions()
 
 	fmt.Println("Database opened with ExampleCompactionFilter")
 

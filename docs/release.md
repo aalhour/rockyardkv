@@ -108,7 +108,7 @@ We follow [Semantic Versioning](https://semver.org/):
 - **PATCH**: Bug fixes, backward compatible
 
 Examples:
-- `v0.1.0` - Initial development
+- `v0.3.1` - Example release during early development
 - `v1.0.0` - First stable release
 - `v1.1.0` - New features
 - `v1.1.1` - Bug fixes

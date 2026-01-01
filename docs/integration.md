@@ -18,16 +18,16 @@ package main
 import (
     "log"
     
-    "github.com/aalhour/rockyardkv/db"
+    "github.com/aalhour/rockyardkv"
 )
 
 func main() {
     // Configure options
-    opts := db.DefaultOptions()
+    opts := rockyardkv.DefaultOptions()
     opts.CreateIfMissing = true  // Create if it doesn't exist
     
     // Open the database
-    database, err := db.Open("/path/to/mydb", opts)
+    database, err := rockyardkv.Open("/path/to/mydb", opts)
     if err != nil {
         log.Fatal(err)
     }
@@ -48,7 +48,7 @@ if err != nil {
 
 // Read a value
 value, err := database.Get(nil, []byte("user:1"))
-if err == db.ErrNotFound {
+if err == rockyardkv.ErrNotFound {
     log.Println("Key not found")
 } else if err != nil {
     log.Fatal(err)
@@ -68,7 +68,7 @@ if err != nil {
 For atomic multi-key operations:
 
 ```go
-wb := db.NewWriteBatch()
+wb := rockyardkv.NewWriteBatch()
 wb.Put([]byte("key1"), []byte("value1"))
 wb.Put([]byte("key2"), []byte("value2"))
 wb.Delete([]byte("key3"))
@@ -117,7 +117,7 @@ For consistent reads:
 snapshot := database.GetSnapshot()
 defer database.ReleaseSnapshot(snapshot)
 
-opts := db.DefaultReadOptions()
+opts := rockyardkv.DefaultReadOptions()
 opts.Snapshot = snapshot
 
 // All reads will see data as of snapshot time
@@ -131,7 +131,7 @@ For data partitioning:
 
 ```go
 // Create a column family
-cf, err := database.CreateColumnFamily(db.ColumnFamilyOptions{}, "logs")
+cf, err := database.CreateColumnFamily(rockyardkv.ColumnFamilyOptions{}, "logs")
 if err != nil {
     log.Fatal(err)
 }
@@ -155,12 +155,12 @@ err = database.DropColumnFamily(cf)
 For read-modify-write operations:
 
 ```go
-txn := database.BeginTransaction(db.TransactionOptions{}, nil)
+txn := database.BeginTransaction(rockyardkv.TransactionOptions{}, nil)
 defer txn.Rollback() // No-op if committed
 
 // Read current value
 value, err := txn.Get([]byte("counter"))
-if err != nil && err != db.ErrNotFound {
+if err != nil && err != rockyardkv.ErrNotFound {
     log.Fatal(err)
 }
 
@@ -180,20 +180,20 @@ For incremental updates:
 
 ```go
 // Configure merge operator
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
-opts.MergeOperator = &db.UInt64AddOperator{} // Built-in counter
+opts.MergeOperator = &rockyardkv.UInt64AddOperator{} // Built-in counter
 
-database, _ := db.Open("/path/to/db", opts)
+database, _ := rockyardkv.Open("/path/to/db", opts)
 defer database.Close()
 
 // Initialize counter
-database.Put(nil, []byte("views"), db.EncodeUint64(0))
+database.Put(nil, []byte("views"), rockyardkv.EncodeUint64(0))
 
 // Increment counter (no read required)
-database.Merge(nil, []byte("views"), db.EncodeUint64(1))
-database.Merge(nil, []byte("views"), db.EncodeUint64(1))
-database.Merge(nil, []byte("views"), db.EncodeUint64(1))
+database.Merge(nil, []byte("views"), rockyardkv.EncodeUint64(1))
+database.Merge(nil, []byte("views"), rockyardkv.EncodeUint64(1))
+database.Merge(nil, []byte("views"), rockyardkv.EncodeUint64(1))
 
 // Read final value: 3
 ```
@@ -203,7 +203,7 @@ database.Merge(nil, []byte("views"), db.EncodeUint64(1))
 ### Database Options
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 
 // Required for new databases
 opts.CreateIfMissing = true
@@ -217,13 +217,13 @@ opts.BlockSize = 4096                     // 4KB blocks
 opts.MaxOpenFiles = 1000                  // Max open SST files
 
 // Custom merge operator
-opts.MergeOperator = &db.StringAppendOperator{Delimiter: ","}
+opts.MergeOperator = &rockyardkv.StringAppendOperator{Delimiter: ","}
 ```
 
 ### Write Options
 
 ```go
-writeOpts := db.DefaultWriteOptions()
+writeOpts := rockyardkv.DefaultWriteOptions()
 
 // Sync each write to disk (slower but durable)
 writeOpts.Sync = true
@@ -235,7 +235,7 @@ writeOpts.DisableWAL = true
 ### Read Options
 
 ```go
-readOpts := db.DefaultReadOptions()
+readOpts := rockyardkv.DefaultReadOptions()
 
 // Enable checksum verification
 readOpts.VerifyChecksums = true
@@ -247,7 +247,7 @@ readOpts.Snapshot = database.GetSnapshot()
 ### Flush Options
 
 ```go
-flushOpts := db.DefaultFlushOptions()
+flushOpts := rockyardkv.DefaultFlushOptions()
 
 // Wait for flush to complete
 flushOpts.Wait = true
@@ -263,9 +263,9 @@ value, err := database.Get(nil, []byte("key"))
 switch {
 case err == nil:
     // Success
-case err == db.ErrNotFound:
+case err == rockyardkv.ErrNotFound:
     // Key doesn't exist
-case err == db.ErrDBClosed:
+case err == rockyardkv.ErrDBClosed:
     // Database was closed
 default:
     // Other error
@@ -295,7 +295,7 @@ database.Write(nil, wb)
 
 ```go
 // Create once
-readOpts := db.DefaultReadOptions()
+readOpts := rockyardkv.DefaultReadOptions()
 
 // Reuse for multiple reads
 for _, key := range keys {
@@ -317,7 +317,7 @@ iter.Close() // Don't forget!
 snap := database.GetSnapshot()
 defer database.ReleaseSnapshot(snap)
 
-opts := db.DefaultReadOptions()
+opts := rockyardkv.DefaultReadOptions()
 opts.Snapshot = snap
 
 // These reads are guaranteed consistent
@@ -329,7 +329,7 @@ v2, _ := database.Get(opts, []byte("key2"))
 
 ```go
 for retry := 0; retry < 3; retry++ {
-    txn := database.BeginTransaction(db.TransactionOptions{}, nil)
+    txn := database.BeginTransaction(rockyardkv.TransactionOptions{}, nil)
     // ... do work ...
     if err := txn.Commit(); err == nil {
         break // Success
@@ -345,11 +345,10 @@ For testing, use the in-memory filesystem:
 ```go
 import "github.com/aalhour/rockyardkv/internal/vfs"
 
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
 opts.FS = vfs.NewMemFS() // In-memory for tests
 
-database, _ := db.Open("/test/db", opts)
+database, _ := rockyardkv.Open("/test/db", opts)
 defer database.Close()
 ```
-

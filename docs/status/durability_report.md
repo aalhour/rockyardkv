@@ -5,7 +5,7 @@ It provides reproduction commands and expected evidence for each behavior.
 
 ## Summary
 
-RockyardKV is in `v0.2.x`.
+RockyardKV is still in v0.
 Durability guarantees are under active verification.
 
 | Behavior | Configuration | Status |
@@ -21,7 +21,7 @@ Internal key collision across SSTs:
 - Root cause: Orphaned SST files after crash and missing orphan cleanup during recovery.
 - Fix: Delete orphaned SST files during recovery and keep `LastSequence` monotonic.
 - Commits: `947e3a0`, `ac461fe`.
-- Evidence: `docs/redteam/REPORTS/2025-12-29_C02_run11.md`.
+- Evidence: Captured in internal verification logs (not part of the public documentation set).
 
 Verifier mismatch under DisableWAL+faultfs:
 - Root cause: The harness treated `Flush()` as a durability boundary, but a crash before `MANIFEST` sync loses flushed data.
@@ -31,10 +31,10 @@ Verifier mismatch under DisableWAL+faultfs:
 DisableWAL verification contract (seqno-prefix model):
 - Root cause: The original DisableWAL verifier expected a strict "no missing writes" contract.
 - Fix: Verify a seqno-prefix (no holes) contract aligned with the recovery sequence number.
-- Evidence: `docs/redteam/REPORTS/2025-12-29_C02_run16.md`.
+- Evidence: Captured in internal verification logs (not part of the public documentation set).
 
 WAL enabled with sync writes:
-- Evidence: `docs/redteam/REPORTS/2025-12-29_C01_run10.md`.
+- Evidence: Captured in internal verification logs (not part of the public documentation set).
 
 ## What crash durability means
 

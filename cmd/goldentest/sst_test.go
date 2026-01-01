@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -216,10 +216,10 @@ func TestCppCorpus_ZlibSST(t *testing.T) {
 	}
 
 	// Open the database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(zlibDBPath, opts)
+	database, err := rockyardkv.Open(zlibDBPath, opts)
 	if err != nil {
 		t.Fatalf("open zlib DB: %v", err)
 	}
@@ -259,10 +259,10 @@ func TestCppCorpus_SnappySST(t *testing.T) {
 		t.Skip("Red team corpus not found (missing snappy_small_blocks_db/db)")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(snappyDBPath, opts)
+	database, err := rockyardkv.Open(snappyDBPath, opts)
 	if err != nil {
 		t.Fatalf("open snappy DB: %v", err)
 	}
@@ -298,10 +298,10 @@ func TestCppCorpus_LZ4SST(t *testing.T) {
 		t.Skip("Red team corpus not found (missing lz4_small_blocks_db/db)")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(lz4DBPath, opts)
+	database, err := rockyardkv.Open(lz4DBPath, opts)
 	if err != nil {
 		t.Fatalf("open lz4 DB: %v", err)
 	}
@@ -337,10 +337,10 @@ func TestCppCorpus_ZstdSST(t *testing.T) {
 		t.Skip("Red team corpus not found (missing zstd_small_blocks_db/db)")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(zstdDBPath, opts)
+	database, err := rockyardkv.Open(zstdDBPath, opts)
 	if err != nil {
 		t.Fatalf("open zstd DB: %v", err)
 	}
@@ -380,11 +380,11 @@ func TestCppCorpus_MultiCF(t *testing.T) {
 	}
 
 	// Open with column families
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
 	// First, list column families
-	cfNames, err := db.ListColumnFamilies(multiCFPath, opts)
+	cfNames, err := rockyardkv.ListColumnFamilies(multiCFPath, opts)
 	if err != nil {
 		t.Fatalf("list CFs: %v", err)
 	}
@@ -413,10 +413,10 @@ func TestCppCorpus_RangeDel(t *testing.T) {
 		t.Skip("Red team corpus not found")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
-	database, err := db.Open(rangeDelPath, opts)
+	database, err := rockyardkv.Open(rangeDelPath, opts)
 	if err != nil {
 		t.Fatalf("open rangedel DB: %v", err)
 	}

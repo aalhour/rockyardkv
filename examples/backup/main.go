@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -26,15 +26,15 @@ func main() {
 	os.RemoveAll(restorePath)
 
 	// Open the database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 
 	// Write initial data
 	err = database.Put(wo, []byte("version"), []byte("1.0"))
@@ -47,14 +47,14 @@ func main() {
 	}
 
 	// Flush to ensure data is on disk
-	err = database.Flush(db.DefaultFlushOptions())
+	err = database.Flush(rockyardkv.DefaultFlushOptions())
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Initial data written: version=1.0, data:1=first record")
 
 	// Create backup engine
-	backupEngine, err := db.CreateBackupEngine(database, backupPath)
+	backupEngine, err := rockyardkv.CreateBackupEngine(database, backupPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = database.Flush(db.DefaultFlushOptions())
+	err = database.Flush(rockyardkv.DefaultFlushOptions())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,13 +111,13 @@ func main() {
 	}
 
 	// Open restored database
-	restoredDB, err := db.Open(restorePath, opts)
+	restoredDB, err := rockyardkv.Open(restorePath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Verify restored data
-	ro := db.DefaultReadOptions()
+	ro := rockyardkv.DefaultReadOptions()
 	fmt.Println("Restored data:")
 	iter := restoredDB.NewIterator(ro)
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
@@ -127,7 +127,7 @@ func main() {
 
 	// data:2 and data:3 should not exist (they were added after backup 1)
 	_, err = restoredDB.Get(ro, []byte("data:2"))
-	if err == db.ErrNotFound {
+	if err == rockyardkv.ErrNotFound {
 		fmt.Println("\ndata:2 not found (correct - added after backup 1)")
 	}
 

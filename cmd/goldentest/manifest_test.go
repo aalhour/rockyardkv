@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/wal"
 )
@@ -98,10 +98,10 @@ func TestManifest_Contract_GoWritesCppReads(t *testing.T) {
 	dbPath := filepath.Join(dir, "manifest_test_db")
 
 	// Create database and flush to generate MANIFEST
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

@@ -6,11 +6,10 @@ This document describes the internal architecture of RockyardKV.
 
 ```
 rockyardkv/
-├── db/                 # Public API and database implementation
+├── *.go                # Public API and database implementation (package rockyardkv)
 ├── internal/           # Internal packages
 │   ├── batch/          # Write batch encoding/decoding
 │   ├── block/          # SST block reader/builder
-│   ├── bloom/          # Bloom filter implementation
 │   ├── cache/          # Block cache (LRU)
 │   ├── checksum/       # CRC32c and XXH3 checksums
 │   ├── compaction/     # Compaction picker and job execution

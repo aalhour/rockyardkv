@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
@@ -56,7 +56,7 @@ func TestScenarioWhitebox_FlushSST_CrashBeforeManifestSync(t *testing.T) {
 	// Phase 1: Create baseline with flushed data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 50 {
@@ -75,8 +75,8 @@ func TestScenarioWhitebox_FlushSST_CrashBeforeManifestSync(t *testing.T) {
 
 	// Phase 2: Write data, flush, crash at Flush.UpdateManifest:0
 	// This creates an orphaned SST (synced to disk but not in MANIFEST)
-	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 30 {
@@ -118,13 +118,13 @@ func TestScenarioWhitebox_FlushSST_CrashBeforeManifestSync(t *testing.T) {
 			_, err := database.Get(nil, key)
 			if err == nil {
 				t.Errorf("Orphan key %s should not exist (SST was orphaned)", key)
-			} else if !errors.Is(err, db.ErrNotFound) {
+			} else if !errors.Is(err, rockyardkv.ErrNotFound) {
 				t.Errorf("Unexpected error for orphan key %s: %v", key, err)
 			}
 		}
 
 		// Phase 4: Write new data and verify no sequence reuse
-		recoveryOpts := db.DefaultWriteOptions()
+		recoveryOpts := rockyardkv.DefaultWriteOptions()
 		recoveryOpts.DisableWAL = true
 		for i := range 50 {
 			key := []byte(fmt.Sprintf("recovery_%04d", i))
@@ -167,7 +167,7 @@ func TestScenarioWhitebox_FlushSST_CrashBeforeManifestSync(t *testing.T) {
 //	→ New writes get sequences 31+
 //
 // Without the fix:
-//   - LastSequence might be 60 (from db.seq, not actual flushed data)
+//   - LastSequence might be 60 (from rockyardkv.seq, not actual flushed data)
 //   - After recovery, sequences 31-60 are "claimed" but no data exists
 //   - New writes reuse 31-60 → collision
 func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
@@ -176,7 +176,7 @@ func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
 	// Phase 1: First flush completes successfully
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 30 {
@@ -198,8 +198,8 @@ func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
 	}
 
 	// Phase 2: Second flush crashes at UpdateManifest
-	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 30 {
@@ -241,13 +241,13 @@ func TestScenarioWhitebox_ConcurrentFlush_CrashDuringSecondFlush(t *testing.T) {
 			_, err := database.Get(nil, key)
 			if err == nil {
 				t.Errorf("Flush2 key %s should not exist (flush crashed)", key)
-			} else if !errors.Is(err, db.ErrNotFound) {
+			} else if !errors.Is(err, rockyardkv.ErrNotFound) {
 				t.Errorf("Unexpected error for flush2 key %s: %v", key, err)
 			}
 		}
 
 		// Write new data and verify no collision
-		recoveryOpts := db.DefaultWriteOptions()
+		recoveryOpts := rockyardkv.DefaultWriteOptions()
 		recoveryOpts.DisableWAL = true
 		for i := range 30 {
 			key := []byte(fmt.Sprintf("recovery_%04d", i))

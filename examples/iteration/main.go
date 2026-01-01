@@ -13,7 +13,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -23,17 +23,17 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
 	// Insert sample data
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	keys := []string{"apple", "banana", "cherry", "date", "elderberry", "fig", "grape"}
 	for _, k := range keys {
 		err = database.Put(wo, []byte(k), []byte("value_"+k))
@@ -45,7 +45,7 @@ func main() {
 
 	// Forward iteration: scan all keys
 	fmt.Println("=== Forward scan (all keys) ===")
-	ro := db.DefaultReadOptions()
+	ro := rockyardkv.DefaultReadOptions()
 	iter := database.NewIterator(ro)
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
 		fmt.Printf("  %s -> %s\n", iter.Key(), iter.Value())

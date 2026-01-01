@@ -33,9 +33,8 @@ coverage/
 tmp/
 
 # Untracked internal docs
-docs/review
-docs/redteam
-docs/status/gap-analysis
+docs-internal/
+docs-internal/**/*
 
 # Legacy/Specific exclusions (Try to migrate these to tmp/)
 .redteam/

@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -44,17 +44,17 @@ func main() {
 	fmt.Printf("Created: %s\n", sst2Path)
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
 	// Write some existing data
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	err = database.Put(wo, []byte("config:version"), []byte("1.0"))
 	if err != nil {
 		log.Fatal(err)
@@ -64,7 +64,7 @@ func main() {
 	// Ingest the SST files
 	fmt.Println("\n=== Ingesting SST Files ===")
 
-	ingestOpts := db.DefaultIngestExternalFileOptions()
+	ingestOpts := rockyardkv.DefaultIngestExternalFileOptions()
 	ingestOpts.MoveFiles = false // Copy files (keep originals)
 	ingestOpts.VerifyChecksumsBeforeIngest = true
 
@@ -76,7 +76,7 @@ func main() {
 
 	// Verify ingested data
 	fmt.Println("\n=== All Data After Ingestion ===")
-	ro := db.DefaultReadOptions()
+	ro := rockyardkv.DefaultReadOptions()
 	iter := database.NewIterator(ro)
 	count := 0
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
@@ -106,8 +106,8 @@ func main() {
 // createUsersSSTFile creates an SST file with user data.
 // Keys must be added in sorted order.
 func createUsersSSTFile(path string) error {
-	writerOpts := db.DefaultSstFileWriterOptions()
-	writer := db.NewSstFileWriter(writerOpts)
+	writerOpts := rockyardkv.DefaultSstFileWriterOptions()
+	writer := rockyardkv.NewSstFileWriter(writerOpts)
 
 	err := writer.Open(path)
 	if err != nil {
@@ -140,8 +140,8 @@ func createUsersSSTFile(path string) error {
 // createProductsSSTFile creates an SST file with product data.
 // Keys must be added in sorted order.
 func createProductsSSTFile(path string) error {
-	writerOpts := db.DefaultSstFileWriterOptions()
-	writer := db.NewSstFileWriter(writerOpts)
+	writerOpts := rockyardkv.DefaultSstFileWriterOptions()
+	writer := rockyardkv.NewSstFileWriter(writerOpts)
 
 	err := writer.Open(path)
 	if err != nil {

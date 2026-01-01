@@ -35,7 +35,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
@@ -49,16 +49,16 @@ import (
 // Sync point: DBImpl::Write:BeforeMemtable
 // Invariant: WAL-logged writes survive crash before memtable insertion.
 func TestScenarioSyncpoint_WriteBeforeMemtable(t *testing.T) {
-	runSyncpointScenario(t, testutil.SPDBWriteMemtable, func(database db.DB) {
+	runSyncpointScenario(t, testutil.SPDBWriteMemtable, func(database rockyardkv.DB) {
 		// Write with sync enabled (ensures WAL persistence)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 
 		if err := database.Put(opts, []byte("syncpoint_key"), []byte("syncpoint_value")); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
 		// Crash will occur at DBImpl::Write:BeforeMemtable
-	}, func(t *testing.T, database db.DB) {
+	}, func(t *testing.T, database rockyardkv.DB) {
 		// Verify: key should exist (recovered from WAL)
 		val, err := database.Get(nil, []byte("syncpoint_key"))
 		if err != nil {
@@ -79,9 +79,9 @@ func TestScenarioSyncpoint_WriteBeforeMemtable(t *testing.T) {
 // Sync point: FlushJob::Run:BeforeWriteSST
 // Invariant: Crash before SST write preserves data in WAL.
 func TestScenarioSyncpoint_FlushBeforeSST(t *testing.T) {
-	runSyncpointScenario(t, testutil.SPFlushWriteSST, func(database db.DB) {
+	runSyncpointScenario(t, testutil.SPFlushWriteSST, func(database rockyardkv.DB) {
 		// Write data
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 
 		for i := range 10 {
@@ -97,7 +97,7 @@ func TestScenarioSyncpoint_FlushBeforeSST(t *testing.T) {
 			// Expected to not return if crash happens
 			t.Fatalf("Flush failed: %v", err)
 		}
-	}, func(t *testing.T, database db.DB) {
+	}, func(t *testing.T, database rockyardkv.DB) {
 		// Verify: all keys should exist (recovered from WAL)
 		for i := range 10 {
 			key := fmt.Sprintf("flush_key_%03d", i)
@@ -123,9 +123,9 @@ func TestScenarioSyncpoint_FlushBeforeSST(t *testing.T) {
 // Note: The first flush will hit the syncpoint and crash, so data written
 // before the crash may be recovered from WAL.
 func TestScenarioSyncpoint_ManifestLogAndApply(t *testing.T) {
-	runSyncpointScenario(t, testutil.SPVersionSetLogAndApply, func(database db.DB) {
+	runSyncpointScenario(t, testutil.SPVersionSetLogAndApply, func(database rockyardkv.DB) {
 		// Write data that will trigger MANIFEST update during flush
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true // Ensure WAL durability
 		for i := range 10 {
 			key := fmt.Sprintf("manifest_key_%03d", i)
@@ -138,7 +138,7 @@ func TestScenarioSyncpoint_ManifestLogAndApply(t *testing.T) {
 		// This flush will crash at SPVersionSetLogAndApply
 		// The SST may be written, but the MANIFEST update will be interrupted
 		_ = database.Flush(nil)
-	}, func(t *testing.T, database db.DB) {
+	}, func(t *testing.T, database rockyardkv.DB) {
 		// After crash at LogAndApply, data should be recovered from WAL
 		// (since we used Sync=true for writes)
 		foundKeys := 0
@@ -161,8 +161,8 @@ func TestScenarioSyncpoint_ManifestLogAndApply(t *testing.T) {
 // Invariant: Data in flushed SSTs remains accessible after crash.
 // Note: Compaction may be interrupted, so input SSTs may still exist.
 func TestScenarioSyncpoint_CompactionFinishOutput(t *testing.T) {
-	runSyncpointScenario(t, testutil.SPCompactionFinishOutput, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runSyncpointScenario(t, testutil.SPCompactionFinishOutput, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 
 		// Create multiple L0 files to trigger compaction
@@ -181,7 +181,7 @@ func TestScenarioSyncpoint_CompactionFinishOutput(t *testing.T) {
 
 		// Trigger compaction - will crash at SPCompactionFinishOutput
 		_ = database.CompactRange(nil, nil, nil)
-	}, func(t *testing.T, database db.DB) {
+	}, func(t *testing.T, database rockyardkv.DB) {
 		// Count recovered keys - may be less than 250 if compaction crashed mid-way
 		foundKeys := 0
 		for batch := range 5 {
@@ -225,13 +225,13 @@ func TestScenarioSyncpoint_VersionSetRecover(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: Create a DB with data (no syncpoints)
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	writeOpts.Sync = true
 	for i := range 10 {
 		key := fmt.Sprintf("recovery_key_%03d", i)
@@ -270,7 +270,7 @@ func TestScenarioSyncpoint_VersionSetRecover(t *testing.T) {
 	t.Logf("Child blocked at sync point %s, killed with exit code %d", testutil.SPVersionSetRecover, exitCode)
 
 	// Phase 3: Verify - reopen and check data
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB for verification: %v", err)
 	}
@@ -306,9 +306,9 @@ func runRecoverySyncpointChild(t *testing.T, dir, syncPoint string) {
 	})
 
 	// Open EXISTING DB (this triggers Recover path and should hit syncpoint)
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false // Important: this ensures Recover() is called
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		fmt.Println("SYNCPOINT_NOT_HIT")
 		t.Fatalf("Failed to open existing DB: %v", err)
@@ -350,7 +350,7 @@ type syncpointArtifact struct {
 // This differs from kill points:
 // - Kill points: child calls os.Exit(0) at the point
 // - Sync points: child blocks, parent kills it (SIGKILL)
-func runSyncpointScenario(t *testing.T, syncPoint string, childWork func(db.DB), verify func(*testing.T, db.DB)) {
+func runSyncpointScenario(t *testing.T, syncPoint string, childWork func(rockyardkv.DB), verify func(*testing.T, rockyardkv.DB)) {
 	t.Helper()
 
 	if testing.Short() {
@@ -409,7 +409,7 @@ func runSyncpointScenario(t *testing.T, syncPoint string, childWork func(db.DB),
 
 // runSyncpointChild runs the child process work function.
 // Called when SYNCPOINT_CHILD=1 is set.
-func runSyncpointChild(t *testing.T, dir, syncPoint string, work func(db.DB)) {
+func runSyncpointChild(t *testing.T, dir, syncPoint string, work func(rockyardkv.DB)) {
 	t.Helper()
 
 	// Enable sync points
@@ -428,9 +428,9 @@ func runSyncpointChild(t *testing.T, dir, syncPoint string, work func(db.DB)) {
 	})
 
 	// Create/open DB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}

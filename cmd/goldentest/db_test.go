@@ -17,17 +17,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 // TestDatabaseRoundTrip_Basic tests basic database write and read.
 func TestDatabaseRoundTrip_Basic(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
@@ -68,10 +68,10 @@ func TestDatabaseRoundTrip_Basic(t *testing.T) {
 func TestDatabaseRoundTrip_WithFlush(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
@@ -117,11 +117,11 @@ func TestDatabaseRoundTrip_WithFlush(t *testing.T) {
 func TestDatabaseRoundTrip_WithReopen(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// First session: write and close
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDatabaseRoundTrip_WithReopen(t *testing.T) {
 
 	// Second session: reopen and read
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
 	}
@@ -175,16 +175,16 @@ func TestDatabaseRoundTrip_WithReopen(t *testing.T) {
 func TestDatabaseRoundTrip_ColumnFamilies(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
 
 	// Create column family
-	cfOpts := db.DefaultColumnFamilyOptions()
+	cfOpts := rockyardkv.DefaultColumnFamilyOptions()
 	cf1, err := database.CreateColumnFamily(cfOpts, "test_cf")
 	if err != nil {
 		database.Close()
@@ -192,7 +192,7 @@ func TestDatabaseRoundTrip_ColumnFamilies(t *testing.T) {
 	}
 
 	// Write to default CF
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	if err := database.Put(writeOpts, []byte("default_key"), []byte("default_value")); err != nil {
 		database.Close()
 		t.Fatalf("put to default failed: %v", err)
@@ -232,10 +232,10 @@ func TestDatabaseRoundTrip_ColumnFamilies(t *testing.T) {
 func TestDatabaseRoundTrip_Iterator(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open failed: %v", err)
 	}
@@ -310,11 +310,11 @@ func TestDatabase_Contract_CppWritesGoReads(t *testing.T) {
 		t.Skip("C++ fixture not found")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 
 	// Use read-only mode to avoid modifying the test fixture
-	database, err := db.OpenForReadOnly(goldenPath, opts, false)
+	database, err := rockyardkv.OpenForReadOnly(goldenPath, opts, false)
 	if err != nil {
 		t.Fatalf("open C++ database: %v", err)
 	}
@@ -349,10 +349,10 @@ func TestDatabase_Contract_GoWritesCppReads(t *testing.T) {
 	dbPath := filepath.Join(dir, "go_db_for_cpp")
 
 	// Create database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -426,10 +426,10 @@ func TestDatabase_OracleLock_GoWritesCppToolsClassify(t *testing.T) {
 	dbPath := filepath.Join(dir, "go_db_for_cpp_tools")
 
 	// Create database (small but flushed, to guarantee an SST exists).
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -480,15 +480,15 @@ func TestDatabase_Contract_ColumnFamilyIsolation_CppReads(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create database with column family
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 
-	cfOpts := db.DefaultColumnFamilyOptions()
+	cfOpts := rockyardkv.DefaultColumnFamilyOptions()
 	cf1, err := database.CreateColumnFamily(cfOpts, "test_cf")
 	if err != nil {
 		database.Close()
@@ -496,7 +496,7 @@ func TestDatabase_Contract_ColumnFamilyIsolation_CppReads(t *testing.T) {
 	}
 
 	// Write to both CFs
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	if err := database.Put(writeOpts, []byte("default_key"), []byte("default_value")); err != nil {
 		database.Close()
 		t.Fatalf("put default: %v", err)
@@ -505,7 +505,7 @@ func TestDatabase_Contract_ColumnFamilyIsolation_CppReads(t *testing.T) {
 		database.Close()
 		t.Fatalf("put CF: %v", err)
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		database.Close()
 		t.Fatalf("flush: %v", err)
 	}

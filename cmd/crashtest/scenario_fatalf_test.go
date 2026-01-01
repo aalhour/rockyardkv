@@ -17,7 +17,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/logging"
 )
 
@@ -29,16 +29,16 @@ import (
 func TestScenario_Fatalf_RejectsWritesInSession(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.Logger = logging.NewDefaultLogger(logging.LevelDebug)
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	dbImpl := database.(*db.DBImpl)
+	dbImpl := database.(*rockyardkv.DBImpl)
 
 	// Write before fatal
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
@@ -73,17 +73,17 @@ func TestScenario_Fatalf_RejectsWritesInSession(t *testing.T) {
 func TestScenario_Fatalf_ReopenClearsError(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.Logger = logging.NewDefaultLogger(logging.LevelDebug)
 
 	// First session: trigger fatal
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	dbImpl := database.(*db.DBImpl)
+	dbImpl := database.(*rockyardkv.DBImpl)
 
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
 		t.Fatalf("Put: %v", err)
@@ -101,13 +101,13 @@ func TestScenario_Fatalf_ReopenClearsError(t *testing.T) {
 
 	// Second session: reopen
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}
 	defer database.Close()
 
-	dbImpl = database.(*db.DBImpl)
+	dbImpl = database.(*rockyardkv.DBImpl)
 
 	// Background error should be nil after reopen
 	if bgErr := dbImpl.GetBackgroundError(); bgErr != nil {
@@ -146,9 +146,9 @@ func TestScenario_Fatalf_ChildProcessRejectsWrites_ParentReopens(t *testing.T) {
 	dbPath := filepath.Join(dir, "db")
 
 	// Create initial DB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Create DB: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestScenario_Fatalf_ChildProcessRejectsWrites_ParentReopens(t *testing.T) {
 
 	// Parent: reopen DB
 	opts.CreateIfMissing = false
-	database, err = db.Open(dbPath, opts)
+	database, err = rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Parent reopen: %v", err)
 	}
@@ -204,16 +204,16 @@ func runChildFatalf(t *testing.T) {
 		t.Fatal("CRASHTEST_DB_PATH not set")
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
 	opts.Logger = logging.NewDefaultLogger(logging.LevelDebug)
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Child open: %v", err)
 	}
 
-	dbImpl := database.(*db.DBImpl)
+	dbImpl := database.(*rockyardkv.DBImpl)
 
 	// Write before fatal
 	if err := database.Put(nil, []byte("child_before"), []byte("before_fatal")); err != nil {
@@ -246,17 +246,17 @@ func runChildFatalf(t *testing.T) {
 func TestScenario_Fatalf_FlushRejected(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.Logger = logging.NewDefaultLogger(logging.LevelDebug)
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer database.Close()
 
-	dbImpl := database.(*db.DBImpl)
+	dbImpl := database.(*rockyardkv.DBImpl)
 
 	// Write some data
 	if err := database.Put(nil, []byte("key"), []byte("value")); err != nil {
@@ -271,7 +271,7 @@ func TestScenario_Fatalf_FlushRejected(t *testing.T) {
 	if err == nil {
 		t.Error("Flush should fail after Fatalf")
 	}
-	if !errors.Is(err, db.ErrBackgroundError) {
+	if !errors.Is(err, rockyardkv.ErrBackgroundError) {
 		t.Errorf("Expected ErrBackgroundError, got: %v", err)
 	}
 }
@@ -284,17 +284,17 @@ func TestScenario_Fatalf_FlushRejected(t *testing.T) {
 func TestScenario_Fatalf_ConcurrentWritersRejected(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.Logger = logging.NewDefaultLogger(logging.LevelDebug)
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer database.Close()
 
-	dbImpl := database.(*db.DBImpl)
+	dbImpl := database.(*rockyardkv.DBImpl)
 
 	// Trigger fatal first
 	dbImpl.Logger().Fatalf("[test] fatal before concurrent writes")

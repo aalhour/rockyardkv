@@ -204,14 +204,6 @@ linters:
           - makezero
         path: "merge_operator.go"
 
-      # Skip nilerr/nilnil in backup.go and flush.go - intentional patterns for:
-      # - backup: returning default ID when no backups exist is not an error
-      # - flush: returning nil,nil when nothing to flush is correct
-      - linters:
-          - nilerr
-          - nilnil
-        path: "db/(backup|flush).go"
-
       # Skip nilerr in cmd/ - CLI tools use return nil for context cancellation
       - linters:
           - nilerr

@@ -8,7 +8,7 @@ This document describes compatibility claims and how to verify them.
 | Item | Value |
 |------|-------|
 | Target version | RocksDB v10.7.5 (commit 812b12b) |
-| Project version | v0.2.x |
+| Project version | v0.3.x |
 | Status | File format compatibility validated by golden tests; durability under investigation |
 
 Use the golden test suite to validate that RockyardKV reads files created by C++ RocksDB v10.7.5.

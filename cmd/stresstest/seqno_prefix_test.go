@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/trace"
 )
@@ -39,9 +39,9 @@ func TestSeqnoDomainAlignment(t *testing.T) {
 	}
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestSeqnoDomainAlignment(t *testing.T) {
 	}
 
 	// Reopen database and verify seqno domain alignment
-	database2, err := db.Open(dbPath, opts)
+	database2, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("reopen db: %v", err)
 	}

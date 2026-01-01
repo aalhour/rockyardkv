@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 // TestLdbScan_SurfacesCorruptionErrors verifies that ldb scan exits
@@ -17,9 +17,9 @@ func TestLdbScan_SurfacesCorruptionErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a valid DB first
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(tmpDir, opts)
+	database, err := rockyardkv.Open(tmpDir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -99,9 +99,9 @@ func TestLdbScan_ValidDB(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a valid DB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(tmpDir, opts)
+	database, err := rockyardkv.Open(tmpDir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -177,9 +177,9 @@ func runMain(args []string, stdout, stderr *bytes.Buffer) int {
 	}
 
 	// Open the database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: failed to open database: %v\n", err)
 		return 1
@@ -187,7 +187,7 @@ func runMain(args []string, stdout, stderr *bytes.Buffer) int {
 	defer database.Close()
 
 	// Perform scan
-	readOpts := &db.ReadOptions{}
+	readOpts := &rockyardkv.ReadOptions{}
 	iter := database.NewIterator(readOpts)
 	defer iter.Close()
 
@@ -223,15 +223,15 @@ func runMain(args []string, stdout, stderr *bytes.Buffer) int {
 func TestCheckCollision_NoFalsePositives(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 
 	// Write 1000 keys across multiple flushes
 	for flush := range 5 {
@@ -268,10 +268,10 @@ func TestCheckCollision_NoFalsePositives(t *testing.T) {
 func TestCheckCollision_EmptyDatabase(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
@@ -296,15 +296,15 @@ func TestCheckCollision_EmptyDatabase(t *testing.T) {
 func TestCheckCollision_SingleSST(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 
 	// Write data and flush (creates one SST)
 	for i := range 100 {
@@ -340,15 +340,15 @@ func TestCheckCollision_SingleSST(t *testing.T) {
 func TestCheckCollision_MultipleSSTs(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 
 	// Create multiple SST files by flushing separately
 	for flush := range 10 {
@@ -398,15 +398,15 @@ func TestCheckCollision_MultipleSSTs(t *testing.T) {
 func TestCheckCollision_UpdatedKeys(t *testing.T) {
 	dir := t.TempDir()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 
 	// Write the same keys multiple times (creates different sequences)
 	for update := range 5 {

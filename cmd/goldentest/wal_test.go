@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/wal"
 )
@@ -42,10 +42,10 @@ func TestWAL_Contract_GoWritesCppReads(t *testing.T) {
 	dbPath := filepath.Join(dir, "wal_test_db")
 
 	// Write data (will go to WAL, not flushed to SST)
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -432,12 +432,12 @@ func TestGoldenWAL_StopAfterCorruption_Oracle(t *testing.T) {
 	dbPath := filepath.Join(dir, "corruption_test_db")
 
 	// Create DB with 3 records: k01, k02 (large to force fragmentation), k03
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	// Disable auto-flush so data stays in WAL
 	opts.WriteBufferSize = 64 * 1024 * 1024 // 64MB
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -518,7 +518,7 @@ func TestGoldenWAL_StopAfterCorruption_Oracle(t *testing.T) {
 	t.Logf("C++ oracle scan output:\n%s", scanOutput)
 
 	// Step 3: Verify Go behavior matches oracle
-	database, err = db.Open(dbPath, opts)
+	database, err = rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		// Some corruption may prevent opening - that's acceptable too
 		t.Logf("Go failed to open DB (acceptable for severe corruption): %v", err)

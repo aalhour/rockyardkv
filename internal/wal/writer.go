@@ -11,7 +11,7 @@
 //
 // This file contains kill points for crash testing (requires -tags crashtest).
 // In production builds, these compile to no-ops with zero overhead.
-// See docs/testing.md for usage.
+// See docs/testing/README.md for usage.
 package wal
 
 import (

@@ -13,7 +13,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -23,10 +23,10 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Configure and open the database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func main() {
 	fmt.Println("Database opened successfully")
 
 	// Write a key-value pair
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	err = database.Put(wo, []byte("greeting"), []byte("Hello, RockyardKV!"))
 	if err != nil {
 		log.Fatal(err)
@@ -43,7 +43,7 @@ func main() {
 	fmt.Println("Put: greeting -> Hello, RockyardKV!")
 
 	// Read the value back
-	ro := db.DefaultReadOptions()
+	ro := rockyardkv.DefaultReadOptions()
 	value, err := database.Get(ro, []byte("greeting"))
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +71,7 @@ func main() {
 	// Verify deletion
 	_, err = database.Get(ro, []byte("greeting"))
 	if err != nil {
-		if err == db.ErrNotFound {
+		if err == rockyardkv.ErrNotFound {
 			fmt.Println("Get: greeting -> (not found)")
 		} else {
 			log.Fatal(err)

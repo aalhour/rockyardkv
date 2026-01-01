@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -25,12 +25,12 @@ func main() {
 	// Test different compression types
 	compressionTypes := []struct {
 		name        string
-		compression db.CompressionType
+		compression rockyardkv.CompressionType
 	}{
-		{"none", db.NoCompression},
-		{"snappy", db.SnappyCompression},
-		{"lz4", db.LZ4Compression},
-		{"zstd", db.ZstdCompression},
+		{"none", rockyardkv.NoCompression},
+		{"snappy", rockyardkv.SnappyCompression},
+		{"lz4", rockyardkv.LZ4Compression},
+		{"zstd", rockyardkv.ZstdCompression},
 	}
 
 	// Generate sample data (repetitive data compresses well)
@@ -43,18 +43,18 @@ func main() {
 		dbPath := filepath.Join(baseDir, ct.name)
 
 		// Configure compression
-		opts := db.DefaultOptions()
+		opts := rockyardkv.DefaultOptions()
 		opts.CreateIfMissing = true
 		opts.Compression = ct.compression
 
-		database, err := db.Open(dbPath, opts)
+		database, err := rockyardkv.Open(dbPath, opts)
 		if err != nil {
 			log.Printf("Failed to open with %s compression: %v", ct.name, err)
 			continue
 		}
 
 		// Write data
-		wo := db.DefaultWriteOptions()
+		wo := rockyardkv.DefaultWriteOptions()
 		for i := range numKeys {
 			key := fmt.Sprintf("key-%05d", i)
 			err = database.Put(wo, []byte(key), []byte(sampleValue))
@@ -64,7 +64,7 @@ func main() {
 		}
 
 		// Force flush to disk
-		err = database.Flush(db.DefaultFlushOptions())
+		err = database.Flush(rockyardkv.DefaultFlushOptions())
 		if err != nil {
 			log.Fatal(err)
 		}

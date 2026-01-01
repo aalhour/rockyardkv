@@ -44,7 +44,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/campaign"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
@@ -552,7 +552,7 @@ func testDuplicateKeysInBatch(dir string) error {
 	defer database.Close()
 
 	key := []byte("duplicate_key")
-	b := db.NewWriteBatch()
+	b := rockyardkv.NewWriteBatch()
 	b.Put(key, []byte("first"))
 	b.Put(key, []byte("second"))
 	b.Put(key, []byte("third"))
@@ -981,10 +981,10 @@ func testCorruptSSTBlockWithContract(dir string) *CorruptionTestResult {
 		ReproCommand:  "# Corrupt SST block and attempt reads\nbin/adversarialtest -category=corruption -keep",
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 1024
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		result.Error = err
 		return result
@@ -1021,7 +1021,7 @@ func testCorruptSSTBlockWithContract(dir string) *CorruptionTestResult {
 	}
 
 	// Reopen - for SST corruption, we expect reads to fail
-	database2, err := db.Open(dir, opts)
+	database2, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		result.ActualOutcome = "open_failed"
 		result.ContractHeld = true
@@ -1164,9 +1164,9 @@ func testDeleteCurrentWithContract(dir string) *CorruptionTestResult {
 	result.MutatedFiles = append(result.MutatedFiles, "CURRENT (deleted)")
 
 	// Without CreateIfMissing, must fail
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
-	database2, err := db.Open(dir, opts)
+	database2, err := rockyardkv.Open(dir, opts)
 	if err == nil {
 		database2.Close()
 		result.ActualOutcome = "open_succeeded_unexpectedly"
@@ -1206,7 +1206,7 @@ func testTruncateManifestWithContract(dir string) *CorruptionTestResult {
 				return result
 			}
 		}
-		if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 			result.Error = fmt.Errorf("flush: %w", err)
 			database.Close()
 			return result
@@ -1243,9 +1243,9 @@ func testTruncateManifestWithContract(dir string) *CorruptionTestResult {
 	}
 
 	// Reopen
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
-	database2, err := db.Open(dir, opts)
+	database2, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		result.ActualOutcome = "open_failed"
 		result.ContractHeld = true
@@ -1305,7 +1305,7 @@ func testCorruptManifestBytesWithContract(dir string) *CorruptionTestResult {
 			return result
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		result.Error = fmt.Errorf("flush: %w", err)
 		database.Close()
 		return result
@@ -1345,9 +1345,9 @@ func testCorruptManifestBytesWithContract(dir string) *CorruptionTestResult {
 	}
 
 	// Reopen - should fail due to corruption
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
-	database2, err := db.Open(dir, opts)
+	database2, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		result.ActualOutcome = "open_failed"
 		result.ContractHeld = true
@@ -1416,7 +1416,7 @@ func testGarbageManifestRecordWithContract(dir string) *CorruptionTestResult {
 			return result
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		result.Error = fmt.Errorf("flush: %w", err)
 		database.Close()
 		return result
@@ -1448,9 +1448,9 @@ func testGarbageManifestRecordWithContract(dir string) *CorruptionTestResult {
 	f.Close()
 
 	// Reopen
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
-	database2, err := db.Open(dir, opts)
+	database2, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		result.ActualOutcome = "open_failed"
 		result.ContractHeld = true
@@ -1700,7 +1700,7 @@ func testEmptyBatch(dir string) error {
 	}
 	defer database.Close()
 
-	b := db.NewWriteBatch()
+	b := rockyardkv.NewWriteBatch()
 	_ = database.Write(nil, b) // Should not panic
 
 	return nil
@@ -1713,9 +1713,9 @@ func testConflictingOptions(dir string) error {
 	}
 	database.Close()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.ErrorIfExists = true
-	_, err = db.Open(dir, opts)
+	_, err = rockyardkv.Open(dir, opts)
 	if err == nil {
 		return fmt.Errorf("open with ErrorIfExists on existing DB should fail")
 	}
@@ -1777,7 +1777,7 @@ func testConcurrencyStress(dir string, threads int, duration time.Duration) erro
 					key := fmt.Appendf(nil, "key-%d-%d", id, time.Now().UnixNano())
 					value := fmt.Appendf(nil, "value-%d", id)
 					if err := database.Put(nil, key, value); err != nil {
-						if !errors.Is(err, db.ErrDBClosed) {
+						if !errors.Is(err, rockyardkv.ErrDBClosed) {
 							select {
 							case errCh <- err:
 							default:
@@ -1824,10 +1824,10 @@ func testConcurrencyStress(dir string, threads int, duration time.Duration) erro
 // Helpers
 // =============================================================================
 
-func openDB(dir string) (db.DB, error) {
-	opts := db.DefaultOptions()
+func openDB(dir string) (rockyardkv.DB, error) {
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	return db.Open(dir, opts)
+	return rockyardkv.Open(dir, opts)
 }
 
 func runTestSuite(tests []struct {

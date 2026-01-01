@@ -44,7 +44,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	ibatch "github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/trace"
@@ -193,7 +193,7 @@ type Stats struct {
 
 // stressWriteOpts contains the write options used by all stress test operations.
 // Initialized in main() based on -sync and -disable-wal flags.
-var stressWriteOpts *db.WriteOptions
+var stressWriteOpts *rockyardkv.WriteOptions
 
 func main() {
 	flag.Parse()
@@ -301,7 +301,7 @@ func main() {
 
 	// Create write options based on flags
 	// This must happen AFTER randomization to pick up any randomized values
-	stressWriteOpts = db.DefaultWriteOptions()
+	stressWriteOpts = rockyardkv.DefaultWriteOptions()
 	stressWriteOpts.Sync = *syncWrites
 	stressWriteOpts.DisableWAL = *disableWAL
 
@@ -777,11 +777,11 @@ func printStats(stats *Stats) {
 // dbHolder holds the current database instance with synchronization.
 type dbHolder struct {
 	mu             sync.RWMutex
-	db             db.DB
+	db             rockyardkv.DB
 	path           string
 	opCount        atomic.Uint64
 	lastCompact    atomic.Uint64
-	columnFamilies []db.ColumnFamilyHandle // Additional column families (index 0 = cf1, etc.)
+	columnFamilies []rockyardkv.ColumnFamilyHandle // Additional column families (index 0 = cf1, etc.)
 }
 
 func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Stats) error {
@@ -870,7 +870,7 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	// ReleaseWriteStall just broadcasts on a sync.Cond, which is safe even if
 	// the reopener is in the middle of replacing the DB. The workers will wake
 	// up, check stop, and exit cleanly.
-	if impl, ok := database.(*db.DBImpl); ok {
+	if impl, ok := database.(*rockyardkv.DBImpl); ok {
 		impl.ReleaseWriteStall()
 	}
 
@@ -901,12 +901,12 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	return nil
 }
 
-func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
-	opts := db.DefaultOptions()
+func openDB(path string) (rockyardkv.DB, []rockyardkv.ColumnFamilyHandle, error) {
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 4 * 1024 * 1024 // 4MB
 	// Add a merge operator for stress testing
-	opts.MergeOperator = &db.StringAppendOperator{Delimiter: ","}
+	opts.MergeOperator = &rockyardkv.StringAppendOperator{Delimiter: ","}
 
 	// Enable GoroutineLocalFaultInjectionFS if requested.
 	// This allows targeted error injection for concurrent testing.
@@ -934,13 +934,13 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 		opts.FS = globalFaultFS
 	}
 
-	database, err := db.Open(filepath.Join(path, "db"), opts)
+	database, err := rockyardkv.Open(filepath.Join(path, "db"), opts)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Create additional column families if requested
-	var cfs []db.ColumnFamilyHandle
+	var cfs []rockyardkv.ColumnFamilyHandle
 	for i := 1; i < *numColumnFamilies; i++ {
 		cfName := fmt.Sprintf("cf%d", i)
 
@@ -948,7 +948,7 @@ func openDB(path string) (db.DB, []db.ColumnFamilyHandle, error) {
 		cf := database.GetColumnFamily(cfName)
 		if cf == nil {
 			// Create new CF
-			cfOpts := db.DefaultColumnFamilyOptions()
+			cfOpts := rockyardkv.DefaultColumnFamilyOptions()
 			cf, err = database.CreateColumnFamily(cfOpts, cfName)
 			if err != nil {
 				// May already exist, try to get it
@@ -1166,7 +1166,7 @@ func runWorker(threadID int, holder *dbHolder, expected *testutil.ExpectedStateV
 }
 
 // doPut performs a put operation WITH per-key locking (RocksDB-style)
-func doPut(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
+func doPut(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
 	key := rng.Int63n(*numKeys)
 
 	// ACQUIRE PER-KEY LOCK BEFORE OPERATION (matching C++ db_stress)
@@ -1268,7 +1268,7 @@ func doColumnFamilyOps(holder *dbHolder, stats *Stats, rng *rand.Rand) error {
 
 	case 1: // Get from CF
 		_, err := holder.db.GetCF(nil, cf, keyBytes)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("GetCF failed: %w", err)
 		}
 
@@ -1309,7 +1309,7 @@ func doColumnFamilyOps(holder *dbHolder, stats *Stats, rng *rand.Rand) error {
 
 		// Verify it's NOT in the default CF
 		_, err = holder.db.Get(nil, uniqueKey)
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			// This could happen if another thread wrote the same key to default CF
 			// Not a hard error, just log
 			if *verbose {
@@ -1326,7 +1326,7 @@ func doColumnFamilyOps(holder *dbHolder, stats *Stats, rng *rand.Rand) error {
 }
 
 // doGet performs a get operation WITH pre/post read verification (RocksDB-style)
-func doGet(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
+func doGet(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
 	key := rng.Int63n(*numKeys)
 	keyBytes := makeKey(key)
 
@@ -1345,7 +1345,7 @@ func doGet(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng
 	stats.gets.Add(1)
 
 	// Verify using pre/post read pattern
-	if errors.Is(err, db.ErrNotFound) {
+	if errors.Is(err, rockyardkv.ErrNotFound) {
 		// Key not found - check if this is expected
 		if testutil.MustHaveExisted(preReadExpected, postReadExpected) {
 			// Key must have existed but we got NotFound - this is an error
@@ -1384,7 +1384,7 @@ func doGet(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng
 }
 
 // doDelete performs a delete operation WITH per-key locking (RocksDB-style)
-func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
+func doDelete(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
 	key := rng.Int63n(*numKeys)
 
 	// ACQUIRE PER-KEY LOCK BEFORE OPERATION
@@ -1430,8 +1430,8 @@ func doDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, 
 }
 
 // doBatch performs a batch write WITH per-key locking for all keys in the batch
-func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
-	wb := db.NewWriteBatch()
+func doBatch(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
+	wb := rockyardkv.NewWriteBatch()
 	batchSize := rng.Intn(20) + 1
 
 	type opInfo struct {
@@ -1536,7 +1536,7 @@ func doBatch(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, r
 	return nil
 }
 
-func doIterScan(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
+func doIterScan(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
 	// Create iterator
 	iter := database.NewIterator(nil)
 	if iter == nil {
@@ -1644,7 +1644,7 @@ func doIterScan(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats
 	return nil
 }
 
-func doSnapshotRead(database db.DB, stats *Stats, rng *rand.Rand) error {
+func doSnapshotRead(database rockyardkv.DB, stats *Stats, rng *rand.Rand) error {
 	// Get a snapshot
 	snap := database.GetSnapshot()
 	if snap == nil {
@@ -1660,7 +1660,7 @@ func doSnapshotRead(database db.DB, stats *Stats, rng *rand.Rand) error {
 
 		// TODO: When snapshot reads are implemented, use snap parameter
 		_, err := database.Get(nil, keyBytes)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("snapshot get failed: %w", err)
 		}
 	}
@@ -1671,7 +1671,7 @@ func doSnapshotRead(database db.DB, stats *Stats, rng *rand.Rand) error {
 
 // doRangeDelete performs a range deletion WITH per-key locking for all keys in range.
 // This is a simplified implementation that deletes a small range of keys.
-func doRangeDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
+func doRangeDelete(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
 	// Pick a random start key and range size (keep range small to limit lock contention)
 	rangeSize := int64(rng.Intn(10) + 1) // 1-10 keys
 	startKey := rng.Int63n(*numKeys - rangeSize)
@@ -1762,7 +1762,7 @@ func doRangeDelete(database db.DB, expected *testutil.ExpectedStateV2, stats *St
 // merge operations would corrupt those values. Using separate keys allows us to
 // exercise the merge code path without affecting verification.
 // See smoke tests for merge correctness verification.
-func doMerge(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
+func doMerge(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand, stop chan struct{}) error {
 	_ = expected // Not tracked in expected state
 
 	// Use a different key prefix to avoid corrupting tracked keys
@@ -1873,8 +1873,8 @@ func doIngest(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats
 	// Create temp SST file
 	sstPath := filepath.Join(holder.path, fmt.Sprintf("ingest_%d_%d.sst", time.Now().UnixNano(), rng.Int63()))
 
-	writerOpts := db.DefaultSstFileWriterOptions()
-	writer := db.NewSstFileWriter(writerOpts)
+	writerOpts := rockyardkv.DefaultSstFileWriterOptions()
+	writer := rockyardkv.NewSstFileWriter(writerOpts)
 
 	if err := writer.Open(sstPath); err != nil {
 		cleanup(true)
@@ -1900,7 +1900,7 @@ func doIngest(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Stats
 	}
 
 	// Ingest the SST file
-	ingestOpts := db.IngestExternalFileOptions{
+	ingestOpts := rockyardkv.IngestExternalFileOptions{
 		MoveFiles:           true, // Move (delete) the file after ingest
 		SnapshotConsistency: true,
 		AllowGlobalSeqNo:    true,
@@ -2026,7 +2026,7 @@ func doTransaction(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *
 	}
 
 	// Build the batch
-	wb := db.NewWriteBatch()
+	wb := rockyardkv.NewWriteBatch()
 	for _, l := range locks {
 		if l.isPut {
 			wb.Put(makeKey(l.key), makeValue(l.key, l.valueBase))
@@ -2071,7 +2071,7 @@ func doTransaction(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *
 
 // doCompactAndVerify triggers a compaction and verifies a sample of keys afterward.
 // This helps catch data corruption during compaction.
-func doCompactAndVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
+func doCompactAndVerify(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
 	// Flush first to ensure data is in SST files
 	// Note: "immutable memtable already exists" is a transient condition under concurrent load
 	if err := database.Flush(nil); err != nil {
@@ -2119,7 +2119,7 @@ func doCompactAndVerify(database db.DB, expected *testutil.ExpectedStateV2, stat
 
 		if ev.IsDeleted() {
 			// Key should not exist
-			if !errors.Is(err, db.ErrNotFound) {
+			if !errors.Is(err, rockyardkv.ErrNotFound) {
 				failures++
 				if *verbose {
 					fmt.Printf("Post-compaction verify: key %d exists but expected deleted\n", key)
@@ -2127,7 +2127,7 @@ func doCompactAndVerify(database db.DB, expected *testutil.ExpectedStateV2, stat
 			}
 		} else if ev.Exists() {
 			// Key should exist
-			if errors.Is(err, db.ErrNotFound) {
+			if errors.Is(err, rockyardkv.ErrNotFound) {
 				failures++
 				if *verbose {
 					fmt.Printf("Post-compaction verify: key %d missing but expected to exist\n", key)
@@ -2167,7 +2167,7 @@ func doCompactAndVerify(database db.DB, expected *testutil.ExpectedStateV2, stat
 // doSnapshotVerify takes a snapshot and verifies it provides isolation.
 // This is a read-only verification that doesn't modify DB state to avoid
 // corrupting the expected state oracle.
-func doSnapshotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
+func doSnapshotVerify(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) error {
 	// Take snapshot
 	snap := database.GetSnapshot()
 	if snap == nil {
@@ -2178,7 +2178,7 @@ func doSnapshotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats 
 
 	// Pick some keys to verify - just do read-only verification
 	numToVerify := 10
-	readOpts := db.DefaultReadOptions()
+	readOpts := rockyardkv.DefaultReadOptions()
 	readOpts.Snapshot = snap
 
 	for range numToVerify {
@@ -2195,7 +2195,7 @@ func doSnapshotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats 
 		postRead := expected.Get(0, key)
 
 		// Verify using pre/post pattern (read-only)
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, rockyardkv.ErrNotFound) {
 			// Key not found in snapshot
 			if testutil.MustHaveExisted(preRead, postRead) {
 				if *verbose {
@@ -2222,7 +2222,7 @@ func doSnapshotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats 
 }
 
 // doSpotVerify performs spot verification using pre/post read pattern
-func doSpotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) {
+func doSpotVerify(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, rng *rand.Rand) {
 	// Verify a random subset of keys
 	numToVerify := min(max(int(int64(*verifyPercent)**numKeys/100), 1), 100)
 
@@ -2240,7 +2240,7 @@ func doSpotVerify(database db.DB, expected *testutil.ExpectedStateV2, stats *Sta
 		postRead := expected.Get(0, key)
 
 		// Verify using pre/post pattern
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, rockyardkv.ErrNotFound) {
 			// Key not found - check if this is expected
 			if testutil.MustHaveExisted(preRead, postRead) {
 				failures++
@@ -2400,7 +2400,7 @@ func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Sta
 }
 
 // verifyAll performs final verification with per-key locking
-func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats) error {
+func verifyAll(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats) error {
 	verified := 0
 	failures := 0
 
@@ -2449,7 +2449,7 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 						fmt.Printf("Verify: key %d expected deleted but found\n", key)
 					}
 				}
-			} else if !errors.Is(err, db.ErrNotFound) {
+			} else if !errors.Is(err, rockyardkv.ErrNotFound) {
 				// The key might or might not exist, but we could not verify due to a read error.
 				failures++
 				if *verbose {
@@ -2459,7 +2459,7 @@ func verifyAll(database db.DB, expected *testutil.ExpectedStateV2, stats *Stats)
 		} else if ev.Exists() {
 			// Key should exist
 			if err != nil {
-				if *allowDataLoss && errors.Is(err, db.ErrNotFound) {
+				if *allowDataLoss && errors.Is(err, rockyardkv.ErrNotFound) {
 					// DisableWAL + faultfs: data loss is expected (G2 scope, not a bug)
 					// The harness saved durable_state after Flush(), but:
 					// - Crash occurred before MANIFEST sync
@@ -2699,7 +2699,7 @@ func traceDeletePayload(key []byte, seqno uint64) []byte {
 // traceWriteBatchPayload creates a trace payload for a batch write with sequence number.
 // The payload is a WritePayload wrapping the raw batch bytes.
 // seqno is the sequence number assigned by the DB after the write completed.
-func traceWriteBatchPayload(wb *db.WriteBatch, seqno uint64) []byte {
+func traceWriteBatchPayload(wb *rockyardkv.WriteBatch, seqno uint64) []byte {
 	return (&trace.WritePayload{ColumnFamilyID: 0, SequenceNumber: seqno, Data: wb.Data()}).Encode()
 }
 
@@ -2935,7 +2935,7 @@ func parseStressValueBase(value []byte) uint32 {
 }
 
 // verifySeqnoPrefix performs strict equality verification against reconstructed state.
-func verifySeqnoPrefix(database db.DB, expectedState *seqnoPrefixState, stats *Stats) error {
+func verifySeqnoPrefix(database rockyardkv.DB, expectedState *seqnoPrefixState, stats *Stats) error {
 	failures := 0
 	verified := 0
 
@@ -2944,7 +2944,7 @@ func verifySeqnoPrefix(database db.DB, expectedState *seqnoPrefixState, stats *S
 		keyBytes := makeKey(key)
 
 		got, err := database.Get(nil, keyBytes)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("get key %d: %w", key, err)
 		}
 

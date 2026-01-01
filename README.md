@@ -8,7 +8,7 @@
 
 <div align="center">
   
-[![Go Reference](https://pkg.go.dev/badge/github.com/aalhour/rockyardkv/v4.svg)](https://pkg.go.dev/github.com/aalhour/rockyardkv)
+[![Go Reference](https://pkg.go.dev/badge/github.com/aalhour/rockyardkv.svg)](https://pkg.go.dev/github.com/aalhour/rockyardkv)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aalhour/rockyardkv)](https://goreportcard.com/report/github.com/aalhour/rockyardkv)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aalhour/rockyardkv)
   
@@ -57,27 +57,27 @@ package main
 import (
     "log"
 
-    "github.com/aalhour/rockyardkv/db"
+    "github.com/aalhour/rockyardkv"
 )
 
 func main() {
-    opts := db.DefaultOptions()
+    opts := rockyardkv.DefaultOptions()
     opts.CreateIfMissing = true
 
-    database, err := db.Open("/tmp/mydb", opts)
+    database, err := rockyardkv.Open("/tmp/mydb", opts)
     if err != nil {
         log.Fatal(err)
     }
     defer database.Close()
 
     // Write a key-value pair
-    err = database.Put(db.DefaultWriteOptions(), []byte("key"), []byte("value"))
+    err = database.Put(rockyardkv.DefaultWriteOptions(), []byte("key"), []byte("value"))
     if err != nil {
         log.Fatal(err)
     }
 
     // Read the value back
-    value, err := database.Get(db.DefaultReadOptions(), []byte("key"))
+    value, err := database.Get(rockyardkv.DefaultReadOptions(), []byte("key"))
     if err != nil {
         log.Fatal(err)
     }

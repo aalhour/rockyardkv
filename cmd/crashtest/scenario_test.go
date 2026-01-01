@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 // TestScenario_SyncedWriteSurvivesCrash verifies that a synced write
@@ -31,8 +31,8 @@ func TestScenario_SyncedWriteSurvivesCrash(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write a key with sync=true, then exit
-	runScenarioChild(t, dir, "write-sync", func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runScenarioChild(t, dir, "write-sync", func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("crash_key"), []byte("crash_value")); err != nil {
 			t.Fatalf("Put failed: %v", err)
@@ -60,7 +60,7 @@ func TestScenario_FlushedDataSurvivesCrash(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write keys, flush, then exit
-	runScenarioChild(t, dir, "write-flush", func(database db.DB) {
+	runScenarioChild(t, dir, "write-flush", func(database rockyardkv.DB) {
 		for i := range 100 {
 			key := fmt.Sprintf("flush_key_%04d", i)
 			value := fmt.Sprintf("flush_value_%04d", i)
@@ -102,7 +102,7 @@ func TestScenario_SyncedDeleteSurvivesCrash(t *testing.T) {
 	// First, write a key
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("delete_me"), []byte("exists")); err != nil {
 			t.Fatalf("Put failed: %v", err)
@@ -111,8 +111,8 @@ func TestScenario_SyncedDeleteSurvivesCrash(t *testing.T) {
 	}
 
 	// Delete the key with sync=true, then exit
-	runScenarioChild(t, dir, "delete-sync", func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runScenarioChild(t, dir, "delete-sync", func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Delete(opts, []byte("delete_me")); err != nil {
 			t.Fatalf("Delete failed: %v", err)
@@ -124,7 +124,7 @@ func TestScenario_SyncedDeleteSurvivesCrash(t *testing.T) {
 	defer database.Close()
 
 	_, err := database.Get(nil, []byte("delete_me"))
-	if !errors.Is(err, db.ErrNotFound) {
+	if !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Expected ErrNotFound after delete, got: %v", err)
 	}
 }
@@ -136,12 +136,12 @@ func TestScenario_WriteBatchAtomicity(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write a batch with sync=true, then exit
-	runScenarioChild(t, dir, "batch-sync", func(database db.DB) {
-		wb := db.NewWriteBatch()
+	runScenarioChild(t, dir, "batch-sync", func(database rockyardkv.DB) {
+		wb := rockyardkv.NewWriteBatch()
 		for i := range 50 {
 			wb.Put(fmt.Appendf(nil, "batch_key_%04d", i), fmt.Appendf(nil, "batch_value_%04d", i))
 		}
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Write(opts, wb); err != nil {
 			t.Fatalf("Write batch failed: %v", err)
@@ -179,8 +179,8 @@ func TestScenario_DoubleCrashRecovery(t *testing.T) {
 	dir := t.TempDir()
 
 	// First crash: write and crash
-	runScenarioChild(t, dir, "crash-1", func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runScenarioChild(t, dir, "crash-1", func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("double_crash_key"), []byte("value_1")); err != nil {
 			t.Fatalf("Put failed: %v", err)
@@ -188,8 +188,8 @@ func TestScenario_DoubleCrashRecovery(t *testing.T) {
 	})
 
 	// Second crash: reopen, write more, crash again
-	runScenarioChild(t, dir, "crash-2", func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runScenarioChild(t, dir, "crash-2", func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("double_crash_key"), []byte("value_2")); err != nil {
 			t.Fatalf("Put failed: %v", err)
@@ -222,7 +222,7 @@ func TestScenario_DoubleCrashRecovery(t *testing.T) {
 
 // runScenarioChild runs the given function in a child process and kills it.
 // This simulates a crash after the function completes.
-func runScenarioChild(t *testing.T, dir, scenario string, fn func(db.DB)) {
+func runScenarioChild(t *testing.T, dir, scenario string, fn func(rockyardkv.DB)) {
 	t.Helper()
 
 	// Check if we're the child process
@@ -273,29 +273,29 @@ func runScenarioChild(t *testing.T, dir, scenario string, fn func(db.DB)) {
 	}
 }
 
-func createDB(t *testing.T, dir string) db.DB {
+func createDB(t *testing.T, dir string) rockyardkv.DB {
 	t.Helper()
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 	return database
 }
 
-func openDB(t *testing.T, dir string) db.DB {
+func openDB(t *testing.T, dir string) rockyardkv.DB {
 	t.Helper()
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = false
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 	return database
 }
 
-func openOrCreateDB(t *testing.T, dir string) db.DB {
+func openOrCreateDB(t *testing.T, dir string) rockyardkv.DB {
 	t.Helper()
 
 	// Check if DB exists

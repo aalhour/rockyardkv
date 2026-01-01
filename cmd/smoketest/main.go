@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
@@ -222,10 +222,10 @@ func sanitizeName(name string) string {
 
 // Test 1: Basic write and read
 func testBasicWriteRead(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -256,12 +256,12 @@ func testBasicWriteRead(path string, keys, values [][]byte) error {
 
 // Test 2: Persistence across close/reopen
 func testPersistence(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Write and flush
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -276,7 +276,7 @@ func testPersistence(path string, keys, values [][]byte) error {
 
 	// Session 2: Verify and add more
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -303,7 +303,7 @@ func testPersistence(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 3: Verify all
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -325,10 +325,10 @@ func testPersistence(path string, keys, values [][]byte) error {
 
 // Test 3: Flush to SST
 func testFlush(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -362,10 +362,10 @@ func testFlush(path string, keys, values [][]byte) error {
 
 // Test 4: Overwrite values
 func testOverwrite(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -400,10 +400,10 @@ func testOverwrite(path string, keys, values [][]byte) error {
 
 // Test 5: Delete keys
 func testDelete(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -427,7 +427,7 @@ func testDelete(path string, keys, values [][]byte) error {
 				return fmt.Errorf("even key %d should exist: %w", i, err)
 			}
 		} else {
-			if !errors.Is(err, db.ErrNotFound) {
+			if !errors.Is(err, rockyardkv.ErrNotFound) {
 				return fmt.Errorf("odd key %d should be deleted, got: %w", i, err)
 			}
 		}
@@ -439,10 +439,10 @@ func testDelete(path string, keys, values [][]byte) error {
 
 // Test 6: Batch write
 func testBatchWrite(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -453,7 +453,7 @@ func testBatchWrite(path string, keys, values [][]byte) error {
 	for start := 0; start < len(keys); start += batchSize {
 		end := min(start+batchSize, len(keys))
 
-		wb := db.NewWriteBatch()
+		wb := rockyardkv.NewWriteBatch()
 		for i := start; i < end; i++ {
 			wb.Put(keys[i], values[i])
 		}
@@ -481,12 +481,12 @@ func testBatchWrite(path string, keys, values [][]byte) error {
 
 // Test 7: WAL recovery (write without flush, recover)
 func testWALRecovery(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Write but DON'T flush
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -499,7 +499,7 @@ func testWALRecovery(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Verify recovery from WAL
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -521,7 +521,7 @@ func testWALRecovery(path string, keys, values [][]byte) error {
 
 // Test 8: Multiple sessions with mixed operations
 func testMultipleSessions(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Ensure we have enough keys
@@ -533,7 +533,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 
 	// Session 1: Write 0-99
 	func() {
-		database, _ := db.Open(path, opts)
+		database, _ := rockyardkv.Open(path, opts)
 		defer database.Close()
 		for i := range 100 {
 			database.Put(nil, keys[i], values[i])
@@ -542,7 +542,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 
 	// Session 2: Write 100-199, delete 0-49
 	func() {
-		database, _ := db.Open(path, opts)
+		database, _ := rockyardkv.Open(path, opts)
 		defer database.Close()
 		for i := 100; i < 200; i++ {
 			database.Put(nil, keys[i], values[i])
@@ -555,7 +555,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 
 	// Session 3: Write 200-299, overwrite 50-99
 	func() {
-		database, _ := db.Open(path, opts)
+		database, _ := rockyardkv.Open(path, opts)
 		defer database.Close()
 		for i := 200; i < 300; i++ {
 			database.Put(nil, keys[i], values[i])
@@ -566,7 +566,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 4: Verify final state
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -575,7 +575,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 	// 0-49: deleted
 	for i := range 50 {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("key %d should be deleted", i)
 		}
 	}
@@ -608,7 +608,7 @@ func testMultipleSessions(path string, keys, values [][]byte) error {
 
 // testMultipleSessionsSmall is a simplified version for smaller key sets
 func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	numKeys := len(keys)
 
@@ -620,7 +620,7 @@ func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
 
 	// Session 1: Write first third
 	func() {
-		database, _ := db.Open(path, opts)
+		database, _ := rockyardkv.Open(path, opts)
 		defer database.Close()
 		for i := range third {
 			database.Put(nil, keys[i], values[i])
@@ -629,7 +629,7 @@ func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
 
 	// Session 2: Write second third, delete first half of first third
 	func() {
-		database, _ := db.Open(path, opts)
+		database, _ := rockyardkv.Open(path, opts)
 		defer database.Close()
 		for i := third; i < third*2; i++ {
 			database.Put(nil, keys[i], values[i])
@@ -641,7 +641,7 @@ func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 3: Verify state
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -650,7 +650,7 @@ func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
 	// 0 to third/2-1: deleted
 	for i := range third / 2 {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("key %d should be deleted", i)
 		}
 	}
@@ -684,12 +684,12 @@ func testMultipleSessionsSmall(path string, keys, values [][]byte) error {
 // Test 9: Range Deletion Persistence
 // Tests that DeleteRange operations persist correctly across restart
 func testRangeDeletion(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Write keys and delete a range
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -712,7 +712,7 @@ func testRangeDeletion(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Verify range deletion persisted
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -733,7 +733,7 @@ func testRangeDeletion(path string, keys, values [][]byte) error {
 	// Keys 25-74 should be deleted
 	for i := 25; i < 75; i++ {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("key %d should be deleted (range deletion), got err=%w", i, err)
 		}
 	}
@@ -757,7 +757,7 @@ func testRangeDeletion(path string, keys, values [][]byte) error {
 // Test 10: SST Ingestion Persistence
 // Tests that externally created SST files are ingested and persist correctly
 func testSSTIngestion(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Ensure the directory exists
@@ -769,8 +769,8 @@ func testSSTIngestion(path string, keys, values [][]byte) error {
 	sstPath := filepath.Join(path, "external.sst")
 
 	// Step 1: Create an external SST file using SstFileWriter
-	writerOpts := db.DefaultSstFileWriterOptions()
-	writer := db.NewSstFileWriter(writerOpts)
+	writerOpts := rockyardkv.DefaultSstFileWriterOptions()
+	writer := rockyardkv.NewSstFileWriter(writerOpts)
 
 	if err := writer.Open(sstPath); err != nil {
 		return fmt.Errorf("failed to open SST writer: %w", err)
@@ -794,7 +794,7 @@ func testSSTIngestion(path string, keys, values [][]byte) error {
 
 	// Session 1: Ingest the SST file
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -807,7 +807,7 @@ func testSSTIngestion(path string, keys, values [][]byte) error {
 		log("  Session 1: Wrote 50 keys directly")
 
 		// Ingest the external SST
-		ingestOpts := db.IngestExternalFileOptions{
+		ingestOpts := rockyardkv.IngestExternalFileOptions{
 			MoveFiles:           false,
 			SnapshotConsistency: true,
 			AllowGlobalSeqNo:    true,
@@ -820,7 +820,7 @@ func testSSTIngestion(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Verify ingested data persisted
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -861,14 +861,14 @@ func testSSTIngestion(path string, keys, values [][]byte) error {
 // verifies that merge operations are accepted and persisted, not that
 // the final merged value is correctly resolved during reads.
 func testMergeOperator(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	// Use the StringAppendOperator for testing
-	opts.MergeOperator = &db.StringAppendOperator{Delimiter: ","}
+	opts.MergeOperator = &rockyardkv.StringAppendOperator{Delimiter: ","}
 
 	// Session 1: Perform merge operations
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(err)
 		}
@@ -899,7 +899,7 @@ func testMergeOperator(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Verify operations were persisted (even if merge resolution isn't implemented)
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return err
 	}
@@ -934,13 +934,13 @@ func testMergeOperator(path string, keys, values [][]byte) error {
 // Test 12: Transaction Commit Persistence
 // Tests that committed transactions persist correctly across restart
 func testTransactionCommitPersistence(path string, keys, values [][]byte) error {
-	txnDBOpts := db.DefaultTransactionDBOptions()
-	opts := db.DefaultOptions()
+	txnDBOpts := rockyardkv.DefaultTransactionDBOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Commit a transaction
 	func() {
-		txnDB, err := db.OpenTransactionDB(path, opts, txnDBOpts)
+		txnDB, err := rockyardkv.OpenTransactionDB(path, opts, txnDBOpts)
 		if err != nil {
 			panic(fmt.Sprintf("OpenTransactionDB failed: %v", err))
 		}
@@ -954,7 +954,7 @@ func testTransactionCommitPersistence(path string, keys, values [][]byte) error 
 		}
 
 		// Start a transaction
-		txnOpts := db.DefaultPessimisticTransactionOptions()
+		txnOpts := rockyardkv.DefaultPessimisticTransactionOptions()
 		txn := txnDB.BeginTransaction(txnOpts, nil)
 		if txn == nil {
 			panic("BeginTransaction returned nil")
@@ -975,7 +975,7 @@ func testTransactionCommitPersistence(path string, keys, values [][]byte) error 
 	}()
 
 	// Session 2: Verify committed data persisted
-	txnDB, err := db.OpenTransactionDB(path, opts, txnDBOpts)
+	txnDB, err := rockyardkv.OpenTransactionDB(path, opts, txnDBOpts)
 	if err != nil {
 		return fmt.Errorf("reopen failed: %w", err)
 	}
@@ -1010,11 +1010,11 @@ func testTransactionCommitPersistence(path string, keys, values [][]byte) error 
 // Test 13: Transaction Rollback
 // Tests that rolled back transactions don't persist
 func testTransactionRollback(path string, keys, values [][]byte) error {
-	txnDBOpts := db.DefaultTransactionDBOptions()
-	opts := db.DefaultOptions()
+	txnDBOpts := rockyardkv.DefaultTransactionDBOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	txnDB, err := db.OpenTransactionDB(path, opts, txnDBOpts)
+	txnDB, err := rockyardkv.OpenTransactionDB(path, opts, txnDBOpts)
 	if err != nil {
 		return fmt.Errorf("OpenTransactionDB failed: %w", err)
 	}
@@ -1029,7 +1029,7 @@ func testTransactionRollback(path string, keys, values [][]byte) error {
 	log("  Wrote 10 initial keys")
 
 	// Start a transaction that we'll rollback
-	txnOpts := db.DefaultPessimisticTransactionOptions()
+	txnOpts := rockyardkv.DefaultPessimisticTransactionOptions()
 	txn := txnDB.BeginTransaction(txnOpts, nil)
 	if txn == nil {
 		return fmt.Errorf("BeginTransaction returned nil")
@@ -1062,7 +1062,7 @@ func testTransactionRollback(path string, keys, values [][]byte) error {
 	// Verify rolled back data doesn't exist
 	for i := 10; i < 20; i++ {
 		_, err := txnDB.Get(keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("rolled back key %d should not exist", i)
 		}
 	}
@@ -1074,11 +1074,11 @@ func testTransactionRollback(path string, keys, values [][]byte) error {
 // Test 14: Transaction Conflict Detection
 // Tests that conflicting transactions are properly detected
 func testTransactionConflict(path string, keys, values [][]byte) error {
-	txnDBOpts := db.DefaultTransactionDBOptions()
-	opts := db.DefaultOptions()
+	txnDBOpts := rockyardkv.DefaultTransactionDBOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	txnDB, err := db.OpenTransactionDB(path, opts, txnDBOpts)
+	txnDB, err := rockyardkv.OpenTransactionDB(path, opts, txnDBOpts)
 	if err != nil {
 		return fmt.Errorf("OpenTransactionDB failed: %w", err)
 	}
@@ -1090,7 +1090,7 @@ func testTransactionConflict(path string, keys, values [][]byte) error {
 	}
 
 	// Start two transactions
-	txnOpts := db.DefaultPessimisticTransactionOptions()
+	txnOpts := rockyardkv.DefaultPessimisticTransactionOptions()
 	txn1 := txnDB.BeginTransaction(txnOpts, nil)
 	txn2 := txnDB.BeginTransaction(txnOpts, nil)
 	if txn1 == nil || txn2 == nil {
@@ -1103,7 +1103,7 @@ func testTransactionConflict(path string, keys, values [][]byte) error {
 
 	// Txn1 locks key[0] with GetForUpdate
 	_, err = txn1.GetForUpdate(keys[0], true)
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		return fmt.Errorf("txn1 GetForUpdate failed: %w", err)
 	}
 	log("  Txn1: Acquired lock on key[0]")
@@ -1144,11 +1144,11 @@ func testTransactionConflict(path string, keys, values [][]byte) error {
 // Test 15: Compaction Data Integrity
 // Tests that data remains correct after compaction
 func testCompactionIntegrity(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 1024 * 1024 // 1MB - small to trigger flushes
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -1223,7 +1223,7 @@ func testCompactionIntegrity(path string, keys, values [][]byte) error {
 	}
 	for i := deleteStart; i < deleteEnd; i++ {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("deleted key %d should not exist", i)
 		}
 	}
@@ -1235,19 +1235,19 @@ func testCompactionIntegrity(path string, keys, values [][]byte) error {
 // Test 16: Multi-CF Persistence
 // Tests that multiple column families persist correctly across restarts.
 func testMultiCFPersistence(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Create CFs and write data
 	func() {
-		database, err := db.Open(path, opts)
+		database, err := rockyardkv.Open(path, opts)
 		if err != nil {
 			panic(fmt.Sprintf("open failed: %v", err))
 		}
 		defer database.Close()
 
 		// Create column families
-		cfOpts := db.DefaultColumnFamilyOptions()
+		cfOpts := rockyardkv.DefaultColumnFamilyOptions()
 		cf1, err := database.CreateColumnFamily(cfOpts, "cf1")
 		if err != nil {
 			panic(fmt.Sprintf("CreateColumnFamily cf1 failed: %v", err))
@@ -1278,7 +1278,7 @@ func testMultiCFPersistence(path string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Reopen and verify CFs persist
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("reopen failed: %w", err)
 	}
@@ -1334,7 +1334,7 @@ func testMultiCFPersistence(path string, keys, values [][]byte) error {
 	// Verify CF isolation: keys from one CF should not appear in another
 	for i := 30; i < 60; i++ {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("cf1 key %d should not appear in default CF", i)
 		}
 	}
@@ -1353,10 +1353,10 @@ func testMultiCFPersistence(path string, keys, values [][]byte) error {
 // Test 17: Snapshot Isolation
 // Tests that snapshots provide point-in-time consistent views
 func testSnapshotIsolation(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -1393,7 +1393,7 @@ func testSnapshotIsolation(path string, keys, values [][]byte) error {
 	log("  Modified 25 keys, deleted 25 keys")
 
 	// Read with snapshot - should see original data
-	readOpts := db.DefaultReadOptions()
+	readOpts := rockyardkv.DefaultReadOptions()
 	readOpts.Snapshot = snap
 
 	for i := range 50 {
@@ -1419,7 +1419,7 @@ func testSnapshotIsolation(path string, keys, values [][]byte) error {
 	}
 	for i := 25; i < 50; i++ {
 		_, err := database.Get(nil, keys[i])
-		if !errors.Is(err, db.ErrNotFound) {
+		if !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("current key %d should be deleted", i)
 		}
 	}
@@ -1431,10 +1431,10 @@ func testSnapshotIsolation(path string, keys, values [][]byte) error {
 // Test 18: Iterator Ordering
 // Tests that iterator returns keys in correct sorted order
 func testIteratorOrdering(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -1517,10 +1517,10 @@ func testIteratorOrdering(path string, keys, values [][]byte) error {
 // testReadOnlyMode tests that read-only mode works correctly.
 func testReadOnlyMode(path string, keys, values [][]byte) error {
 	// First, create and populate a database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -1541,7 +1541,7 @@ func testReadOnlyMode(path string, keys, values [][]byte) error {
 	log("  Created database with %d keys", numTestKeys)
 
 	// Open in read-only mode
-	roDatabase, err := db.OpenForReadOnly(path, opts, false)
+	roDatabase, err := rockyardkv.OpenForReadOnly(path, opts, false)
 	if err != nil {
 		return fmt.Errorf("open read-only failed: %w", err)
 	}
@@ -1562,7 +1562,7 @@ func testReadOnlyMode(path string, keys, values [][]byte) error {
 
 	// Verify writes are rejected
 	err = roDatabase.Put(nil, []byte("test"), []byte("value"))
-	if !errors.Is(err, db.ErrReadOnly) {
+	if !errors.Is(err, rockyardkv.ErrReadOnly) {
 		return fmt.Errorf("expected ErrReadOnly, got: %w", err)
 	}
 	log("  Write correctly rejected with ErrReadOnly")
@@ -1572,11 +1572,11 @@ func testReadOnlyMode(path string, keys, values [][]byte) error {
 
 // testLZ4Compression tests LZ4 compression works.
 func testLZ4Compression(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	opts.Compression = db.LZ4Compression
+	opts.Compression = rockyardkv.LZ4Compression
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open with LZ4 failed: %w", err)
 	}
@@ -1612,11 +1612,11 @@ func testLZ4Compression(path string, keys, values [][]byte) error {
 
 // testZstdCompression tests Zstandard compression works.
 func testZstdCompression(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	opts.Compression = db.ZstdCompression
+	opts.Compression = rockyardkv.ZstdCompression
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open with ZSTD failed: %w", err)
 	}
@@ -1658,18 +1658,18 @@ func log(format string, args ...any) {
 
 // testWritePreparedTxn tests write-prepared transactions with 2PC.
 func testWritePreparedTxn(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	txnOpts := db.DefaultTransactionDBOptions()
-	wpDB, err := db.OpenWritePreparedTxnDB(path, opts, txnOpts)
+	txnOpts := rockyardkv.DefaultTransactionDBOptions()
+	wpDB, err := rockyardkv.OpenWritePreparedTxnDB(path, opts, txnOpts)
 	if err != nil {
 		return fmt.Errorf("open write-prepared txn db failed: %w", err)
 	}
 	defer wpDB.Close()
 
 	// Test 1: Basic prepare and commit
-	txn := wpDB.BeginWritePreparedTransaction(db.DefaultPessimisticTransactionOptions(), nil)
+	txn := wpDB.BeginWritePreparedTransaction(rockyardkv.DefaultPessimisticTransactionOptions(), nil)
 
 	numTestKeys := min(50, len(keys))
 
@@ -1686,7 +1686,7 @@ func testWritePreparedTxn(path string, keys, values [][]byte) error {
 	log("  Prepared transaction with %d writes", numTestKeys)
 
 	// Verify state is Prepared
-	if txn.GetState() != db.TxnStatePrepared {
+	if txn.GetState() != rockyardkv.TxnStatePrepared {
 		return fmt.Errorf("expected TxnStatePrepared, got %v", txn.GetState())
 	}
 
@@ -1697,7 +1697,7 @@ func testWritePreparedTxn(path string, keys, values [][]byte) error {
 	log("  Committed transaction")
 
 	// Verify state is Committed
-	if txn.GetState() != db.TxnStateCommitted {
+	if txn.GetState() != rockyardkv.TxnStateCommitted {
 		return fmt.Errorf("expected TxnStateCommitted, got %v", txn.GetState())
 	}
 
@@ -1714,7 +1714,7 @@ func testWritePreparedTxn(path string, keys, values [][]byte) error {
 	log("  Verified %d keys after 2PC commit", numTestKeys)
 
 	// Test 2: Prepare and rollback
-	txn2 := wpDB.BeginWritePreparedTransaction(db.DefaultPessimisticTransactionOptions(), nil)
+	txn2 := wpDB.BeginWritePreparedTransaction(rockyardkv.DefaultPessimisticTransactionOptions(), nil)
 	for i := range 10 {
 		key := fmt.Appendf(nil, "rollback_key_%d", i)
 		if err := txn2.Put(key, []byte("should_not_exist")); err != nil {
@@ -1733,7 +1733,7 @@ func testWritePreparedTxn(path string, keys, values [][]byte) error {
 
 	// Verify rollback keys don't exist (for new transactions)
 	// Note: In write-prepared, rolled back data may still be visible until compaction
-	if txn2.GetState() != db.TxnStateRolledBack {
+	if txn2.GetState() != rockyardkv.TxnStateRolledBack {
 		return fmt.Errorf("expected TxnStateRolledBack, got %v", txn2.GetState())
 	}
 
@@ -1743,7 +1743,7 @@ func testWritePreparedTxn(path string, keys, values [][]byte) error {
 // testWriteBufferManager tests the write buffer manager with memory limits and stalling.
 func testWriteBufferManager(path string, keys, values [][]byte) error {
 	// Create a write buffer manager with a small limit (1MB)
-	wbm := db.NewWriteBufferManager(1*1024*1024, true) // 1MB, allow stall
+	wbm := rockyardkv.NewWriteBufferManager(1*1024*1024, true) // 1MB, allow stall
 
 	if !wbm.Enabled() {
 		return fmt.Errorf("write buffer manager should be enabled")
@@ -1790,11 +1790,11 @@ func testWriteBufferManager(path string, keys, values [][]byte) error {
 		stats.TotalReserved/1024, stats.TotalFreed/1024, stats.PeakUsage/1024)
 
 	// Test with an actual DB using the write buffer manager
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 128 * 1024 // 128KB memtable
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open db failed: %w", err)
 	}
@@ -1833,13 +1833,13 @@ func testWriteBufferManager(path string, keys, values [][]byte) error {
 // testSubcompactions tests parallel subcompaction functionality.
 func testSubcompactions(path string, keys, values [][]byte) error {
 	// Configure DB with subcompactions enabled
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.MaxSubcompactions = 4              // Enable 4 parallel subcompactions
 	opts.Level0FileNumCompactionTrigger = 2 // Trigger compaction early
 	opts.WriteBufferSize = 32 * 1024        // Small memtable to create more files
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open db failed: %w", err)
 	}
@@ -1946,10 +1946,10 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 	secondaryPath := path + "_secondary"
 
 	// Create primary database and write data
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	primary, err := db.Open(primaryPath, opts)
+	primary, err := rockyardkv.Open(primaryPath, opts)
 	if err != nil {
 		return fmt.Errorf("open primary failed: %w", err)
 	}
@@ -1971,7 +1971,7 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 	log("  Primary: wrote and flushed %d keys", numTestKeys)
 
 	// Open secondary instance
-	secondary, err := db.OpenAsSecondary(primaryPath, secondaryPath, opts)
+	secondary, err := rockyardkv.OpenAsSecondary(primaryPath, secondaryPath, opts)
 	if err != nil {
 		primary.Close()
 		return fmt.Errorf("open secondary failed: %w", err)
@@ -1995,7 +1995,7 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 
 	// Verify secondary rejects writes
 	err = secondary.Put(nil, []byte("test"), []byte("should_fail"))
-	if !errors.Is(err, db.ErrReadOnly) {
+	if !errors.Is(err, rockyardkv.ErrReadOnly) {
 		primary.Close()
 		secondary.Close()
 		return fmt.Errorf("expected ErrReadOnly, got: %w", err)
@@ -2018,7 +2018,7 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 	log("  Primary: wrote 50 more keys")
 
 	// Catch up secondary with primary
-	if secondaryDB, ok := secondary.(*db.DBImplSecondary); ok {
+	if secondaryDB, ok := secondary.(*rockyardkv.DBImplSecondary); ok {
 		if err := secondaryDB.TryCatchUpWithPrimary(); err != nil {
 			primary.Close()
 			secondary.Close()
@@ -2056,14 +2056,14 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 func testRateLimiter(path string, keys, values [][]byte) error {
 	// Create a rate limiter with a low rate (for testing purposes)
 	// We set it high enough that the test completes quickly
-	rateLimiter := db.NewRateLimiter(50 * 1024 * 1024) // 50 MB/s
+	rateLimiter := rockyardkv.NewRateLimiter(50 * 1024 * 1024) // 50 MB/s
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.RateLimiter = rateLimiter
 	opts.WriteBufferSize = 32 * 1024 // Small memtable for more flushes
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("open db failed: %w", err)
 	}
@@ -2103,9 +2103,9 @@ func testRateLimiter(path string, keys, values [][]byte) error {
 	log("  Verified %d keys after rate-limited compaction", numTestKeys)
 
 	// Verify rate limiter statistics
-	if genRL, ok := rateLimiter.(*db.GenericRateLimiter); ok {
-		totalBytes := genRL.GetTotalBytesThrough(db.IOPriorityLow)
-		totalReqs := genRL.GetTotalRequests(db.IOPriorityLow)
+	if genRL, ok := rateLimiter.(*rockyardkv.GenericRateLimiter); ok {
+		totalBytes := genRL.GetTotalBytesThrough(rockyardkv.IOPriorityLow)
+		totalReqs := genRL.GetTotalRequests(rockyardkv.IOPriorityLow)
 		log("  Rate limiter stats: %d bytes, %d requests", totalBytes, totalReqs)
 	}
 
@@ -2115,7 +2115,7 @@ func testRateLimiter(path string, keys, values [][]byte) error {
 // testBlobDB tests BlobDB functionality for large values.
 func testBlobDB(path string, keys, values [][]byte) error {
 	// Create blob file manager with small threshold for testing
-	fs := db.DefaultOptions().FS
+	fs := rockyardkv.DefaultOptions().FS
 	if fs == nil {
 		fs = vfs.Default()
 	}
@@ -2126,7 +2126,7 @@ func testBlobDB(path string, keys, values [][]byte) error {
 		return fileNum
 	}
 
-	blobOpts := db.DefaultBlobDBOptions()
+	blobOpts := rockyardkv.DefaultBlobDBOptions()
 	blobOpts.Enable = true
 	blobOpts.MinBlobSize = 100 // Small threshold for testing
 
@@ -2135,7 +2135,7 @@ func testBlobDB(path string, keys, values [][]byte) error {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
 
-	manager := db.NewBlobFileManager(fs, path, blobOpts, nextFileNum)
+	manager := rockyardkv.NewBlobFileManager(fs, path, blobOpts, nextFileNum)
 	defer manager.Close()
 
 	// Test 1: Small values should NOT be stored in blobs
@@ -2199,11 +2199,11 @@ func testBlobDB(path string, keys, values [][]byte) error {
 
 // testUserTimestamps tests user-defined timestamps support.
 func testUserTimestamps(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	opts.Comparator = db.BytewiseComparatorWithU64Ts{}
+	opts.Comparator = rockyardkv.BytewiseComparatorWithU64Ts{}
 
-	tsDB, err := db.OpenTimestampedDB(path, opts)
+	tsDB, err := rockyardkv.OpenTimestampedDB(path, opts)
 	if err != nil {
 		return fmt.Errorf("failed to open timestamped DB: %w", err)
 	}
@@ -2216,7 +2216,7 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 
 	for i := range 5 {
 		ts := uint64((i + 1) * 100) // 100, 200, 300, 400, 500
-		timestamp := db.EncodeU64Ts(ts)
+		timestamp := rockyardkv.EncodeU64Ts(ts)
 		value := fmt.Appendf(nil, "value_at_%d", ts)
 		timestamps = append(timestamps, timestamp)
 		expectedValues = append(expectedValues, value)
@@ -2245,7 +2245,7 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 	// Test 3: Read at intermediate timestamp (should get older version)
 	// Timestamps written: 100, 200, 300, 400, 500
 	// Reading at 250 should return the version at 200
-	intermediateTs := db.EncodeU64Ts(250)
+	intermediateTs := rockyardkv.EncodeU64Ts(250)
 	val, foundTs, err := tsDB.GetWithTimestamp(nil, key, intermediateTs)
 	if err != nil {
 		return fmt.Errorf("GetWithTimestamp at intermediate ts failed: %w", err)
@@ -2254,7 +2254,7 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 	if !bytes.Equal(val, expectedVal) {
 		return fmt.Errorf("intermediate read: got %q, want %q", val, expectedVal)
 	}
-	foundTsVal, _ := db.DecodeU64Ts(foundTs)
+	foundTsVal, _ := rockyardkv.DecodeU64Ts(foundTs)
 	if foundTsVal != 200 {
 		return fmt.Errorf("intermediate read: found ts=%d, want 200", foundTsVal)
 	}
@@ -2262,9 +2262,9 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 
 	// Test 4: Read at timestamp before any writes (should not find)
 	// First write is at timestamp 100, so reading at 50 should not find anything
-	earlyTs := db.EncodeU64Ts(50)
+	earlyTs := rockyardkv.EncodeU64Ts(50)
 	_, _, err = tsDB.GetWithTimestamp(nil, key, earlyTs)
-	if !errors.Is(err, db.ErrNotFound) {
+	if !errors.Is(err, rockyardkv.ErrNotFound) {
 		return fmt.Errorf("early timestamp read: expected ErrNotFound, got %w", err)
 	}
 	log("  Early timestamp (50) correctly returns not found")
@@ -2274,15 +2274,15 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 	for i := range numKeys {
 		k := fmt.Appendf(nil, "iter_key_%02d", i)
 		v := fmt.Appendf(nil, "iter_value_%02d", i)
-		ts := db.EncodeU64Ts(uint64(i * 100))
+		ts := rockyardkv.EncodeU64Ts(uint64(i * 100))
 		if err := tsDB.PutWithTimestamp(nil, k, v, ts); err != nil {
 			return fmt.Errorf("PutWithTimestamp for iteration failed: %w", err)
 		}
 	}
 
 	// Iterate at max timestamp
-	readOpts := db.DefaultReadOptions()
-	readOpts.Timestamp = db.MaxU64Ts()
+	readOpts := rockyardkv.DefaultReadOptions()
+	readOpts.Timestamp = rockyardkv.MaxU64Ts()
 	iter := tsDB.NewTimestampedIterator(readOpts)
 	defer iter.Close()
 
@@ -2309,7 +2309,7 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 		return fmt.Errorf("close failed: %w", err)
 	}
 
-	tsDB, err = db.OpenTimestampedDB(path, opts)
+	tsDB, err = rockyardkv.OpenTimestampedDB(path, opts)
 	if err != nil {
 		return fmt.Errorf("failed to reopen timestamped DB: %w", err)
 	}
@@ -2317,7 +2317,7 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 
 	// Verify data persisted
 	for i, ts := range timestamps {
-		tsVal, _ := db.DecodeU64Ts(ts)
+		tsVal, _ := rockyardkv.DecodeU64Ts(ts)
 		val, _, err := tsDB.GetWithTimestamp(nil, key, ts)
 		if err != nil {
 			return fmt.Errorf("after reopen: GetWithTimestamp at ts=%d failed: %w", tsVal, err)
@@ -2333,16 +2333,16 @@ func testUserTimestamps(path string, keys, values [][]byte) error {
 
 // testReplicationAPI tests the GetUpdatesSince and TransactionLogIterator APIs.
 func testReplicationAPI(path string, keys, values [][]byte) error {
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(path, opts)
+	database, err := rockyardkv.Open(path, opts)
 	if err != nil {
 		return fmt.Errorf("failed to open DB: %w", err)
 	}
 	defer database.Close()
 
-	impl := database.(*db.DBImpl)
+	impl := database.(*rockyardkv.DBImpl)
 
 	// Write first batch of data
 	numFirstBatch := 10
@@ -2366,7 +2366,7 @@ func testReplicationAPI(path string, keys, values [][]byte) error {
 	log("  Found %d WAL file(s)", len(walFiles))
 
 	// Get all updates since sequence 0
-	readOpts := db.DefaultTransactionLogIteratorReadOptions()
+	readOpts := rockyardkv.DefaultTransactionLogIteratorReadOptions()
 	iter, err := impl.GetUpdatesSince(0, readOpts)
 	if err != nil {
 		return fmt.Errorf("GetUpdatesSince failed: %w", err)
@@ -2448,19 +2448,19 @@ func testDirectIO(dir string, keys, values [][]byte) error {
 	}
 
 	// Open DB with Direct I/O enabled
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.UseDirectReads = true
 	opts.UseDirectIOForFlushAndCompaction = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("Open with Direct I/O failed: %w", err)
 	}
 
 	// Write some data
 	numKeys := 100
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	for i := range numKeys {
 		key := fmt.Appendf(nil, "dio-key-%05d", i)
 		value := fmt.Appendf(nil, "dio-value-%05d", i)
@@ -2472,14 +2472,14 @@ func testDirectIO(dir string, keys, values [][]byte) error {
 	log("Wrote %d key-value pairs with Direct I/O", numKeys)
 
 	// Flush to trigger SST write with Direct I/O
-	if err := database.Flush(&db.FlushOptions{}); err != nil {
+	if err := database.Flush(&rockyardkv.FlushOptions{}); err != nil {
 		database.Close()
 		return fmt.Errorf("Flush failed: %w", err)
 	}
 	log("Flushed memtable with Direct I/O")
 
 	// Read data back
-	readOpts := db.DefaultReadOptions()
+	readOpts := rockyardkv.DefaultReadOptions()
 	for i := range numKeys {
 		key := fmt.Appendf(nil, "dio-key-%05d", i)
 		expectedValue := fmt.Appendf(nil, "dio-value-%05d", i)
@@ -2501,7 +2501,7 @@ func testDirectIO(dir string, keys, values [][]byte) error {
 	}
 
 	// Reopen with Direct I/O
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("Reopen with Direct I/O failed: %w", err)
 	}
@@ -2532,17 +2532,17 @@ func testSyncWAL(dir string, keys, values [][]byte) error {
 	}
 
 	// Open DB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("Open failed: %w", err)
 	}
 
 	// Write some data
 	numKeys := 50
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	for i := range numKeys {
 		key := fmt.Appendf(nil, "syncwal-key-%05d", i)
 		value := fmt.Appendf(nil, "syncwal-value-%05d", i)
@@ -2607,14 +2607,14 @@ func testSyncWAL(dir string, keys, values [][]byte) error {
 		return fmt.Errorf("Close failed: %w", err)
 	}
 
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("Reopen failed: %w", err)
 	}
 	defer database.Close()
 
 	// Verify all data persisted
-	readOpts := db.DefaultReadOptions()
+	readOpts := rockyardkv.DefaultReadOptions()
 	for i := range numKeys * 2 {
 		key := fmt.Appendf(nil, "syncwal-key-%05d", i)
 		expectedValue := fmt.Appendf(nil, "syncwal-value-%05d", i)
@@ -2639,16 +2639,16 @@ func testLiveFilesAndBgWork(dir string, keys, values [][]byte) error {
 	}
 
 	// Open DB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("Open failed: %w", err)
 	}
 
 	// Write some data and flush to create SST files
-	writeOpts := db.DefaultWriteOptions()
+	writeOpts := rockyardkv.DefaultWriteOptions()
 	for i := range 100 {
 		key := fmt.Appendf(nil, "livefiles-key-%05d", i)
 		value := fmt.Appendf(nil, "livefiles-value-%05d", i)
@@ -2660,7 +2660,7 @@ func testLiveFilesAndBgWork(dir string, keys, values [][]byte) error {
 	log("Wrote 100 key-value pairs")
 
 	// Flush to create SST file
-	if err := database.Flush(&db.FlushOptions{Wait: true}); err != nil {
+	if err := database.Flush(&rockyardkv.FlushOptions{Wait: true}); err != nil {
 		database.Close()
 		return fmt.Errorf("Flush failed: %w", err)
 	}
@@ -2762,7 +2762,7 @@ func testBlobDBAutoGC(dir string, keys, values [][]byte) error {
 
 	// Create a BlobGarbageCollector
 	fs := vfs.Default()
-	gc := db.NewBlobGarbageCollector(fs, dir)
+	gc := rockyardkv.NewBlobGarbageCollector(fs, dir)
 
 	// Configure GC options
 	gc.SetOptions(true, 0.25, 0.5)
@@ -2841,7 +2841,7 @@ func testBlobDBAutoGC(dir string, keys, values [][]byte) error {
 // =============================================================================
 
 // testSingleDelete verifies SingleDelete API semantics.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 548-571
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 548-571
 // SingleDelete is only valid for keys Put exactly once since the last SingleDelete.
 func testSingleDelete(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
@@ -2850,9 +2850,9 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -2862,7 +2862,7 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 	key1 := []byte("single_delete_key1")
 	value1 := []byte("value1")
 
-	if err := database.Put(db.DefaultWriteOptions(), key1, value1); err != nil {
+	if err := database.Put(rockyardkv.DefaultWriteOptions(), key1, value1); err != nil {
 		return fmt.Errorf("put failed: %w", err)
 	}
 	log("Put key1: %s", key1)
@@ -2877,14 +2877,14 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 	}
 
 	// SingleDelete the key
-	if err := database.SingleDelete(db.DefaultWriteOptions(), key1); err != nil {
+	if err := database.SingleDelete(rockyardkv.DefaultWriteOptions(), key1); err != nil {
 		return fmt.Errorf("single delete failed: %w", err)
 	}
 	log("SingleDelete key1")
 
 	// Verify key is gone
 	_, err = database.Get(nil, key1)
-	if !errors.Is(err, db.ErrNotFound) {
+	if !errors.Is(err, rockyardkv.ErrNotFound) {
 		return fmt.Errorf("expected ErrNotFound after single delete, got: %w", err)
 	}
 	log("Key1 correctly not found after SingleDelete")
@@ -2893,7 +2893,7 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 	key2 := []byte("single_delete_key2")
 	value2 := []byte("value2")
 
-	if err := database.Put(db.DefaultWriteOptions(), key2, value2); err != nil {
+	if err := database.Put(rockyardkv.DefaultWriteOptions(), key2, value2); err != nil {
 		return fmt.Errorf("put key2 failed: %w", err)
 	}
 	if err := database.Flush(nil); err != nil {
@@ -2901,7 +2901,7 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 	}
 	log("Put and flushed key2")
 
-	if err := database.SingleDelete(db.DefaultWriteOptions(), key2); err != nil {
+	if err := database.SingleDelete(rockyardkv.DefaultWriteOptions(), key2); err != nil {
 		return fmt.Errorf("single delete key2 failed: %w", err)
 	}
 	if err := database.Flush(nil); err != nil {
@@ -2911,13 +2911,13 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 
 	// Verify key is gone after flush
 	_, err = database.Get(nil, key2)
-	if !errors.Is(err, db.ErrNotFound) {
+	if !errors.Is(err, rockyardkv.ErrNotFound) {
 		return fmt.Errorf("expected ErrNotFound after flush, got: %w", err)
 	}
 
 	// Test 3: SingleDelete non-existent key (should be no-op)
 	key3 := []byte("nonexistent_key")
-	if err := database.SingleDelete(db.DefaultWriteOptions(), key3); err != nil {
+	if err := database.SingleDelete(rockyardkv.DefaultWriteOptions(), key3); err != nil {
 		return fmt.Errorf("single delete nonexistent should succeed: %w", err)
 	}
 	log("SingleDelete nonexistent key succeeded (no-op)")
@@ -2926,22 +2926,22 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 	key4 := []byte("single_delete_persist")
 	value4 := []byte("value_to_delete")
 
-	if err := database.Put(db.DefaultWriteOptions(), key4, value4); err != nil {
+	if err := database.Put(rockyardkv.DefaultWriteOptions(), key4, value4); err != nil {
 		return fmt.Errorf("put key4 failed: %w", err)
 	}
-	if err := database.SingleDelete(db.DefaultWriteOptions(), key4); err != nil {
+	if err := database.SingleDelete(rockyardkv.DefaultWriteOptions(), key4); err != nil {
 		return fmt.Errorf("single delete key4 failed: %w", err)
 	}
 	database.Close()
 
 	// Reopen and verify
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("reopen failed: %w", err)
 	}
 
 	_, err = database.Get(nil, key4)
-	if !errors.Is(err, db.ErrNotFound) {
+	if !errors.Is(err, rockyardkv.ErrNotFound) {
 		return fmt.Errorf("expected ErrNotFound after reopen, got: %w", err)
 	}
 	log("SingleDelete persisted correctly after reopen")
@@ -2950,7 +2950,7 @@ func testSingleDelete(dir string, keys, values [][]byte) error {
 }
 
 // testKeyMayExist verifies KeyMayExist bloom filter optimization.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1015-1050
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1015-1050
 func testKeyMayExist(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -2958,9 +2958,9 @@ func testKeyMayExist(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -2974,7 +2974,7 @@ func testKeyMayExist(dir string, keys, values [][]byte) error {
 	// Test 2: Key that exists in memtable
 	existingKey := []byte("existing_key")
 	existingValue := []byte("existing_value")
-	if err := database.Put(db.DefaultWriteOptions(), existingKey, existingValue); err != nil {
+	if err := database.Put(rockyardkv.DefaultWriteOptions(), existingKey, existingValue); err != nil {
 		return fmt.Errorf("put failed: %w", err)
 	}
 
@@ -3012,7 +3012,7 @@ func testKeyMayExist(dir string, keys, values [][]byte) error {
 	}
 
 	// Test 4: Deleted key
-	if err := database.Delete(db.DefaultWriteOptions(), existingKey); err != nil {
+	if err := database.Delete(rockyardkv.DefaultWriteOptions(), existingKey); err != nil {
 		return fmt.Errorf("delete failed: %w", err)
 	}
 
@@ -3033,9 +3033,9 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3045,7 +3045,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 	for i := range 20 {
 		key := fmt.Appendf(nil, "key%02d", i)
 		value := fmt.Appendf(nil, "value%02d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3055,7 +3055,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 	log("Inserted 20 keys (key00-key19)")
 
 	// Test 1: Upper bound only - should iterate key00 to key09 (exclusive of key10)
-	readOpts := db.DefaultReadOptions()
+	readOpts := rockyardkv.DefaultReadOptions()
 	readOpts.IterateUpperBound = []byte("key10")
 
 	iter := database.NewIterator(readOpts)
@@ -3071,7 +3071,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 	log("Upper bound test passed: found %d keys", len(foundKeys))
 
 	// Test 2: Lower bound only - should iterate key10 to key19
-	readOpts = db.DefaultReadOptions()
+	readOpts = rockyardkv.DefaultReadOptions()
 	readOpts.IterateLowerBound = []byte("key10")
 
 	iter = database.NewIterator(readOpts)
@@ -3090,7 +3090,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 	log("Lower bound test passed: found %d keys starting with %s", len(foundKeys), foundKeys[0])
 
 	// Test 3: Both bounds - should iterate key05 to key14 (exclusive)
-	readOpts = db.DefaultReadOptions()
+	readOpts = rockyardkv.DefaultReadOptions()
 	readOpts.IterateLowerBound = []byte("key05")
 	readOpts.IterateUpperBound = []byte("key15")
 
@@ -3110,7 +3110,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 	log("Both bounds test passed: %s to %s", foundKeys[0], foundKeys[len(foundKeys)-1])
 
 	// Test 4: PrefixSameAsStart with Seek
-	readOpts = db.DefaultReadOptions()
+	readOpts = rockyardkv.DefaultReadOptions()
 	readOpts.PrefixSameAsStart = true
 
 	iter = database.NewIterator(readOpts)
@@ -3126,7 +3126,7 @@ func testPrefixIterationBounds(dir string, keys, values [][]byte) error {
 }
 
 // testNewIteratorsMultiCF tests creating iterators for multiple column families.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1066-1069
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1066-1069
 func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3134,20 +3134,20 @@ func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
 	defer database.Close()
 
 	// Create additional column families
-	cf1, err := database.CreateColumnFamily(db.ColumnFamilyOptions{}, "cf1")
+	cf1, err := database.CreateColumnFamily(rockyardkv.ColumnFamilyOptions{}, "cf1")
 	if err != nil {
 		return fmt.Errorf("create cf1 failed: %w", err)
 	}
-	cf2, err := database.CreateColumnFamily(db.ColumnFamilyOptions{}, "cf2")
+	cf2, err := database.CreateColumnFamily(rockyardkv.ColumnFamilyOptions{}, "cf2")
 	if err != nil {
 		return fmt.Errorf("create cf2 failed: %w", err)
 	}
@@ -3160,7 +3160,7 @@ func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 	for i := range 5 {
 		key := fmt.Appendf(nil, "key_default_%d", i)
 		value := fmt.Appendf(nil, "value_default_%d", i)
-		if err := database.PutCF(db.DefaultWriteOptions(), defaultCF, key, value); err != nil {
+		if err := database.PutCF(rockyardkv.DefaultWriteOptions(), defaultCF, key, value); err != nil {
 			return fmt.Errorf("put to default CF failed: %w", err)
 		}
 	}
@@ -3169,7 +3169,7 @@ func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 	for i := range 5 {
 		key := fmt.Appendf(nil, "key_cf1_%d", i)
 		value := fmt.Appendf(nil, "value_cf1_%d", i)
-		if err := database.PutCF(db.DefaultWriteOptions(), cf1, key, value); err != nil {
+		if err := database.PutCF(rockyardkv.DefaultWriteOptions(), cf1, key, value); err != nil {
 			return fmt.Errorf("put to cf1 failed: %w", err)
 		}
 	}
@@ -3178,14 +3178,14 @@ func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 	for i := range 5 {
 		key := fmt.Appendf(nil, "key_cf2_%d", i)
 		value := fmt.Appendf(nil, "value_cf2_%d", i)
-		if err := database.PutCF(db.DefaultWriteOptions(), cf2, key, value); err != nil {
+		if err := database.PutCF(rockyardkv.DefaultWriteOptions(), cf2, key, value); err != nil {
 			return fmt.Errorf("put to cf2 failed: %w", err)
 		}
 	}
 	log("Wrote 5 keys to each of 3 column families")
 
 	// Create iterators for all CFs at once
-	cfs := []db.ColumnFamilyHandle{defaultCF, cf1, cf2}
+	cfs := []rockyardkv.ColumnFamilyHandle{defaultCF, cf1, cf2}
 	iters, err := database.NewIterators(nil, cfs)
 	if err != nil {
 		return fmt.Errorf("NewIterators failed: %w", err)
@@ -3218,7 +3218,7 @@ func testNewIteratorsMultiCF(dir string, keys, values [][]byte) error {
 }
 
 // testGetApproximateSizes tests the GetApproximateSizes API.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1533-1565
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1533-1565
 func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3226,9 +3226,9 @@ func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3238,7 +3238,7 @@ func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 	value := make([]byte, 1000)
 	for i := range 1000 {
 		key := fmt.Appendf(nil, "key%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3248,13 +3248,13 @@ func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 	log("Wrote and flushed 1000 keys with 1KB values each")
 
 	// Get approximate sizes for different ranges
-	ranges := []db.Range{
+	ranges := []rockyardkv.Range{
 		{Start: []byte("key000000"), Limit: []byte("key000100")}, // First 100 keys
 		{Start: []byte("key000500"), Limit: []byte("key000600")}, // Middle 100 keys
 		{Start: []byte("key000000"), Limit: []byte("key001000")}, // All keys
 	}
 
-	sizes, err := database.GetApproximateSizes(ranges, db.SizeApproximationIncludeFiles)
+	sizes, err := database.GetApproximateSizes(ranges, rockyardkv.SizeApproximationIncludeFiles)
 	if err != nil {
 		return fmt.Errorf("GetApproximateSizes failed: %w", err)
 	}
@@ -3275,15 +3275,15 @@ func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 	// Test with memtables included
 	for i := range 100 {
 		key := fmt.Appendf(nil, "mem_key%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put to memtable failed: %w", err)
 		}
 	}
 
-	memRanges := []db.Range{
+	memRanges := []rockyardkv.Range{
 		{Start: []byte("mem_key000000"), Limit: []byte("mem_key000100")},
 	}
-	memSizes, err := database.GetApproximateSizes(memRanges, db.SizeApproximationIncludeMemtables)
+	memSizes, err := database.GetApproximateSizes(memRanges, rockyardkv.SizeApproximationIncludeMemtables)
 	if err != nil {
 		return fmt.Errorf("GetApproximateSizes with memtables failed: %w", err)
 	}
@@ -3297,7 +3297,7 @@ func testGetApproximateSizes(dir string, keys, values [][]byte) error {
 // =============================================================================
 
 // testSetOptionsDynamic tests dynamic option changes via SetOptions.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1614-1639
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1614-1639
 func testSetOptionsDynamic(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3305,10 +3305,10 @@ func testSetOptionsDynamic(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 4 * 1024 * 1024 // 4MB
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3355,7 +3355,7 @@ func testSetOptionsDynamic(dir string, keys, values [][]byte) error {
 }
 
 // testGetPropertyAPIs tests GetProperty, GetIntProperty, and GetMapProperty.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1337-1372
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1337-1372
 func testGetPropertyAPIs(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3363,9 +3363,9 @@ func testGetPropertyAPIs(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3375,7 +3375,7 @@ func testGetPropertyAPIs(dir string, keys, values [][]byte) error {
 	for i := range 100 {
 		key := fmt.Appendf(nil, "prop_key%06d", i)
 		value := fmt.Appendf(nil, "prop_value%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3423,7 +3423,7 @@ func testGetPropertyAPIs(dir string, keys, values [][]byte) error {
 }
 
 // testWaitForCompact tests the WaitForCompact API.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1698-1708
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1698-1708
 func testWaitForCompact(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3431,10 +3431,10 @@ func testWaitForCompact(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.WriteBufferSize = 64 * 1024 // Small buffer to trigger more flushes
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3444,7 +3444,7 @@ func testWaitForCompact(dir string, keys, values [][]byte) error {
 	value := make([]byte, 1000)
 	for i := range 500 {
 		key := fmt.Appendf(nil, "compact_key%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3457,7 +3457,7 @@ func testWaitForCompact(dir string, keys, values [][]byte) error {
 	log("Flushed to SST")
 
 	// Wait for compaction with FlushFirst option
-	waitOpts := &db.WaitForCompactOptions{
+	waitOpts := &rockyardkv.WaitForCompactOptions{
 		FlushFirst: true,
 		Timeout:    5 * time.Second,
 	}
@@ -3477,7 +3477,7 @@ func testWaitForCompact(dir string, keys, values [][]byte) error {
 	log("Verified data integrity after compaction")
 
 	// Test WaitForCompact with AbortOnPause
-	waitOpts = &db.WaitForCompactOptions{
+	waitOpts = &rockyardkv.WaitForCompactOptions{
 		AbortOnPause: true,
 		Timeout:      1 * time.Second,
 	}
@@ -3491,7 +3491,7 @@ func testWaitForCompact(dir string, keys, values [][]byte) error {
 }
 
 // testLockUnlockWAL tests LockWAL and UnlockWAL for backup operations.
-// Reference: RocksDB v10.7.5 include/rocksdb/db.h lines 1791-1806
+// Reference: RocksDB v10.7.5 include/rocksdb/rockyardkv.h lines 1791-1806
 func testLockUnlockWAL(dir string, keys, values [][]byte) error {
 	log := func(format string, args ...any) {
 		if *verbose {
@@ -3499,9 +3499,9 @@ func testLockUnlockWAL(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3511,7 +3511,7 @@ func testLockUnlockWAL(dir string, keys, values [][]byte) error {
 	for i := range 10 {
 		key := fmt.Appendf(nil, "wal_key%d", i)
 		value := fmt.Appendf(nil, "wal_value%d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3541,7 +3541,7 @@ func testLockUnlockWAL(dir string, keys, values [][]byte) error {
 	for i := range 10 {
 		key := fmt.Appendf(nil, "post_lock_key%d", i)
 		value := fmt.Appendf(nil, "post_lock_value%d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put after unlock failed: %w", err)
 		}
 	}
@@ -3563,11 +3563,11 @@ func testFIFOCompaction(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	opts.CompactionStyle = db.CompactionStyleFIFO
+	opts.CompactionStyle = rockyardkv.CompactionStyleFIFO
 	opts.WriteBufferSize = 32 * 1024 // Small buffer for more flushes
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3577,7 +3577,7 @@ func testFIFOCompaction(dir string, keys, values [][]byte) error {
 	value := make([]byte, 500)
 	for i := range 200 {
 		key := fmt.Appendf(nil, "fifo_key%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3589,7 +3589,7 @@ func testFIFOCompaction(dir string, keys, values [][]byte) error {
 	// Write more data
 	for i := 200; i < 400; i++ {
 		key := fmt.Appendf(nil, "fifo_key%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put failed: %w", err)
 		}
 	}
@@ -3602,7 +3602,7 @@ func testFIFOCompaction(dir string, keys, values [][]byte) error {
 	for i := range 50 {
 		key := fmt.Appendf(nil, "fifo_key%06d", i)
 		_, err := database.Get(nil, key)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 			return fmt.Errorf("get failed: %w", err)
 		}
 	}
@@ -3620,11 +3620,11 @@ func testUniversalCompaction(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	opts.CompactionStyle = db.CompactionStyleUniversal
+	opts.CompactionStyle = rockyardkv.CompactionStyleUniversal
 	opts.WriteBufferSize = 32 * 1024 // Small buffer for more flushes
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3635,7 +3635,7 @@ func testUniversalCompaction(dir string, keys, values [][]byte) error {
 	for round := range 5 {
 		for i := range 100 {
 			key := fmt.Appendf(nil, "univ_key%02d_%06d", round, i)
-			if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+			if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 				return fmt.Errorf("put failed: %w", err)
 			}
 		}
@@ -3675,9 +3675,9 @@ func testPessimisticTransaction(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3686,13 +3686,13 @@ func testPessimisticTransaction(dir string, keys, values [][]byte) error {
 	// Write initial data
 	key := []byte("pessimistic_key")
 	value := []byte("initial_value")
-	if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+	if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 		return fmt.Errorf("put failed: %w", err)
 	}
 	log("Wrote initial key")
 
 	// Begin a transaction with pessimistic semantics
-	txnOpts := db.TransactionOptions{
+	txnOpts := rockyardkv.TransactionOptions{
 		SetSnapshot: true,
 	}
 	txn := database.BeginTransaction(txnOpts, nil)
@@ -3746,11 +3746,11 @@ func testCompactionFilter(dir string, keys, values [][]byte) error {
 	// Custom compaction filter that removes keys with "delete_me" prefix
 	filter := &prefixCompactionFilter{prefix: []byte("delete_me_")}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.CompactionFilter = filter
 	opts.WriteBufferSize = 32 * 1024 // Small buffer
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("open failed: %w", err)
 	}
@@ -3760,7 +3760,7 @@ func testCompactionFilter(dir string, keys, values [][]byte) error {
 	for i := range 50 {
 		key := fmt.Appendf(nil, "keep_key_%06d", i)
 		value := fmt.Appendf(nil, "keep_value_%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put keep key failed: %w", err)
 		}
 	}
@@ -3769,7 +3769,7 @@ func testCompactionFilter(dir string, keys, values [][]byte) error {
 	for i := range 50 {
 		key := fmt.Appendf(nil, "delete_me_%06d", i)
 		value := fmt.Appendf(nil, "should_be_deleted_%06d", i)
-		if err := database.Put(db.DefaultWriteOptions(), key, value); err != nil {
+		if err := database.Put(rockyardkv.DefaultWriteOptions(), key, value); err != nil {
 			return fmt.Errorf("put delete key failed: %w", err)
 		}
 	}
@@ -3799,7 +3799,7 @@ func testCompactionFilter(dir string, keys, values [][]byte) error {
 	for i := range 50 {
 		key := fmt.Appendf(nil, "delete_me_%06d", i)
 		_, err := database.Get(nil, key)
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, rockyardkv.ErrNotFound) {
 			deletedCount++
 		}
 	}
@@ -3815,7 +3815,7 @@ func testCompactionFilter(dir string, keys, values [][]byte) error {
 
 // prefixCompactionFilter removes keys with a specific prefix during compaction.
 type prefixCompactionFilter struct {
-	db.BaseCompactionFilter
+	rockyardkv.BaseCompactionFilter
 	prefix []byte
 }
 
@@ -3823,11 +3823,11 @@ func (f *prefixCompactionFilter) Name() string {
 	return "PrefixCompactionFilter"
 }
 
-func (f *prefixCompactionFilter) Filter(level int, key, existingValue []byte) (db.CompactionFilterDecision, []byte) {
+func (f *prefixCompactionFilter) Filter(level int, key, existingValue []byte) (rockyardkv.CompactionFilterDecision, []byte) {
 	if len(key) >= len(f.prefix) && bytes.Equal(key[:len(f.prefix)], f.prefix) {
-		return db.FilterRemove, nil // Remove keys with the prefix
+		return rockyardkv.FilterRemove, nil // Remove keys with the prefix
 	}
-	return db.FilterKeep, nil // Keep other keys
+	return rockyardkv.FilterKeep, nil // Keep other keys
 }
 
 // testDeadlockDetection tests deadlock detection in pessimistic transactions.
@@ -3839,12 +3839,12 @@ func testDeadlockDetection(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Use TransactionDB for pessimistic transactions
-	txnDBOpts := db.DefaultTransactionDBOptions()
-	txnDB, err := db.OpenTransactionDB(dir, opts, txnDBOpts)
+	txnDBOpts := rockyardkv.DefaultTransactionDBOptions()
+	txnDB, err := rockyardkv.OpenTransactionDB(dir, opts, txnDBOpts)
 	if err != nil {
 		return fmt.Errorf("open transaction db failed: %w", err)
 	}
@@ -3857,7 +3857,7 @@ func testDeadlockDetection(dir string, keys, values [][]byte) error {
 	log("Wrote initial keys")
 
 	// Create two transactions for deadlock scenario
-	txnOpts := db.DefaultPessimisticTransactionOptions()
+	txnOpts := rockyardkv.DefaultPessimisticTransactionOptions()
 	txnOpts.LockTimeout = 100 * time.Millisecond // Short timeout
 
 	txn1 := txnDB.BeginTransaction(txnOpts, nil)
@@ -3928,18 +3928,18 @@ func test2PCWritePreparedRecovery(dir string, keys, values [][]byte) error {
 		}
 	}
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
 	// Session 1: Begin and prepare a 2PC transaction
 	func() {
-		database, err := db.Open(dir, opts)
+		database, err := rockyardkv.Open(dir, opts)
 		if err != nil {
 			panic(fmt.Sprintf("open failed: %v", err))
 		}
 
 		// Create a write-prepared transaction
-		txnOpts := db.TransactionOptions{
+		txnOpts := rockyardkv.TransactionOptions{
 			SetSnapshot: true,
 		}
 		txn := database.BeginTransaction(txnOpts, nil)
@@ -3964,7 +3964,7 @@ func test2PCWritePreparedRecovery(dir string, keys, values [][]byte) error {
 	}()
 
 	// Session 2: Verify data persisted after commit
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		return fmt.Errorf("reopen failed: %w", err)
 	}

@@ -11,7 +11,7 @@
 //
 // This file contains sync points (requires -tags synctest) for whitebox testing.
 // In production builds, these compile to no-ops with zero overhead.
-// See docs/testing.md for usage.
+// See docs/testing/README.md for usage.
 package compaction
 
 import (

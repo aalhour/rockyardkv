@@ -16,9 +16,16 @@ GOFLAGS ?= -v
 GOOS ?= $(shell $(GO) env GOOS)
 GOARCH ?= $(shell $(GO) env GOARCH)
 
+# Cache locations (repo-local).
+# Contract: All Go and tool caches used by this Makefile stay within the repo,
+# so `make clean` can remove them without touching user/global caches.
+export XDG_CACHE_HOME := $(abspath .)/.cache
+export GOCACHE := $(abspath .)/.gocache
+export GOMODCACHE := $(abspath .)/.gomodcache
+
 # Project metadata
 MODULE := github.com/aalhour/rockyardkv
-VERSION := v0.1.0
+VERSION := v0.3.1
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -784,10 +791,17 @@ clean-build: ## Remove all build artifacts
 	rm -rf $(DIST_DIR)
 	rm -f smoketest stresstest crashtest adversarialtest traceanalyzer ldb sstdump manifestdump
 	rm -rf tmp/crashtest-artifacts
+	rm -rf tmp/campaign-runs
+	rm -rf campaign-runs
+	rm -rf crashtest-artifacts
 	rm -f profile.cov coverage.out
 	rm -f *.test
 	rm -f *.out
 	$(GO) clean -cache -modcache
+	@chmod -R u+w .cache .gocache .gomodcache 2>/dev/null || true
+	rm -rf .cache
+	rm -rf .gocache
+	rm -rf .gomodcache
 
 .PHONY: clean-test
 clean-test: ## Clean test cache only

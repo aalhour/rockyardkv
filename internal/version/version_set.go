@@ -11,7 +11,7 @@
 //
 // This file contains whitebox testing hooks for crash testing (requires -tags crashtest).
 // In production builds, these compile to no-ops with zero overhead.
-// See docs/testing.md for usage.
+// See docs/testing/README.md for usage.
 package version
 
 import (

@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
 type fakeDB struct {
-	db.DB
-	getFn func(opts *db.ReadOptions, key []byte) ([]byte, error)
+	rockyardkv.DB
+	getFn func(opts *rockyardkv.ReadOptions, key []byte) ([]byte, error)
 }
 
-func (f fakeDB) Get(opts *db.ReadOptions, key []byte) ([]byte, error) {
+func (f fakeDB) Get(opts *rockyardkv.ReadOptions, key []byte) ([]byte, error) {
 	return f.getFn(opts, key)
 }
 
@@ -43,7 +43,7 @@ func TestVerifyAll_DeletedKeyReadError_ClassifiedAsErrorNotFound(t *testing.T) {
 	stats := &Stats{}
 
 	database := fakeDB{
-		getFn: func(_ *db.ReadOptions, _ []byte) ([]byte, error) {
+		getFn: func(_ *rockyardkv.ReadOptions, _ []byte) ([]byte, error) {
 			return nil, vfs.ErrInjectedReadError
 		},
 	}

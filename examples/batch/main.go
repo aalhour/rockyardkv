@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -22,17 +22,17 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
-	wo := db.DefaultWriteOptions()
-	ro := db.DefaultReadOptions()
+	wo := rockyardkv.DefaultWriteOptions()
+	ro := rockyardkv.DefaultReadOptions()
 
 	// Write initial data
 	err = database.Put(wo, []byte("balance:alice"), []byte("100"))
@@ -47,7 +47,7 @@ func main() {
 
 	// Create a batch for atomic transfer
 	// This simulates transferring 30 from alice to bob
-	wb := db.NewWriteBatch()
+	wb := rockyardkv.NewWriteBatch()
 
 	// Debit alice, credit bob
 	wb.Put([]byte("balance:alice"), []byte("70"))

@@ -306,13 +306,13 @@ External SST files created by `SstFileWriter` can be ingested into the database.
 
 ```go
 writer, err := db.NewSstFileWriter(db.DefaultSstFileWriterOptions())
-writer.Open("/tmp/data.sst")
+writer.Open("/path/to/data.sst")
 writer.Put(key1, value1)
 writer.Put(key2, value2)
 writer.Finish()
 
 err = database.IngestExternalFile(
-    []string{"/tmp/data.sst"},
+    []string{"/path/to/data.sst"},
     db.DefaultIngestExternalFileOptions(),
 )
 ```

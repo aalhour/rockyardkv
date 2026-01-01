@@ -8,9 +8,9 @@
 //
 // Usage:
 //
-//	campaignrunner -tier=quick -run-root=/tmp/campaign
-//	campaignrunner -tier=nightly -fail-fast -run-root=/tmp/campaign
-//	campaignrunner -group=status.durability -run-root=/tmp/status
+//	campaignrunner -tier=quick -run-root <RUN_DIR>
+//	campaignrunner -tier=nightly -fail-fast -run-root <RUN_DIR>
+//	campaignrunner -group=status.durability -run-root <RUN_DIR>
 //
 // Groups:
 //

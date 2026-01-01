@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
@@ -49,7 +49,7 @@ func TestScenarioWhitebox_WALSync1_SyncedWriteSurvives(t *testing.T) {
 	// First create the DB so that subsequent writes go through WAL sync
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("initial_key"), []byte("initial_value")); err != nil {
 			t.Fatalf("Put initial failed: %v", err)
@@ -58,8 +58,8 @@ func TestScenarioWhitebox_WALSync1_SyncedWriteSurvives(t *testing.T) {
 	}
 
 	// Run child process that writes with sync=true and crashes after WAL.Sync:1
-	runWhiteboxChild(t, dir, testutil.KPWALSync1, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPWALSync1, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("wal_sync_key"), []byte("wal_sync_value")); err != nil {
 			t.Fatalf("Put failed: %v", err)
@@ -81,7 +81,7 @@ func TestScenarioWhitebox_WALSync1_SyncedWriteSurvives(t *testing.T) {
 
 	// WAL sync key should also be present since we crashed AFTER sync
 	value, err = database.Get(nil, []byte("wal_sync_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		// Either present (sync completed) or not found (sync didn't complete)
 		t.Fatalf("Get wal_sync_key after WAL.Sync:1 crash failed with unexpected error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestScenarioWhitebox_WALSync0_UnsyncedMayBeLost(t *testing.T) {
 	// First create the DB with a synced baseline
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("baseline_key"), []byte("baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -110,8 +110,8 @@ func TestScenarioWhitebox_WALSync0_UnsyncedMayBeLost(t *testing.T) {
 	}
 
 	// Run child process that writes with sync=true and crashes BEFORE WAL.Sync:0
-	runWhiteboxChild(t, dir, testutil.KPWALSync0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPWALSync0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		// This write may not be durable since we crash before sync completes
 		if err := database.Put(opts, []byte("unsynced_key"), []byte("unsynced_value")); err != nil {
@@ -135,7 +135,7 @@ func TestScenarioWhitebox_WALSync0_UnsyncedMayBeLost(t *testing.T) {
 	// The unsynced key may or may not be present (crash was before sync)
 	// The important invariant is the DB is consistent and opens successfully
 	_, err = database.Get(nil, []byte("unsynced_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get unsynced_key returned unexpected error (not ErrNotFound): %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestScenarioWhitebox_WALAppend0_NoCorruption(t *testing.T) {
 	// First, establish a baseline with a known key
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("baseline_key"), []byte("baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -164,9 +164,9 @@ func TestScenarioWhitebox_WALAppend0_NoCorruption(t *testing.T) {
 	}
 
 	// Run child that crashes during WAL append
-	runWhiteboxChild(t, dir, testutil.KPWALAppend0, func(database db.DB) {
+	runWhiteboxChild(t, dir, testutil.KPWALAppend0, func(database rockyardkv.DB) {
 		// This write may not complete - that's expected
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		_ = database.Put(opts, []byte("partial_key"), []byte("partial_value"))
 	})
@@ -187,7 +187,7 @@ func TestScenarioWhitebox_WALAppend0_NoCorruption(t *testing.T) {
 	// The partial write may or may not be visible (timing dependent)
 	// The important thing is no corruption
 	_, err = database.Get(nil, []byte("partial_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get partial_key returned unexpected error (not ErrNotFound): %v", err)
 	}
 }
@@ -207,7 +207,7 @@ func TestScenarioWhitebox_CurrentWrite0_PreviousManifestValid(t *testing.T) {
 	// First, create a DB with some data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("initial_key"), []byte("initial_value")); err != nil {
 			t.Fatalf("Put initial failed: %v", err)
@@ -221,8 +221,8 @@ func TestScenarioWhitebox_CurrentWrite0_PreviousManifestValid(t *testing.T) {
 
 	// Run child that writes more data and crashes before CURRENT update
 	// This would happen during a MANIFEST rotation
-	runWhiteboxChild(t, dir, testutil.KPCurrentWrite0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPCurrentWrite0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		// Write many keys to potentially trigger MANIFEST rotation
 		for i := range 100 {
@@ -260,7 +260,7 @@ func TestScenarioWhitebox_CurrentWrite1_NewManifestActive(t *testing.T) {
 	// First, create a DB with initial data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("before_current_key"), []byte("before_value")); err != nil {
 			t.Fatalf("Put before failed: %v", err)
@@ -272,8 +272,8 @@ func TestScenarioWhitebox_CurrentWrite1_NewManifestActive(t *testing.T) {
 	}
 
 	// Run child that adds more data and crashes after CURRENT update
-	runWhiteboxChild(t, dir, testutil.KPCurrentWrite1, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPCurrentWrite1, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("after_current_key"), []byte("after_value")); err != nil {
 			t.Logf("Put after failed (may be expected): %v", err)
@@ -297,7 +297,7 @@ func TestScenarioWhitebox_CurrentWrite1_NewManifestActive(t *testing.T) {
 	// The after key may or may not be present depending on exact crash timing
 	// but the DB must be openable and consistent
 	_, err = database.Get(nil, []byte("after_current_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get after_current_key returned unexpected error: %v", err)
 	}
 }
@@ -317,7 +317,7 @@ func TestScenarioWhitebox_ManifestSync0_PartialManifestHandled(t *testing.T) {
 	// Create initial DB
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("manifest_key_1"), []byte("manifest_value_1")); err != nil {
 			t.Fatalf("Put manifest_key_1 failed: %v", err)
@@ -329,8 +329,8 @@ func TestScenarioWhitebox_ManifestSync0_PartialManifestHandled(t *testing.T) {
 	}
 
 	// Crash before MANIFEST sync
-	runWhiteboxChild(t, dir, testutil.KPManifestSync0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPManifestSync0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("manifest_key_2"), []byte("manifest_value_2")); err != nil {
 			t.Logf("Put manifest_key_2 failed (may be expected): %v", err)
@@ -363,7 +363,7 @@ func TestScenarioWhitebox_ManifestSync1_DataDurable(t *testing.T) {
 	// First create the DB so it exists before we test MANIFEST sync
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("initial_key"), []byte("initial_value")); err != nil {
 			t.Fatalf("Put initial failed: %v", err)
@@ -375,8 +375,8 @@ func TestScenarioWhitebox_ManifestSync1_DataDurable(t *testing.T) {
 	}
 
 	// Crash after MANIFEST sync during a subsequent operation
-	runWhiteboxChild(t, dir, testutil.KPManifestSync1, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPManifestSync1, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("durable_key"), []byte("durable_value")); err != nil {
 			t.Logf("Put durable_key failed (may be expected): %v", err)
@@ -401,7 +401,7 @@ func TestScenarioWhitebox_ManifestSync1_DataDurable(t *testing.T) {
 	// Durable key may or may not be present depending on exact timing
 	// The invariant is that the DB is consistent and opens without corruption
 	_, err = database.Get(nil, []byte("durable_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get durable_key returned unexpected error: %v", err)
 	}
 }
@@ -421,7 +421,7 @@ func TestScenarioWhitebox_ManifestWrite0_PartialWriteHandled(t *testing.T) {
 	// First, create a DB with initial data and flush to establish MANIFEST
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("manifest_baseline"), []byte("manifest_baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -433,8 +433,8 @@ func TestScenarioWhitebox_ManifestWrite0_PartialWriteHandled(t *testing.T) {
 	}
 
 	// Run child that crashes during MANIFEST record write
-	runWhiteboxChild(t, dir, testutil.KPManifestWrite0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPManifestWrite0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		// Write data and flush to trigger MANIFEST write
 		if err := database.Put(opts, []byte("manifest_partial"), []byte("manifest_partial_value")); err != nil {
@@ -460,7 +460,7 @@ func TestScenarioWhitebox_ManifestWrite0_PartialWriteHandled(t *testing.T) {
 	// The partial key may or may not be present depending on crash timing
 	// The important invariant is no MANIFEST corruption
 	_, err = database.Get(nil, []byte("manifest_partial"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get manifest_partial returned unexpected error (not ErrNotFound): %v", err)
 	}
 }
@@ -480,7 +480,7 @@ func TestScenarioWhitebox_FlushStart0_DBConsistent(t *testing.T) {
 	// Create DB with initial data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("flush_baseline"), []byte("flush_baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -489,8 +489,8 @@ func TestScenarioWhitebox_FlushStart0_DBConsistent(t *testing.T) {
 	}
 
 	// Crash at flush start
-	runWhiteboxChild(t, dir, testutil.KPFlushStart0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFlushStart0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("flush_key"), []byte("flush_value")); err != nil {
 			t.Logf("Put flush_key failed (may be expected): %v", err)
@@ -523,7 +523,7 @@ func TestScenarioWhitebox_FlushWriteSST0_NoPartialSST(t *testing.T) {
 	// Create DB with initial data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("sst_baseline"), []byte("sst_baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -535,8 +535,8 @@ func TestScenarioWhitebox_FlushWriteSST0_NoPartialSST(t *testing.T) {
 	}
 
 	// Crash during SST write
-	runWhiteboxChild(t, dir, testutil.KPFlushWriteSST0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFlushWriteSST0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("sst_key"), []byte("sst_value")); err != nil {
 			t.Logf("Put sst_key failed (may be expected): %v", err)
@@ -568,7 +568,7 @@ func TestScenarioWhitebox_FlushUpdateManifest0_PreviousStateValid(t *testing.T) 
 	// Create DB with initial data and flush
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("manifest_baseline"), []byte("manifest_baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -580,8 +580,8 @@ func TestScenarioWhitebox_FlushUpdateManifest0_PreviousStateValid(t *testing.T) 
 	}
 
 	// Crash before MANIFEST update during flush
-	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFlushUpdateManifest0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("manifest_key"), []byte("manifest_value")); err != nil {
 			t.Logf("Put manifest_key failed (may be expected): %v", err)
@@ -616,7 +616,7 @@ func TestScenarioWhitebox_FileSync0_UnsyncedSSTMayBeLost(t *testing.T) {
 	// Create baseline
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("filesync_baseline"), []byte("baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -625,8 +625,8 @@ func TestScenarioWhitebox_FileSync0_UnsyncedSSTMayBeLost(t *testing.T) {
 	}
 
 	// Crash before SST file sync during flush
-	runWhiteboxChild(t, dir, testutil.KPFileSync0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFileSync0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("filesync_key"), []byte("filesync_value")); err != nil {
 			t.Logf("Put filesync_key failed (may be expected): %v", err)
@@ -654,8 +654,8 @@ func TestScenarioWhitebox_FileSync1_SSTIsDurable(t *testing.T) {
 	dir := t.TempDir()
 
 	// Crash after SST file sync during flush
-	runWhiteboxChild(t, dir, testutil.KPFileSync1, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPFileSync1, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("filesync_durable"), []byte("durable_value")); err != nil {
 			t.Fatalf("Put filesync_durable failed: %v", err)
@@ -690,7 +690,7 @@ func TestScenarioWhitebox_DirSync0_CURRENTMayNotBeDurable(t *testing.T) {
 	// Create baseline with a flush to establish initial MANIFEST
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("dirsync_baseline"), []byte("baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -700,8 +700,8 @@ func TestScenarioWhitebox_DirSync0_CURRENTMayNotBeDurable(t *testing.T) {
 	}
 
 	// Crash before directory sync after CURRENT rename
-	runWhiteboxChild(t, dir, testutil.KPDirSync0, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPDirSync0, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("dirsync_key"), []byte("dirsync_value")); err != nil {
 			t.Logf("Put dirsync_key failed (may be expected): %v", err)
@@ -734,7 +734,7 @@ func TestScenarioWhitebox_DirSync1_CURRENTIsDurable(t *testing.T) {
 	// First create the DB and establish baseline data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("dirsync_baseline"), []byte("baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -745,8 +745,8 @@ func TestScenarioWhitebox_DirSync1_CURRENTIsDurable(t *testing.T) {
 
 	// Crash after directory sync during a subsequent operation that triggers SetCurrentFile
 	// (manifest rotation happens when we write enough data or force it)
-	runWhiteboxChild(t, dir, testutil.KPDirSync1, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runWhiteboxChild(t, dir, testutil.KPDirSync1, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("dirsync_durable"), []byte("durable_value")); err != nil {
 			t.Logf("Put dirsync_durable failed (may be expected): %v", err)
@@ -837,7 +837,7 @@ func runSweepWriteFlush(t *testing.T, kp string, strictMode bool) {
 	// Phase 1: Create baseline
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		if err := database.Put(opts, []byte("sweep_baseline"), []byte("sweep_baseline_value")); err != nil {
 			t.Fatalf("Put baseline failed: %v", err)
@@ -849,8 +849,8 @@ func runSweepWriteFlush(t *testing.T, kp string, strictMode bool) {
 	}
 
 	// Phase 2: Run child with killpoint
-	childHit := runWhiteboxChildAllowMiss(t, dir, kp, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	childHit := runWhiteboxChildAllowMiss(t, dir, kp, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 		for i := range 10 {
 			key := []byte(fmt.Sprintf("sweep_key_%d", i))
@@ -891,7 +891,7 @@ func runSweepCompaction(t *testing.T, kp string, strictMode bool) {
 	// Phase 1: Create baseline with multiple L0 files to trigger compaction
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 
 		// Write baseline
@@ -918,8 +918,8 @@ func runSweepCompaction(t *testing.T, kp string, strictMode bool) {
 	}
 
 	// Phase 2: Run child with killpoint and trigger compaction
-	childHit := runWhiteboxChildAllowMiss(t, dir, kp, func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	childHit := runWhiteboxChildAllowMiss(t, dir, kp, func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.Sync = true
 
 		// Write more data and flush to create more L0 files
@@ -1024,7 +1024,7 @@ func persistSweepArtifacts(t *testing.T, killPoint, dbPath string, killPointHit 
 
 // runWhiteboxChildAllowMiss is like runWhiteboxChild but returns whether the killpoint was hit
 // instead of failing if it wasn't hit. This is used by sweep tests.
-func runWhiteboxChildAllowMiss(t *testing.T, dir, killPoint string, fn func(db.DB)) bool {
+func runWhiteboxChildAllowMiss(t *testing.T, dir, killPoint string, fn func(rockyardkv.DB)) bool {
 	t.Helper()
 
 	// Check if we're the child process
@@ -1092,7 +1092,7 @@ func runWhiteboxChildAllowMiss(t *testing.T, dir, killPoint string, fn func(db.D
 // runWhiteboxChild runs the given function in a child process with a kill point set.
 // The child process will exit when the specified kill point is reached.
 // On failure, artifacts are persisted for reproduction and debugging.
-func runWhiteboxChild(t *testing.T, dir, killPoint string, fn func(db.DB)) {
+func runWhiteboxChild(t *testing.T, dir, killPoint string, fn func(rockyardkv.DB)) {
 	t.Helper()
 
 	// Check if we're the child process

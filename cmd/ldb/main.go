@@ -34,7 +34,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/vfs"
@@ -124,14 +124,14 @@ func printUsage() {
 	flag.PrintDefaults()
 }
 
-func openDB() (db.DB, error) {
-	opts := db.DefaultOptions()
+func openDB() (rockyardkv.DB, error) {
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = *createIfMissing
 
 	if *readOnly {
-		return db.OpenForReadOnly(*dbPath, opts, false)
+		return rockyardkv.OpenForReadOnly(*dbPath, opts, false)
 	}
-	return db.Open(*dbPath, opts)
+	return rockyardkv.Open(*dbPath, opts)
 }
 
 func formatOutput(data []byte) string {

@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
@@ -45,18 +45,18 @@ func TestCrossCycle_DurableStateNotCarriedOver(t *testing.T) {
 	baseFS := vfs.Default()
 	faultFS := vfs.NewFaultInjectionFS(baseFS)
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.FS = faultFS
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
 	key := []byte("testkey")
 
-	woSync := &db.WriteOptions{Sync: true}
+	woSync := &rockyardkv.WriteOptions{Sync: true}
 	if err := database.Put(woSync, key, encodeValueBase(1)); err != nil {
 		t.Fatalf("Put V1 failed: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestCrossCycle_DurableStateNotCarriedOver(t *testing.T) {
 	}
 	t.Log("Wrote and flushed V1 (durable)")
 
-	woNoWAL := &db.WriteOptions{DisableWAL: true}
+	woNoWAL := &rockyardkv.WriteOptions{DisableWAL: true}
 	if err := database.Put(woNoWAL, key, encodeValueBase(2)); err != nil {
 		t.Fatalf("Put V2 failed: %v", err)
 	}
@@ -89,11 +89,11 @@ func TestCrossCycle_DurableStateNotCarriedOver(t *testing.T) {
 
 	t.Log("Recovering and verifying...")
 
-	opts2 := db.DefaultOptions()
+	opts2 := rockyardkv.DefaultOptions()
 	opts2.FS = baseFS
 	opts2.CreateIfMissing = false
 
-	database2, err := db.Open(dbPath, opts2)
+	database2, err := rockyardkv.Open(dbPath, opts2)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -123,18 +123,18 @@ func TestCrossCycle_StaleExpectedStateDetected(t *testing.T) {
 	baseFS := vfs.Default()
 	faultFS := vfs.NewFaultInjectionFS(baseFS)
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.FS = faultFS
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
 	key := []byte("testkey")
 
-	if err := database.Put(&db.WriteOptions{Sync: true}, key, encodeValueBase(1)); err != nil {
+	if err := database.Put(&rockyardkv.WriteOptions{Sync: true}, key, encodeValueBase(1)); err != nil {
 		t.Fatalf("Put V1 failed: %v", err)
 	}
 	if err := database.Flush(nil); err != nil {
@@ -142,7 +142,7 @@ func TestCrossCycle_StaleExpectedStateDetected(t *testing.T) {
 	}
 	t.Log("Wrote and flushed V1")
 
-	if err := database.Put(&db.WriteOptions{DisableWAL: true}, key, encodeValueBase(2)); err != nil {
+	if err := database.Put(&rockyardkv.WriteOptions{DisableWAL: true}, key, encodeValueBase(2)); err != nil {
 		t.Fatalf("Put V2 failed: %v", err)
 	}
 	t.Log("Wrote V2 (not flushed)")
@@ -155,11 +155,11 @@ func TestCrossCycle_StaleExpectedStateDetected(t *testing.T) {
 
 	faultFS.DropUnsyncedData()
 
-	opts2 := db.DefaultOptions()
+	opts2 := rockyardkv.DefaultOptions()
 	opts2.FS = baseFS
 	opts2.CreateIfMissing = false
 
-	database2, err := db.Open(dbPath, opts2)
+	database2, err := rockyardkv.Open(dbPath, opts2)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -192,18 +192,18 @@ func TestCrossCycle_OnlyCurrentFlushInDurableState(t *testing.T) {
 	baseFS := vfs.Default()
 	faultFS := vfs.NewFaultInjectionFS(baseFS)
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.FS = faultFS
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
 	k1, k2 := []byte("key1"), []byte("key2")
 
-	if err := database.Put(&db.WriteOptions{Sync: true}, k1, encodeValueBase(1)); err != nil {
+	if err := database.Put(&rockyardkv.WriteOptions{Sync: true}, k1, encodeValueBase(1)); err != nil {
 		t.Fatalf("Put K1 failed: %v", err)
 	}
 	if err := database.Flush(nil); err != nil {
@@ -211,7 +211,7 @@ func TestCrossCycle_OnlyCurrentFlushInDurableState(t *testing.T) {
 	}
 	t.Log("Wrote and flushed K1")
 
-	if err := database.Put(&db.WriteOptions{DisableWAL: true}, k2, encodeValueBase(2)); err != nil {
+	if err := database.Put(&rockyardkv.WriteOptions{DisableWAL: true}, k2, encodeValueBase(2)); err != nil {
 		t.Fatalf("Put K2 failed: %v", err)
 	}
 	t.Log("Wrote K2 (not flushed)")
@@ -221,11 +221,11 @@ func TestCrossCycle_OnlyCurrentFlushInDurableState(t *testing.T) {
 	}
 	faultFS.DropUnsyncedData()
 
-	opts2 := db.DefaultOptions()
+	opts2 := rockyardkv.DefaultOptions()
 	opts2.FS = baseFS
 	opts2.CreateIfMissing = false
 
-	database2, err := db.Open(dbPath, opts2)
+	database2, err := rockyardkv.Open(dbPath, opts2)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestCrossCycle_OnlyCurrentFlushInDurableState(t *testing.T) {
 	_, err = database2.Get(nil, k2)
 	if err == nil {
 		t.Error("K2 should NOT exist (was not flushed)")
-	} else if errors.Is(err, db.ErrNotFound) {
+	} else if errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Log("K2 correctly not found (was not flushed)")
 	} else {
 		t.Errorf("Unexpected error for K2: %v", err)
@@ -259,11 +259,11 @@ func TestDurableState_InvariantDBGEDurableState(t *testing.T) {
 
 	baseFS := vfs.Default()
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.FS = baseFS
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestDurableState_InvariantDBGEDurableState(t *testing.T) {
 	for i, k := range keys {
 		key := []byte(k)
 		vb := uint32(i + 1)
-		if err := database.Put(&db.WriteOptions{Sync: true}, key, encodeValueBase(vb)); err != nil {
+		if err := database.Put(&rockyardkv.WriteOptions{Sync: true}, key, encodeValueBase(vb)); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
 		durableState = append(durableState, durableEntry{key: key, valueBase: vb})
@@ -293,7 +293,7 @@ func TestDurableState_InvariantDBGEDurableState(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	database, err = db.Open(dbPath, opts)
+	database, err = rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestDurableState_InvariantDBGEDurableState(t *testing.T) {
 	violations := 0
 	for _, entry := range durableState {
 		val, err := database.Get(nil, entry.key)
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, rockyardkv.ErrNotFound) {
 			t.Errorf("VIOLATION: Key %q in durable_state but not in DB", entry.key)
 			violations++
 			continue
@@ -339,11 +339,11 @@ func TestDisableWAL_FaultFS_ValueBaseMonotonicity(t *testing.T) {
 	baseFS := vfs.Default()
 	faultFS := vfs.NewFaultInjectionFS(baseFS)
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.FS = faultFS
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestDisableWAL_FaultFS_ValueBaseMonotonicity(t *testing.T) {
 	var maxFlushedVB uint32
 
 	for vb := uint32(1); vb <= 3; vb++ {
-		if err := database.Put(&db.WriteOptions{Sync: true}, key, encodeValueBase(vb)); err != nil {
+		if err := database.Put(&rockyardkv.WriteOptions{Sync: true}, key, encodeValueBase(vb)); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
 		if err := database.Flush(nil); err != nil {
@@ -362,7 +362,7 @@ func TestDisableWAL_FaultFS_ValueBaseMonotonicity(t *testing.T) {
 		t.Logf("Wrote and flushed value_base=%d", vb)
 	}
 
-	if err := database.Put(&db.WriteOptions{DisableWAL: true}, key, encodeValueBase(4)); err != nil {
+	if err := database.Put(&rockyardkv.WriteOptions{DisableWAL: true}, key, encodeValueBase(4)); err != nil {
 		t.Fatalf("Put vb=4 failed: %v", err)
 	}
 	t.Log("Wrote value_base=4 (NOT flushed, will be lost)")
@@ -372,11 +372,11 @@ func TestDisableWAL_FaultFS_ValueBaseMonotonicity(t *testing.T) {
 	}
 	faultFS.DropUnsyncedData()
 
-	opts2 := db.DefaultOptions()
+	opts2 := rockyardkv.DefaultOptions()
 	opts2.FS = baseFS
 	opts2.CreateIfMissing = false
 
-	database2, err := db.Open(dbPath, opts2)
+	database2, err := rockyardkv.Open(dbPath, opts2)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}

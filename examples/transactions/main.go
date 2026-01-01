@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -22,28 +22,28 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Open a TransactionDB
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	txnOpts := db.DefaultTransactionDBOptions()
+	txnOpts := rockyardkv.DefaultTransactionDBOptions()
 
-	txnDB, err := db.OpenTransactionDB(dbPath, opts, txnOpts)
+	txnDB, err := rockyardkv.OpenTransactionDB(dbPath, opts, txnOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer txnDB.Close()
 
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 
 	fmt.Println("TransactionDB opened")
 
 	// Example 1: Simple transaction
 	fmt.Println("\n=== Simple Transaction ===")
 
-	txn := txnDB.BeginTransaction(db.DefaultPessimisticTransactionOptions(), wo)
+	txn := txnDB.BeginTransaction(rockyardkv.DefaultPessimisticTransactionOptions(), wo)
 
 	// Read a key (doesn't exist yet)
 	_, err = txn.Get([]byte("account:alice"))
-	if err == db.ErrNotFound {
+	if err == rockyardkv.ErrNotFound {
 		fmt.Println("txn.Get(account:alice) -> not found")
 	}
 
@@ -79,7 +79,7 @@ func main() {
 	}
 
 	// Begin transfer transaction
-	txn = txnDB.BeginTransaction(db.DefaultPessimisticTransactionOptions(), wo)
+	txn = txnDB.BeginTransaction(rockyardkv.DefaultPessimisticTransactionOptions(), wo)
 
 	// Read alice's balance with lock (GetForUpdate)
 	aliceBalance, err := txn.GetForUpdate([]byte("account:alice"), true)
@@ -112,7 +112,7 @@ func main() {
 	// Example 3: Rollback
 	fmt.Println("\n=== Transaction Rollback ===")
 
-	txn = txnDB.BeginTransaction(db.DefaultPessimisticTransactionOptions(), wo)
+	txn = txnDB.BeginTransaction(rockyardkv.DefaultPessimisticTransactionOptions(), wo)
 	err = txn.Put([]byte("account:alice"), []byte("999"))
 	if err != nil {
 		log.Fatal(err)

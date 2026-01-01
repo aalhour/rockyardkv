@@ -30,7 +30,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/trace"
 )
@@ -229,7 +229,7 @@ func cmdReplay(traceFile string) error {
 
 	// Create handler based on mode
 	var handler trace.ReplayHandler
-	var database db.DB
+	var database rockyardkv.DB
 
 	if *dryRun {
 		// Dry run mode: just count operations
@@ -237,10 +237,10 @@ func cmdReplay(traceFile string) error {
 		fmt.Println("Running in dry-run mode (operations counted but not applied)")
 	} else {
 		// Real replay mode: open database and apply operations
-		opts := db.DefaultOptions()
+		opts := rockyardkv.DefaultOptions()
 		opts.CreateIfMissing = *createDB
 
-		database, err = db.Open(*replayDB, opts)
+		database, err = rockyardkv.Open(*replayDB, opts)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %w", err)
 		}
@@ -394,7 +394,7 @@ func (h *countingHandler) HandleCompaction() error {
 
 // dbHandler applies trace operations to a real database.
 type dbHandler struct {
-	database db.DB
+	database rockyardkv.DB
 	verbose  bool
 }
 
@@ -414,7 +414,7 @@ func (h *dbHandler) HandleWrite(cfID uint32, batchData []byte) error {
 		return fmt.Errorf("invalid write payload (not a WriteBatch): %w", err)
 	}
 
-	wb := db.NewWriteBatch()
+	wb := rockyardkv.NewWriteBatch()
 	if err := internalWB.Iterate(&writeBatchCopier{dst: wb}); err != nil {
 		return fmt.Errorf("invalid write batch records: %w", err)
 	}
@@ -438,7 +438,7 @@ func (h *dbHandler) HandleGet(cfID uint32, key []byte) error {
 
 	_, err := h.database.Get(nil, actualKey)
 	// We don't care if the key doesn't exist, just if there's an error
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -476,10 +476,10 @@ func (h *dbHandler) HandleCompaction() error {
 	return h.database.CompactRange(nil, nil, nil)
 }
 
-// writeBatchCopier copies internal/batch operations into a public db.WriteBatch.
+// writeBatchCopier copies internal/batch operations into a public rockyardkv.WriteBatch.
 // This keeps replay applying an atomic Write() instead of individual ops.
 type writeBatchCopier struct {
-	dst *db.WriteBatch
+	dst *rockyardkv.WriteBatch
 }
 
 func (c *writeBatchCopier) Put(key, value []byte) error {
@@ -556,9 +556,9 @@ func cmdVerify(traceFile string) error {
 	}
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = *createDB
-	database, err := db.Open(*replayDB, opts)
+	database, err := rockyardkv.Open(*replayDB, opts)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -634,7 +634,7 @@ type stateDigest struct {
 }
 
 // generateStateDigest creates a digest of the current database state.
-func generateStateDigest(database db.DB, maxSamples int) (*stateDigest, error) {
+func generateStateDigest(database rockyardkv.DB, maxSamples int) (*stateDigest, error) {
 	digest := &stateDigest{
 		SampleVals: make(map[string]string),
 	}

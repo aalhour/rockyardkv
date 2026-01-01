@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
@@ -47,24 +47,24 @@ func TestScenario_FsyncLies_SyncedWritesSurvive(t *testing.T) {
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Write with sync=true (should be durable)
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	if err := database.Put(syncOpts, []byte("synced_key"), []byte("synced_value")); err != nil {
 		t.Fatalf("Synced put failed: %v", err)
 	}
 
 	// Write without sync (may be lost)
-	nosyncOpts := db.DefaultWriteOptions()
+	nosyncOpts := rockyardkv.DefaultWriteOptions()
 	nosyncOpts.Sync = false
 	if err := database.Put(nosyncOpts, []byte("unsynced_key"), []byte("unsynced_value")); err != nil {
 		t.Fatalf("Unsynced put failed: %v", err)
@@ -82,7 +82,7 @@ func TestScenario_FsyncLies_SyncedWritesSurvive(t *testing.T) {
 
 	// Reopen database
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestScenario_FsyncLies_SyncedWritesSurvive(t *testing.T) {
 	// Unsynced write may or may not survive (depends on implementation)
 	// The important thing is that the DB opens and synced data is present
 	_, err = database.Get(nil, []byte("unsynced_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get unsynced_key returned unexpected error: %v", err)
 	}
 }
@@ -115,11 +115,11 @@ func TestScenario_FsyncLies_FlushMakesDurable(t *testing.T) {
 
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestScenario_FsyncLies_FlushMakesDurable(t *testing.T) {
 
 	// Reopen
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen failed: %v", err)
 	}
@@ -185,17 +185,17 @@ func TestScenario_DirSync_CURRENTFileDurable(t *testing.T) {
 
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Perform operations that will update MANIFEST
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	if err := database.Put(syncOpts, []byte("current_test_key"), []byte("current_test_value")); err != nil {
 		t.Fatalf("Put failed: %v", err)
@@ -216,7 +216,7 @@ func TestScenario_DirSync_CURRENTFileDurable(t *testing.T) {
 	// kernel buffers are lost but synced files persist on disk).
 	opts.FS = vfs.Default()
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen failed: %v", err)
 	}
@@ -242,17 +242,17 @@ func TestScenario_DirSync_RecoveryAfterUnsyncedDataLoss(t *testing.T) {
 
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
 	// Phase 1: Create initial DB with durable data
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	if err := database.Put(syncOpts, []byte("durable_key"), []byte("durable_value")); err != nil {
 		t.Fatalf("Put durable_key failed: %v", err)
@@ -262,7 +262,7 @@ func TestScenario_DirSync_RecoveryAfterUnsyncedDataLoss(t *testing.T) {
 	}
 
 	// Phase 2: Add more data without proper sync sequence
-	nosyncOpts := db.DefaultWriteOptions()
+	nosyncOpts := rockyardkv.DefaultWriteOptions()
 	nosyncOpts.Sync = false
 	for i := range 5 {
 		key := []byte("volatile_key_" + string(rune('0'+i)))
@@ -282,7 +282,7 @@ func TestScenario_DirSync_RecoveryAfterUnsyncedDataLoss(t *testing.T) {
 	// Reopen with fresh FS (simulating real crash where FaultInjectionFS state is lost)
 	opts.FS = vfs.Default()
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen after simulated crash failed: %v", err)
 	}
@@ -316,11 +316,11 @@ func TestScenario_MultipleFlushCycles_DurabilityCheckpoints(t *testing.T) {
 
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestScenario_MultipleFlushCycles_DurabilityCheckpoints(t *testing.T) {
 
 	// Reopen
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Reopen failed: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestScenario_MultipleFlushCycles_DurabilityCheckpoints(t *testing.T) {
 
 	// Cycle 3 may or may not survive (was not flushed)
 	_, err = database.Get(nil, []byte("cycle3_key"))
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
+	if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 		t.Errorf("Get cycle3_key returned unexpected error: %v", err)
 	}
 }
@@ -406,17 +406,17 @@ func TestDurability_CURRENTUpdate_NoPendingRenamesAfterShutdown(t *testing.T) {
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Write some data and flush to create first MANIFEST
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	for i := range 100 {
 		key := []byte("key_" + string(rune('0'+i%10)) + string(rune('0'+i/10)))
@@ -453,7 +453,7 @@ func TestDurability_CURRENTUpdate_NoPendingRenamesAfterShutdown(t *testing.T) {
 
 	// Try to reopen database
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if pendingCount > 0 {
 		// If there were pending renames, the DB should fail to open
@@ -496,17 +496,17 @@ func TestDurability_SyncedCURRENT_SurvivesCrash(t *testing.T) {
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Write data with sync
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	if err := database.Put(syncOpts, []byte("key1"), []byte("value1")); err != nil {
 		t.Fatalf("Put failed: %v", err)
@@ -533,7 +533,7 @@ func TestDurability_SyncedCURRENT_SurvivesCrash(t *testing.T) {
 
 	// Reopen should succeed
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB after simulated crash: %v", err)
 	}
@@ -608,20 +608,20 @@ func TestDurability_TornCURRENT_FailsLoud(t *testing.T) {
 			dir := t.TempDir()
 
 			// Step 1: Create a valid database first
-			opts := db.DefaultOptions()
+			opts := rockyardkv.DefaultOptions()
 			opts.CreateIfMissing = true
-			database, err := db.Open(dir, opts)
+			database, err := rockyardkv.Open(dir, opts)
 			if err != nil {
 				t.Fatalf("Failed to create initial DB: %v", err)
 			}
 
 			// Write some data and flush to ensure MANIFEST exists
-			wo := db.DefaultWriteOptions()
+			wo := rockyardkv.DefaultWriteOptions()
 			wo.Sync = true
 			if err := database.Put(wo, []byte("key1"), []byte("value1")); err != nil {
 				t.Fatalf("Put failed: %v", err)
 			}
-			if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+			if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 				t.Fatalf("Flush failed: %v", err)
 			}
 
@@ -652,7 +652,7 @@ func TestDurability_TornCURRENT_FailsLoud(t *testing.T) {
 
 			// Step 3: Try to reopen - should fail (except missing_newline case)
 			opts.CreateIfMissing = false
-			database, err = db.Open(dir, opts)
+			database, err = rockyardkv.Open(dir, opts)
 
 			if tc.name == "partial_newline" {
 				// Missing newline should still work (TrimSpace handles it)
@@ -751,17 +751,17 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 	t.Logf("SyncDir lie mode enabled: %v", faultFS.IsSyncDirLieModeEnabled())
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Write initial data and flush to create first MANIFEST state
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	for i := range 10 {
 		key := []byte("initial_key_" + string(rune('0'+i)))
@@ -771,7 +771,7 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 	}
 
 	// Flush to establish a durable checkpoint
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -787,7 +787,7 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 		}
 	}
 
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Second flush failed: %v", err)
 	}
 
@@ -824,7 +824,7 @@ func TestDurability_SyncDirLieMode_DBRecoversConsistently(t *testing.T) {
 	// 1. Fail loud with a clear error (CURRENT points to missing MANIFEST)
 	// 2. Recover to an older consistent state (if older MANIFEST is still valid)
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		// This is acceptable behavior: DB fails loud
@@ -898,11 +898,11 @@ func TestDurability_SyncDirLieMode_CreatedFilesMayDisappear_FailsLoud(t *testing
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 	faultFS.SetSyncDirLieMode(true)
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestDurability_SyncDirLieMode_CreatedFilesMayDisappear_FailsLoud(t *testing
 			t.Fatalf("put: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -930,7 +930,7 @@ func TestDurability_SyncDirLieMode_CreatedFilesMayDisappear_FailsLoud(t *testing
 	_ = faultFS.DropUnsyncedData()
 
 	opts.CreateIfMissing = false
-	_, err = db.Open(dir, opts)
+	_, err = rockyardkv.Open(dir, opts)
 	if err == nil {
 		// If we ever start “recovering” here, it must be explicitly consistent.
 		// Today, we want to fail loud under this severe lie model.
@@ -963,11 +963,11 @@ func TestDurability_FileSyncLieMode_WAL_LosesUnsyncedWrites(t *testing.T) {
 	t.Logf("File sync lie mode enabled for: .log")
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -979,7 +979,7 @@ func TestDurability_FileSyncLieMode_WAL_LosesUnsyncedWrites(t *testing.T) {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1005,7 +1005,7 @@ func TestDurability_FileSyncLieMode_WAL_LosesUnsyncedWrites(t *testing.T) {
 
 	// Reopen database
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to reopen DB: %v", err)
 	}
@@ -1058,17 +1058,17 @@ func TestDurability_FileSyncLieMode_AllFiles_FailsLoudOrRecoversEmpty(t *testing
 	faultFS := vfs.NewFaultInjectionFS(vfs.Default())
 	faultFS.SetFileSyncLieMode(true, "")
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
 
 	// Write some data with Sync=true (FS will lie; data still not durable).
-	syncOpts := db.DefaultWriteOptions()
+	syncOpts := rockyardkv.DefaultWriteOptions()
 	syncOpts.Sync = true
 	for i := range 50 {
 		key := []byte("allfiles_key_" + strconv.Itoa(i))
@@ -1078,7 +1078,7 @@ func TestDurability_FileSyncLieMode_AllFiles_FailsLoudOrRecoversEmpty(t *testing
 	}
 
 	// Flush to create more file activity (SST/MANIFEST), but Sync lies for all files.
-	_ = database.Flush(db.DefaultFlushOptions())
+	_ = database.Flush(rockyardkv.DefaultFlushOptions())
 
 	if err := database.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
@@ -1088,7 +1088,7 @@ func TestDurability_FileSyncLieMode_AllFiles_FailsLoudOrRecoversEmpty(t *testing
 	_ = faultFS.DropUnsyncedData()
 
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		// Fail loud is acceptable; try to ensure error has some signal.
 		errStr := err.Error()
@@ -1130,11 +1130,11 @@ func TestDurability_FileSyncLieMode_SST_FailsOnRead(t *testing.T) {
 	t.Logf("File sync lie mode enabled for: .sst")
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -1147,7 +1147,7 @@ func TestDurability_FileSyncLieMode_SST_FailsOnRead(t *testing.T) {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1165,7 +1165,7 @@ func TestDurability_FileSyncLieMode_SST_FailsOnRead(t *testing.T) {
 
 	// Try to reopen database - may fail or succeed with truncated SST
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		// DB failed to open - acceptable behavior
@@ -1178,7 +1178,7 @@ func TestDurability_FileSyncLieMode_SST_FailsOnRead(t *testing.T) {
 	for i := range 100 {
 		key := []byte("key_" + string(rune('A'+i%26)) + string(rune('0'+i/26)))
 		_, err := database.Get(nil, key)
-		if err != nil && !errors.Is(err, db.ErrNotFound) {
+		if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 			readErrors++
 		}
 	}
@@ -1208,11 +1208,11 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 	t.Logf("File sync lie mode enabled for: MANIFEST")
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -1225,7 +1225,7 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 			t.Fatalf("Phase 1 Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Phase 1 Flush failed: %v", err)
 	}
 	t.Log("Phase 1: 10 keys written and flushed")
@@ -1239,7 +1239,7 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 			t.Fatalf("Phase 2 Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Phase 2 Flush failed: %v", err)
 	}
 	t.Log("Phase 2: 10 more keys written and flushed (MANIFEST sync was lied about)")
@@ -1258,7 +1258,7 @@ func TestDurability_FileSyncLieMode_MANIFEST_FailsOrRecoversOlder(t *testing.T) 
 
 	// Try to reopen database
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		// Acceptable: DB failed to open with corrupted MANIFEST
@@ -1333,11 +1333,11 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 	t.Logf("File sync lie mode enabled for: CURRENT (temp files)")
 
 	// Open DB with FaultInjectionFS
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -1350,7 +1350,7 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 			t.Fatalf("Initial Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Initial Flush failed: %v", err)
 	}
 	t.Log("Initial: 10 keys written and flushed")
@@ -1365,7 +1365,7 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 				t.Fatalf("Round %d Put failed: %v", round, err)
 			}
 		}
-		if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+		if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 			t.Fatalf("Round %d Flush failed: %v", round, err)
 		}
 	}
@@ -1385,7 +1385,7 @@ func TestDurability_FileSyncLieMode_CURRENTTemp_FailsOrRecoversOlder(t *testing.
 
 	// Try to reopen database
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		// Acceptable: DB failed to open with corrupted CURRENT
@@ -1444,20 +1444,20 @@ func TestDurability_MissingActiveManifest_FailsLoud(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: Create a valid database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create initial DB: %v", err)
 	}
 
 	// Write some data and flush to ensure MANIFEST is written
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	wo.Sync = true
 	if err := database.Put(wo, []byte("key1"), []byte("value1")); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1495,7 +1495,7 @@ func TestDurability_MissingActiveManifest_FailsLoud(t *testing.T) {
 
 	// Step 4: Try to reopen - should fail loud
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err == nil {
 		database.Close()
@@ -1535,15 +1535,15 @@ func TestDurability_ManifestReferencesMissingSST_FailsLoud(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: Create a valid database with data that creates SST files
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create initial DB: %v", err)
 	}
 
 	// Write enough data and flush to create at least one SST
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	wo.Sync = true
 	for i := range 100 {
 		key := []byte("key_" + string(rune('A'+i%26)) + string(rune('0'+i/26)))
@@ -1552,7 +1552,7 @@ func TestDurability_ManifestReferencesMissingSST_FailsLoud(t *testing.T) {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1593,7 +1593,7 @@ func TestDurability_ManifestReferencesMissingSST_FailsLoud(t *testing.T) {
 	// Step 4: Try to reopen - may succeed (lazy SST loading)
 	// but accessing data should fail
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	var openFailed bool
 	if err != nil {
@@ -1632,7 +1632,7 @@ func TestDurability_ManifestReferencesMissingSST_FailsLoud(t *testing.T) {
 		// Also try Get for a specific key
 		if !readFailed {
 			_, err := database.Get(nil, []byte("key_A0"))
-			if err != nil && !errors.Is(err, db.ErrNotFound) {
+			if err != nil && !errors.Is(err, rockyardkv.ErrNotFound) {
 				readFailed = true
 				readErr = err
 				t.Logf("Get failed: %v", readErr)
@@ -1695,15 +1695,15 @@ func TestDurability_RenameDoubleNameMode_CURRENTAnomalyDetected(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: Create a valid database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create initial DB: %v", err)
 	}
 
 	// Write some data and flush
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	wo.Sync = true
 	for i := range 10 {
 		key := []byte("key_" + padInt(i, 3))
@@ -1711,7 +1711,7 @@ func TestDurability_RenameDoubleNameMode_CURRENTAnomalyDetected(t *testing.T) {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
@@ -1737,7 +1737,7 @@ func TestDurability_RenameDoubleNameMode_CURRENTAnomalyDetected(t *testing.T) {
 
 	// Step 3: Try to reopen - should handle gracefully
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		// Acceptable: DB detected the anomaly and failed loud
@@ -1767,20 +1767,20 @@ func TestDurability_RenameNeitherNameMode_CURRENTMissingFailsLoud(t *testing.T) 
 	dir := t.TempDir()
 
 	// Step 1: Create a valid database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create initial DB: %v", err)
 	}
 
 	// Write some data and flush
-	wo := db.DefaultWriteOptions()
+	wo := rockyardkv.DefaultWriteOptions()
 	wo.Sync = true
 	if err := database.Put(wo, []byte("key1"), []byte("value1")); err != nil {
 		t.Fatalf("Put failed: %v", err)
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -1797,7 +1797,7 @@ func TestDurability_RenameNeitherNameMode_CURRENTMissingFailsLoud(t *testing.T) 
 
 	// Step 3: Try to reopen - should fail loud
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err == nil {
 		database.Close()
@@ -1822,9 +1822,9 @@ func TestDurability_RenameDoubleNameMode_SSTAnomalyHandled(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: Create a valid database with some SST files
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create initial DB: %v", err)
 	}
@@ -1837,7 +1837,7 @@ func TestDurability_RenameDoubleNameMode_SSTAnomalyHandled(t *testing.T) {
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -1868,7 +1868,7 @@ func TestDurability_RenameDoubleNameMode_SSTAnomalyHandled(t *testing.T) {
 
 	// Step 3: Try to reopen - should handle gracefully
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 
 	if err != nil {
 		t.Logf("DB failed to open with SST temp anomaly: %v", err)
@@ -1908,11 +1908,11 @@ func TestDurability_RenameNeitherNameMode_SSTMissing_FailsLoudOrRecoversOlder(t 
 	// Target SST publish/rename outcomes.
 	faultFS.SetRenameNeitherNameMode(true, ".sst")
 
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 	opts.FS = faultFS
 
-	database, err := db.Open(dir, opts)
+	database, err := rockyardkv.Open(dir, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DB: %v", err)
 	}
@@ -1925,7 +1925,7 @@ func TestDurability_RenameNeitherNameMode_SSTMissing_FailsLoudOrRecoversOlder(t 
 			t.Fatalf("Put failed: %v", err)
 		}
 	}
-	if err := database.Flush(db.DefaultFlushOptions()); err != nil {
+	if err := database.Flush(rockyardkv.DefaultFlushOptions()); err != nil {
 		t.Fatalf("Flush failed: %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -1938,7 +1938,7 @@ func TestDurability_RenameNeitherNameMode_SSTMissing_FailsLoudOrRecoversOlder(t 
 	_ = faultFS.DropUnsyncedData()
 
 	opts.CreateIfMissing = false
-	database, err = db.Open(dir, opts)
+	database, err = rockyardkv.Open(dir, opts)
 	if err != nil {
 		// Fail loud is acceptable; ensure error has some signal.
 		errStr := err.Error()

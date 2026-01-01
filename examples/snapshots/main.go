@@ -11,7 +11,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 func main() {
@@ -21,17 +21,17 @@ func main() {
 	os.RemoveAll(dbPath)
 
 	// Open database
-	opts := db.DefaultOptions()
+	opts := rockyardkv.DefaultOptions()
 	opts.CreateIfMissing = true
 
-	database, err := db.Open(dbPath, opts)
+	database, err := rockyardkv.Open(dbPath, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer database.Close()
 
-	wo := db.DefaultWriteOptions()
-	ro := db.DefaultReadOptions()
+	wo := rockyardkv.DefaultWriteOptions()
+	ro := rockyardkv.DefaultReadOptions()
 
 	// Write initial data
 	err = database.Put(wo, []byte("version"), []byte("1.0"))
@@ -76,7 +76,7 @@ func main() {
 
 	// Read from snapshot - sees the old state
 	fmt.Println("\n=== Snapshot state (point-in-time) ===")
-	roSnap := db.DefaultReadOptions()
+	roSnap := rockyardkv.DefaultReadOptions()
 	roSnap.Snapshot = snapshot
 
 	value, _ = database.Get(roSnap, []byte("version"))
@@ -84,7 +84,7 @@ func main() {
 	value, _ = database.Get(roSnap, []byte("config"))
 	fmt.Printf("config = %s\n", value)
 	_, err = database.Get(roSnap, []byte("newkey"))
-	if err == db.ErrNotFound {
+	if err == rockyardkv.ErrNotFound {
 		fmt.Println("newkey = (not found - didn't exist at snapshot time)")
 	}
 

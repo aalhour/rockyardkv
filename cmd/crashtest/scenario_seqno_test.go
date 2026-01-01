@@ -8,11 +8,10 @@
 // sequence numbers strictly greater than any sequence in the recovered database.
 //
 // This addresses internal key collision due to:
-// 1. LastSequence using db.seq instead of flushed SST's actual max sequence
+// 1. LastSequence using rockyardkv.seq instead of flushed SST's actual max sequence
 // 2. Orphaned SST files (written but not in MANIFEST) causing sequence reuse
 //
 // Reference:
-//   - docs/redteam/ISSUES/ (durability issues documentation)
 //   - db/flush.go (LastSequence monotonicity fix)
 //   - db/recovery.go (orphaned SST cleanup)
 package main
@@ -21,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/db"
+	"github.com/aalhour/rockyardkv"
 )
 
 // TestScenario_FlushRecoveryNoSequenceReuse verifies that after flush+crash+reopen,
@@ -46,7 +45,7 @@ func TestScenario_FlushRecoveryNoSequenceReuse(t *testing.T) {
 	// Phase 1: Establish baseline with flushed data
 	{
 		database := createDB(t, dir)
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 50 {
@@ -64,8 +63,8 @@ func TestScenario_FlushRecoveryNoSequenceReuse(t *testing.T) {
 	}
 
 	// Phase 2: Write more data with DisableWAL and crash (simulates orphaned SST scenario)
-	runScenarioChild(t, dir, "disablewal-write", func(database db.DB) {
-		opts := db.DefaultWriteOptions()
+	runScenarioChild(t, dir, "disablewal-write", func(database rockyardkv.DB) {
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		// Write some keys that will be flushed
@@ -99,7 +98,7 @@ func TestScenario_FlushRecoveryNoSequenceReuse(t *testing.T) {
 		defer database.Close()
 
 		// Write new keys after recovery
-		opts := db.DefaultWriteOptions()
+		opts := rockyardkv.DefaultWriteOptions()
 		opts.DisableWAL = true
 
 		for i := range 50 {
