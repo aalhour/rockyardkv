@@ -2,7 +2,6 @@ package rockyardkv
 
 // checkpoint_test.go implements tests for checkpoint.
 
-
 import (
 	"errors"
 	"os"

@@ -2,7 +2,6 @@ package rockyardkv
 
 // background_test.go implements tests for background.
 
-
 import (
 	"errors"
 	"testing"
@@ -161,9 +160,9 @@ func TestCompactionPickerIntegration(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Initially no compaction needed
@@ -191,19 +190,19 @@ func TestBackgroundWorkPauseResume(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Initially not paused
-	if dbImpl.bgWork.IsPaused() {
+	if dbImpl.bgWork.isPaused() {
 		t.Error("Background work should not be paused initially")
 	}
 
 	// Pause background work
-	dbImpl.bgWork.Pause()
-	if !dbImpl.bgWork.IsPaused() {
+	dbImpl.bgWork.pause()
+	if !dbImpl.bgWork.isPaused() {
 		t.Error("Background work should be paused after Pause()")
 	}
 
@@ -216,8 +215,8 @@ func TestBackgroundWorkPauseResume(t *testing.T) {
 	}
 
 	// Resume background work
-	dbImpl.bgWork.Continue()
-	if dbImpl.bgWork.IsPaused() {
+	dbImpl.bgWork.resume()
+	if dbImpl.bgWork.isPaused() {
 		t.Error("Background work should not be paused after Continue()")
 	}
 
@@ -247,26 +246,26 @@ func TestBackgroundWorkStats(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Initially no flushes or compactions running
-	numFlushes := dbImpl.bgWork.NumRunningFlushes()
+	numFlushes := dbImpl.bgWork.numRunningFlushes()
 	if numFlushes != 0 {
 		t.Logf("NumRunningFlushes = %d (may be non-zero if background work started)", numFlushes)
 	}
 
-	numCompactions := dbImpl.bgWork.NumRunningCompactions()
+	numCompactions := dbImpl.bgWork.numRunningCompactions()
 	if numCompactions != 0 {
 		t.Logf("NumRunningCompactions = %d (may be non-zero if compaction started)", numCompactions)
 	}
 
 	// Test error counting
-	initialErrors := dbImpl.bgWork.NumBackgroundErrors()
-	dbImpl.bgWork.IncrementBackgroundErrors()
-	if dbImpl.bgWork.NumBackgroundErrors() != initialErrors+1 {
+	initialErrors := dbImpl.bgWork.numBackgroundErrors()
+	dbImpl.bgWork.incrementBackgroundErrors()
+	if dbImpl.bgWork.numBackgroundErrors() != initialErrors+1 {
 		t.Error("NumBackgroundErrors should increment by 1")
 	}
 }
@@ -284,13 +283,13 @@ func TestIsCompactionPending(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Initially, check if compaction is pending (depends on initial state)
-	pending := dbImpl.bgWork.IsCompactionPending()
+	pending := dbImpl.bgWork.isCompactionPending()
 	t.Logf("IsCompactionPending: pending=%v", pending)
 
 	// Write data to potentially trigger compaction
@@ -308,7 +307,7 @@ func TestIsCompactionPending(t *testing.T) {
 	}
 
 	// Check again
-	pending = dbImpl.bgWork.IsCompactionPending()
+	pending = dbImpl.bgWork.isCompactionPending()
 	t.Logf("After flush: pending=%v", pending)
 }
 
@@ -325,13 +324,13 @@ func TestMaybeScheduleFlush(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Schedule a flush
-	dbImpl.bgWork.MaybeScheduleFlush()
+	dbImpl.bgWork.maybeScheduleFlush()
 
 	// Give background worker a chance to process
 	time.Sleep(50 * time.Millisecond)
@@ -352,14 +351,14 @@ func TestBackgroundWorkScheduling(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl, ok := database.(*DBImpl)
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
-		t.Skip("Cannot access DBImpl")
+		t.Skip("Cannot access dbImpl")
 	}
 
 	// Test scheduling compaction and flush
-	dbImpl.bgWork.MaybeScheduleCompaction()
-	dbImpl.bgWork.MaybeScheduleFlush()
+	dbImpl.bgWork.maybeScheduleCompaction()
+	dbImpl.bgWork.maybeScheduleFlush()
 
 	// Give the scheduler time to check
 	time.Sleep(50 * time.Millisecond)

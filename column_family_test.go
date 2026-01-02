@@ -2,7 +2,6 @@ package rockyardkv
 
 // column_family_test.go implements tests for column family.
 
-
 import (
 	"errors"
 	"os"
@@ -349,11 +348,11 @@ func TestColumnFamilySetCoverage(t *testing.T) {
 	defer database.Close()
 
 	// Get internal DB
-	db := database.(*DBImpl)
+	db := database.(*dbImpl)
 
 	// Test GetByName
 	t.Run("GetByName", func(t *testing.T) {
-		cfd := db.columnFamilies.GetByName(DefaultColumnFamilyName)
+		cfd := db.columnFamilies.getByName(DefaultColumnFamilyName)
 		if cfd == nil {
 			t.Error("GetByName(default) returned nil")
 		}
@@ -362,7 +361,7 @@ func TestColumnFamilySetCoverage(t *testing.T) {
 		}
 
 		// Test non-existent name
-		cfd = db.columnFamilies.GetByName("nonexistent")
+		cfd = db.columnFamilies.getByName("nonexistent")
 		if cfd != nil {
 			t.Error("GetByName(nonexistent) should return nil")
 		}
@@ -370,7 +369,7 @@ func TestColumnFamilySetCoverage(t *testing.T) {
 
 	// Test Count
 	t.Run("Count", func(t *testing.T) {
-		count := db.columnFamilies.Count()
+		count := db.columnFamilies.count()
 		if count != 1 {
 			t.Errorf("Count = %d, want 1", count)
 		}
@@ -379,7 +378,7 @@ func TestColumnFamilySetCoverage(t *testing.T) {
 	// Test ForEach
 	t.Run("ForEach", func(t *testing.T) {
 		count := 0
-		db.columnFamilies.ForEach(func(cfd *columnFamilyData) {
+		db.columnFamilies.forEach(func(cfd *columnFamilyData) {
 			count++
 		})
 		if count != 1 {
@@ -389,15 +388,15 @@ func TestColumnFamilySetCoverage(t *testing.T) {
 
 	// Test Ref/Unref
 	t.Run("RefUnref", func(t *testing.T) {
-		cfd := db.columnFamilies.GetDefault()
+		cfd := db.columnFamilies.getDefault()
 		initialRefs := cfd.refs
 
-		cfd.Ref()
+		cfd.ref()
 		if cfd.refs != initialRefs+1 {
 			t.Errorf("After Ref: refs = %d, want %d", cfd.refs, initialRefs+1)
 		}
 
-		cfd.Unref()
+		cfd.unref()
 		if cfd.refs != initialRefs {
 			t.Errorf("After Unref: refs = %d, want %d", cfd.refs, initialRefs)
 		}

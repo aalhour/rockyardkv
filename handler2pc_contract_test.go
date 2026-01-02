@@ -2,7 +2,6 @@ package rockyardkv
 
 // handler2pc_contract_test.go implements tests for handler2pc contract.
 
-
 import (
 	"testing"
 

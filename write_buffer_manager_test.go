@@ -2,7 +2,6 @@ package rockyardkv
 
 // write_buffer_manager_test.go implements tests for write buffer manager.
 
-
 import (
 	"sync"
 	"testing"

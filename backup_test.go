@@ -2,7 +2,6 @@ package rockyardkv_test
 
 // backup_test.go implements tests for backup.
 
-
 import (
 	"fmt"
 	"os"

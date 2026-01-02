@@ -2,7 +2,6 @@ package rockyardkv
 
 // write_prepared_txn_recovery_test.go implements tests for write prepared txn recovery.
 
-
 import (
 	"os"
 	"path/filepath"

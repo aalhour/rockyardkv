@@ -21,7 +21,6 @@ package rockyardkv
 //   - util/comparator.cc (timestamp comparator implementation)
 //   - db/dbformat.h (key format with timestamps)
 
-
 import (
 	"bytes"
 	"encoding/binary"

@@ -22,7 +22,6 @@ package rockyardkv
 //   - options/options_helper.cc
 //   - options/db_options.cc
 
-
 import (
 	"bufio"
 	"fmt"

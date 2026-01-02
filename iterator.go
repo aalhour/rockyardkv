@@ -9,7 +9,6 @@ package rockyardkv
 //   - db/db_iter.h
 //   - db/db_iter.cc
 
-
 import (
 	"bytes"
 	"errors"
@@ -83,7 +82,7 @@ func (it *errorIterator) Close() error              { return nil }
 // dbIterator is the internal iterator implementation for the database.
 // It merges memtable and SST file iterators, deduplicates keys, and skips deletions.
 type dbIterator struct {
-	db       *DBImpl
+	db       *dbImpl
 	cfd      *columnFamilyData // Column family (nil = use default via db.mem)
 	snapshot *Snapshot
 	err      error
@@ -156,9 +155,9 @@ type internalIterator interface {
 	Seek(target []byte)
 	Next()
 	Prev()
-	UserKey() []byte
-	SeqNum() uint64
-	Type() dbformat.ValueType
+	userKey() []byte
+	seqNum() uint64
+	valueType() dbformat.ValueType
 	Error() error
 }
 
@@ -167,18 +166,18 @@ type memtableIterWrapper struct {
 	iter *memtable.MemTableIterator
 }
 
-func (w *memtableIterWrapper) Valid() bool              { return w.iter.Valid() }
-func (w *memtableIterWrapper) Key() []byte              { return w.iter.Key() }
-func (w *memtableIterWrapper) Value() []byte            { return w.iter.Value() }
-func (w *memtableIterWrapper) SeekToFirst()             { w.iter.SeekToFirst() }
-func (w *memtableIterWrapper) SeekToLast()              { w.iter.SeekToLast() }
-func (w *memtableIterWrapper) Seek(target []byte)       { w.iter.Seek(target) }
-func (w *memtableIterWrapper) Next()                    { w.iter.Next() }
-func (w *memtableIterWrapper) Prev()                    { w.iter.Prev() }
-func (w *memtableIterWrapper) UserKey() []byte          { return w.iter.UserKey() }
-func (w *memtableIterWrapper) SeqNum() uint64           { return uint64(w.iter.Sequence()) }
-func (w *memtableIterWrapper) Type() dbformat.ValueType { return w.iter.Type() }
-func (w *memtableIterWrapper) Error() error             { return w.iter.Error() }
+func (w *memtableIterWrapper) Valid() bool                   { return w.iter.Valid() }
+func (w *memtableIterWrapper) Key() []byte                   { return w.iter.Key() }
+func (w *memtableIterWrapper) Value() []byte                 { return w.iter.Value() }
+func (w *memtableIterWrapper) SeekToFirst()                  { w.iter.SeekToFirst() }
+func (w *memtableIterWrapper) SeekToLast()                   { w.iter.SeekToLast() }
+func (w *memtableIterWrapper) Seek(target []byte)            { w.iter.Seek(target) }
+func (w *memtableIterWrapper) Next()                         { w.iter.Next() }
+func (w *memtableIterWrapper) Prev()                         { w.iter.Prev() }
+func (w *memtableIterWrapper) userKey() []byte               { return w.iter.UserKey() }
+func (w *memtableIterWrapper) seqNum() uint64                { return uint64(w.iter.Sequence()) }
+func (w *memtableIterWrapper) valueType() dbformat.ValueType { return w.iter.Type() }
+func (w *memtableIterWrapper) Error() error                  { return w.iter.Error() }
 
 // sstIterWrapper wraps an SST table iterator.
 type sstIterWrapper struct {
@@ -198,7 +197,7 @@ func (w *sstIterWrapper) Next()              { w.iter.Next() }
 func (w *sstIterWrapper) Prev()              { w.iter.Prev() }
 func (w *sstIterWrapper) Error() error       { return w.iter.Error() }
 
-func (w *sstIterWrapper) UserKey() []byte {
+func (w *sstIterWrapper) userKey() []byte {
 	key := w.iter.Key()
 	if len(key) < 8 {
 		return key
@@ -206,7 +205,7 @@ func (w *sstIterWrapper) UserKey() []byte {
 	return key[:len(key)-8]
 }
 
-func (w *sstIterWrapper) SeqNum() uint64 {
+func (w *sstIterWrapper) seqNum() uint64 {
 	key := w.iter.Key()
 	if len(key) < 8 {
 		return 0
@@ -215,7 +214,7 @@ func (w *sstIterWrapper) SeqNum() uint64 {
 	return tag >> 8
 }
 
-func (w *sstIterWrapper) Type() dbformat.ValueType {
+func (w *sstIterWrapper) valueType() dbformat.ValueType {
 	key := w.iter.Key()
 	if len(key) < 8 {
 		return dbformat.TypeValue
@@ -230,12 +229,12 @@ func decodeFixed64(b []byte) uint64 {
 
 // newDBIterator creates a new database iterator for the default column family.
 // Reserved - currently NewIterator uses newDBIteratorCF directly.
-func newDBIterator(db *DBImpl, snapshot *Snapshot) *dbIterator { //nolint:unused // reserved for future use
+func newDBIterator(db *dbImpl, snapshot *Snapshot) *dbIterator { //nolint:unused // reserved for future use
 	return newDBIteratorCF(db, nil, snapshot)
 }
 
 // newDBIteratorCF creates a new database iterator for a specific column family.
-func newDBIteratorCF(db *DBImpl, cfd *columnFamilyData, snapshot *Snapshot) *dbIterator {
+func newDBIteratorCF(db *dbImpl, cfd *columnFamilyData, snapshot *Snapshot) *dbIterator {
 	// Determine snapshot sequence number for range deletion visibility
 	var snapshotSeq dbformat.SequenceNumber
 	if snapshot != nil {
@@ -393,7 +392,7 @@ func (it *dbIterator) SeekToLast() {
 	if len(it.iterateUpperBound) > 0 {
 		// Move each iterator backward until it's before the upper bound
 		for _, iter := range it.iterators {
-			for iter.Valid() && it.compareKeys(iter.UserKey(), it.iterateUpperBound) >= 0 {
+			for iter.Valid() && it.compareKeys(iter.userKey(), it.iterateUpperBound) >= 0 {
 				iter.Prev()
 			}
 		}
@@ -465,7 +464,7 @@ func (it *dbIterator) Next() {
 
 	// Skip past all entries with the same user key across all iterators
 	for _, iter := range it.iterators {
-		for iter.Valid() && it.keysEqual(iter.UserKey(), it.savedKey) {
+		for iter.Valid() && it.keysEqual(iter.userKey(), it.savedKey) {
 			iter.Next()
 		}
 	}
@@ -491,7 +490,7 @@ func (it *dbIterator) Prev() {
 
 	// Move each iterator backward past current key
 	for _, iter := range it.iterators {
-		for iter.Valid() && it.keysEqual(iter.UserKey(), it.savedKey) {
+		for iter.Valid() && it.keysEqual(iter.userKey(), it.savedKey) {
 			iter.Prev()
 		}
 	}
@@ -511,7 +510,7 @@ func (it *dbIterator) resyncIteratorsForward() {
 		iter.Seek(seekKey)
 		// After seeking, we might land exactly on savedKey with seq 0
 		// So advance past any entries with savedKey
-		for iter.Valid() && it.keysEqual(iter.UserKey(), it.savedKey) {
+		for iter.Valid() && it.keysEqual(iter.userKey(), it.savedKey) {
 			iter.Next()
 		}
 	}
@@ -536,13 +535,13 @@ func (it *dbIterator) resyncIteratorsBackward() {
 		if iter.Valid() {
 			// If we landed on a key > savedKey, we need to Prev() once
 			// If we landed on savedKey, we need to Prev() past all versions of savedKey
-			if it.compareKeys(iter.UserKey(), it.savedKey) > 0 {
+			if it.compareKeys(iter.userKey(), it.savedKey) > 0 {
 				// Landed after savedKey, Prev once to get before it
 				iter.Prev()
 			} else {
 				// Landed on savedKey (or earlier due to seek semantics)
 				// Skip past all versions of savedKey
-				for iter.Valid() && it.keysEqual(iter.UserKey(), it.savedKey) {
+				for iter.Valid() && it.keysEqual(iter.userKey(), it.savedKey) {
 					iter.Prev()
 				}
 			}
@@ -551,7 +550,7 @@ func (it *dbIterator) resyncIteratorsBackward() {
 			// SeekToLast to position at the last key
 			iter.SeekToLast()
 			// Then skip past savedKey if we happen to land on it
-			for iter.Valid() && it.keysEqual(iter.UserKey(), it.savedKey) {
+			for iter.Valid() && it.keysEqual(iter.userKey(), it.savedKey) {
 				iter.Prev()
 			}
 		}
@@ -586,8 +585,8 @@ outerLoop:
 				return
 			}
 
-			userKey := iter.UserKey()
-			seq := iter.SeqNum()
+			userKey := iter.userKey()
+			seq := iter.seqNum()
 
 			// Check snapshot visibility
 			if it.snapshot != nil && seq > it.snapshot.Sequence() {
@@ -623,7 +622,7 @@ outerLoop:
 		}
 
 		// Check if this is a point deletion
-		valueType := it.iterators[minIdx].Type()
+		valueType := it.iterators[minIdx].valueType()
 		if valueType == dbformat.TypeDeletion || valueType == dbformat.TypeSingleDeletion {
 			// Make a copy of minKey before skipping, since the underlying buffer may be reused
 			keyToSkip := make([]byte, len(minKey))
@@ -631,7 +630,7 @@ outerLoop:
 
 			// Skip this key in all iterators
 			for _, iter := range it.iterators {
-				for iter.Valid() && it.keysEqual(iter.UserKey(), keyToSkip) {
+				for iter.Valid() && it.keysEqual(iter.userKey(), keyToSkip) {
 					iter.Next()
 				}
 			}
@@ -646,7 +645,7 @@ outerLoop:
 
 			// Skip this key in all iterators
 			for _, iter := range it.iterators {
-				for iter.Valid() && it.keysEqual(iter.UserKey(), keyToSkip) {
+				for iter.Valid() && it.keysEqual(iter.userKey(), keyToSkip) {
 					iter.Next()
 				}
 			}
@@ -712,7 +711,7 @@ outerLoop:
 				return
 			}
 
-			userKey := iter.UserKey()
+			userKey := iter.userKey()
 
 			if maxIdx == -1 {
 				maxIdx = i
@@ -754,7 +753,7 @@ outerLoop:
 				continue
 			}
 			// Only check if this iterator is also at the same key
-			if !it.keysEqual(iter.UserKey(), keyToCheck) {
+			if !it.keysEqual(iter.userKey(), keyToCheck) {
 				continue
 			}
 			otherType, otherSeq, otherValue := it.findNewestVersionInIterator(iter, keyToCheck)
@@ -767,7 +766,7 @@ outerLoop:
 
 		// Skip all versions of this key in all iterators
 		for _, iter := range it.iterators {
-			for iter.Valid() && it.keysEqual(iter.UserKey(), keyToCheck) {
+			for iter.Valid() && it.keysEqual(iter.userKey(), keyToCheck) {
 				iter.Prev()
 			}
 		}
@@ -831,9 +830,9 @@ func (it *dbIterator) findNewestVersionInIterator(iter internalIterator, userKey
 	var resultSeq uint64
 	var resultValue []byte
 
-	if iter.Valid() && it.keysEqual(iter.UserKey(), userKey) {
-		resultType = iter.Type()
-		resultSeq = iter.SeqNum()
+	if iter.Valid() && it.keysEqual(iter.userKey(), userKey) {
+		resultType = iter.valueType()
+		resultSeq = iter.seqNum()
 		if resultType != dbformat.TypeDeletion && resultType != dbformat.TypeSingleDeletion {
 			resultValue = make([]byte, len(iter.Value()))
 			copy(resultValue, iter.Value())

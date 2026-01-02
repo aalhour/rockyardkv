@@ -5,7 +5,6 @@ package rockyardkv
 // These tests verify that snapshots provide a consistent point-in-time view
 // of the database, isolating readers from concurrent writes.
 
-
 import (
 	"errors"
 	"fmt"

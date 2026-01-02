@@ -2,7 +2,7 @@ package rockyardkv
 
 // background.go implements background tasks like flush and compaction.
 //
-// BackgroundWork handles scheduling and execution of background tasks
+// backgroundWork handles scheduling and execution of background tasks
 // including memtable flushes and L0→L1→... compactions.
 //
 // Reference: RocksDB v10.7.5
@@ -15,7 +15,6 @@ package rockyardkv
 // (requires -tags crashtest) for whitebox testing. In production builds,
 // these compile to no-ops with zero overhead. See docs/testing/README.md for usage.
 
-
 import (
 	"fmt"
 	"sync"
@@ -25,9 +24,9 @@ import (
 	"github.com/aalhour/rockyardkv/internal/testutil"
 )
 
-// BackgroundWork handles background tasks like compaction.
-type BackgroundWork struct {
-	db *DBImpl
+// backgroundWork handles background tasks like compaction.
+type backgroundWork struct {
+	db *dbImpl
 
 	// Compaction picker
 	picker compaction.CompactionPicker
@@ -54,13 +53,13 @@ type BackgroundWork struct {
 }
 
 // newBackgroundWork creates a new background work handler.
-func newBackgroundWork(db *DBImpl, opts *Options) *BackgroundWork {
+func newBackgroundWork(db *dbImpl, opts *Options) *backgroundWork {
 	picker := createCompactionPicker(opts)
 	maxSub := opts.MaxSubcompactions
 	if maxSub <= 0 {
 		maxSub = 1
 	}
-	bg := &BackgroundWork{
+	bg := &backgroundWork{
 		db:                db,
 		picker:            picker,
 		maxSubcompactions: maxSub,
@@ -145,20 +144,25 @@ func createCompactionPicker(opts *Options) compaction.CompactionPicker {
 }
 
 // Start starts the background workers.
-func (bg *BackgroundWork) Start() {
+func (bg *backgroundWork) start() {
 	bg.backgroundDone.Add(1)
 	go bg.backgroundLoop()
 }
 
 // Stop stops the background workers and waits for them to finish.
-func (bg *BackgroundWork) Stop() {
+func (bg *backgroundWork) stop() {
+	bg.mu.Lock()
+	bg.paused = false
+	bg.pauseCond.Broadcast()
+	bg.mu.Unlock()
+
 	close(bg.shutdownCh)
 	bg.backgroundDone.Wait()
 }
 
 // Pause pauses all background work.
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc PauseBackgroundWork()
-func (bg *BackgroundWork) Pause() {
+func (bg *backgroundWork) pause() {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	bg.paused = true
@@ -166,7 +170,7 @@ func (bg *BackgroundWork) Pause() {
 
 // Continue resumes background work after Pause.
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc ContinueBackgroundWork()
-func (bg *BackgroundWork) Continue() {
+func (bg *backgroundWork) resume() {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	bg.paused = false
@@ -174,7 +178,7 @@ func (bg *BackgroundWork) Continue() {
 }
 
 // IsPaused returns true if background work is paused.
-func (bg *BackgroundWork) IsPaused() bool {
+func (bg *backgroundWork) isPaused() bool {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	return bg.paused
@@ -182,7 +186,7 @@ func (bg *BackgroundWork) IsPaused() bool {
 
 // WaitIfPaused waits if background work is paused.
 // Call this before performing background operations.
-func (bg *BackgroundWork) WaitIfPaused() {
+func (bg *backgroundWork) waitIfPaused() {
 	bg.mu.Lock()
 	for bg.paused {
 		bg.pauseCond.Wait()
@@ -191,7 +195,7 @@ func (bg *BackgroundWork) WaitIfPaused() {
 }
 
 // MaybeScheduleCompaction signals that compaction may be needed.
-func (bg *BackgroundWork) MaybeScheduleCompaction() {
+func (bg *backgroundWork) maybeScheduleCompaction() {
 	select {
 	case bg.compactionCh <- struct{}{}:
 	default:
@@ -200,7 +204,7 @@ func (bg *BackgroundWork) MaybeScheduleCompaction() {
 }
 
 // MaybeScheduleFlush signals that flush may be needed.
-func (bg *BackgroundWork) MaybeScheduleFlush() {
+func (bg *backgroundWork) maybeScheduleFlush() {
 	select {
 	case bg.flushCh <- struct{}{}:
 	default:
@@ -209,7 +213,7 @@ func (bg *BackgroundWork) MaybeScheduleFlush() {
 }
 
 // backgroundLoop is the main background worker loop.
-func (bg *BackgroundWork) backgroundLoop() {
+func (bg *backgroundWork) backgroundLoop() {
 	defer bg.backgroundDone.Done()
 
 	for {
@@ -227,9 +231,11 @@ func (bg *BackgroundWork) backgroundLoop() {
 }
 
 // doFlushWork performs background flush if needed.
-func (bg *BackgroundWork) doFlushWork() {
+func (bg *backgroundWork) doFlushWork() {
 	// Whitebox [synctest]: barrier at background flush start
 	_ = testutil.SP(testutil.SPBGFlushStart)
+
+	bg.waitIfPaused()
 
 	bg.mu.Lock()
 	if bg.flushRunning {
@@ -262,20 +268,22 @@ func (bg *BackgroundWork) doFlushWork() {
 	if err != nil {
 		// Record background error for I/O failures
 		bg.db.SetBackgroundError(err)
-		bg.IncrementBackgroundErrors()
+		bg.incrementBackgroundErrors()
 	}
 
 	// Whitebox [synctest]: barrier at background flush complete
 	_ = testutil.SP(testutil.SPBGFlushComplete)
 
 	// After flush, check if compaction is needed
-	bg.MaybeScheduleCompaction()
+	bg.maybeScheduleCompaction()
 }
 
 // doCompactionWork performs background compaction if needed.
-func (bg *BackgroundWork) doCompactionWork() {
+func (bg *backgroundWork) doCompactionWork() {
 	// Whitebox [synctest]: barrier at background compaction start
 	_ = testutil.SP(testutil.SPBGCompactionStart)
+
+	bg.waitIfPaused()
 
 	bg.mu.Lock()
 	if bg.compactionRunning {
@@ -340,7 +348,7 @@ func (bg *BackgroundWork) doCompactionWork() {
 	if err != nil {
 		// Record background error for I/O failures
 		bg.db.SetBackgroundError(err)
-		bg.IncrementBackgroundErrors()
+		bg.incrementBackgroundErrors()
 		bg.db.logger.Warnf("[compact] compaction failed: %v", err)
 		return
 	}
@@ -349,11 +357,11 @@ func (bg *BackgroundWork) doCompactionWork() {
 	_ = testutil.SP(testutil.SPBGCompactionComplete)
 
 	// Check if more compaction is needed
-	bg.MaybeScheduleCompaction()
+	bg.maybeScheduleCompaction()
 }
 
 // executeCompaction runs a compaction job.
-func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
+func (bg *backgroundWork) executeCompaction(c *compaction.Compaction) error {
 	// Handle FIFO deletion compaction (no merge, just delete files)
 	if c.IsDeletionCompaction {
 		return bg.executeDeletionCompaction(c)
@@ -480,7 +488,7 @@ func (bg *BackgroundWork) executeCompaction(c *compaction.Compaction) error {
 
 // executeDeletionCompaction handles FIFO-style deletion compaction.
 // It simply marks files for deletion without merging data.
-func (bg *BackgroundWork) executeDeletionCompaction(c *compaction.Compaction) error {
+func (bg *backgroundWork) executeDeletionCompaction(c *compaction.Compaction) error {
 	bg.db.mu.Lock()
 	defer bg.db.mu.Unlock()
 
@@ -508,7 +516,7 @@ func (bg *BackgroundWork) executeDeletionCompaction(c *compaction.Compaction) er
 }
 
 // IsCompactionPending returns true if compaction has been scheduled but not yet started.
-func (bg *BackgroundWork) IsCompactionPending() bool {
+func (bg *backgroundWork) isCompactionPending() bool {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 
@@ -527,7 +535,7 @@ func (bg *BackgroundWork) IsCompactionPending() bool {
 }
 
 // NumRunningFlushes returns the number of currently running flush operations.
-func (bg *BackgroundWork) NumRunningFlushes() int {
+func (bg *backgroundWork) numRunningFlushes() int {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	if bg.flushRunning {
@@ -537,7 +545,7 @@ func (bg *BackgroundWork) NumRunningFlushes() int {
 }
 
 // NumRunningCompactions returns the number of currently running compaction operations.
-func (bg *BackgroundWork) NumRunningCompactions() int {
+func (bg *backgroundWork) numRunningCompactions() int {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	if bg.compactionRunning {
@@ -547,14 +555,14 @@ func (bg *BackgroundWork) NumRunningCompactions() int {
 }
 
 // NumBackgroundErrors returns the number of background errors that have occurred.
-func (bg *BackgroundWork) NumBackgroundErrors() int {
+func (bg *backgroundWork) numBackgroundErrors() int {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	return bg.backgroundErrors
 }
 
 // IncrementBackgroundErrors increments the background error count.
-func (bg *BackgroundWork) IncrementBackgroundErrors() {
+func (bg *backgroundWork) incrementBackgroundErrors() {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	bg.backgroundErrors++

@@ -2,7 +2,6 @@ package rockyardkv
 
 // db_secondary_test.go implements tests for secondary instance mode.
 
-
 import (
 	"errors"
 	"testing"
@@ -160,7 +159,7 @@ func TestOpenAsSecondaryCatchUp(t *testing.T) {
 	}
 
 	// Catch up secondary
-	secDB := secondary.(*DBImplSecondary)
+	secDB := secondary.(*dbImplSecondary)
 	if err := secDB.TryCatchUpWithPrimary(); err != nil {
 		t.Fatalf("TryCatchUpWithPrimary failed: %v", err)
 	}
@@ -258,7 +257,7 @@ func TestOpenAsSecondaryProperties(t *testing.T) {
 	defer secondary.Close()
 
 	// Get secondary-specific properties
-	secDB := secondary.(*DBImplSecondary)
+	secDB := secondary.(*dbImplSecondary)
 
 	primaryPath, ok := secDB.GetProperty("rocksdb.secondary.primary-path")
 	if !ok {

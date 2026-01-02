@@ -2,7 +2,6 @@ package rockyardkv
 
 // fatalf_test.go implements tests for fatalf.
 
-
 import (
 	"errors"
 	"strings"
@@ -24,7 +23,7 @@ func TestFatalf_RejectsWritesAfterFatal(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Write should succeed before fatal
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
@@ -60,7 +59,7 @@ func TestFatalf_ReadsStillWork(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Write data before fatal
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
@@ -93,7 +92,7 @@ func TestFatalf_BackgroundErrorContainsFatalMessage(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Trigger fatal with specific message
 	dbImpl.logger.Fatalf("file already compacting: %d", 42)
@@ -124,7 +123,7 @@ func TestFatalf_FirstFatalWins(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// First fatal
 	dbImpl.logger.Fatalf("first fatal: corruption")
@@ -155,7 +154,7 @@ func TestFatalf_DiscardLogger_NoEffect(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Fatalf on Discard logger is a no-op
 	dbImpl.logger.Fatalf("this should not set background error")
@@ -184,7 +183,7 @@ func TestFatalf_ConcurrentSafe(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Trigger many fatals concurrently
 	done := make(chan struct{})

@@ -37,6 +37,16 @@ BIN_DIR := bin
 COV_DIR := .coverage
 DIST_DIR := dist
 
+# Go source dependency list for build targets.
+# Contract: Exclude repo-local caches so `make clean` doesn't leave dangling prerequisites.
+GO_FILES := $(shell find . -name '*.go' -type f \
+	-not -path './.cache/*' \
+	-not -path './.gocache/*' \
+	-not -path './.gomodcache/*' \
+	-not -path './bin/*' \
+	-not -path './dist/*' \
+	-not -path './tmp/*')
+
 # Binaries
 SMOKE_BIN := $(BIN_DIR)/smoketest
 STRESS_BIN := $(BIN_DIR)/stresstest
@@ -137,39 +147,39 @@ build: $(SMOKE_BIN) $(STRESS_BIN) $(ADVERSARIAL_BIN) $(CRASH_BIN) $(TRACEANALYZE
 $(BIN_DIR):
 	@mkdir -p $(BIN_DIR)
 
-$(SMOKE_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(SMOKE_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building smoke test binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/smoketest
 
-$(ADVERSARIAL_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(ADVERSARIAL_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building adversarial test binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/adversarialtest
 
-$(STRESS_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(STRESS_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building stress test binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/stresstest
 
-$(CRASH_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(CRASH_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building crash test binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/crashtest
 
-$(TRACEANALYZER_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(TRACEANALYZER_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building trace analyzer binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/traceanalyzer
 
-$(LDB_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(LDB_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building ldb binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/ldb
 
-$(SSTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(SSTDUMP_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building sstdump binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/sstdump
 
-$(MANIFESTDUMP_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(MANIFESTDUMP_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building manifestdump binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/manifestdump
 
-$(CAMPAIGN_BIN): $(BIN_DIR) $(shell find . -name '*.go' -type f)
+$(CAMPAIGN_BIN): $(BIN_DIR) $(GO_FILES)
 	@echo "🔧 Building campaign runner binary..."
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $@ ./cmd/campaignrunner
 

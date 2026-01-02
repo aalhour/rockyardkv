@@ -2,7 +2,6 @@ package rockyardkv
 
 // transaction_test.go implements tests for transaction.
 
-
 import (
 	"errors"
 	"os"

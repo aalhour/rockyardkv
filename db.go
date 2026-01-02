@@ -4,7 +4,6 @@ package rockyardkv
 //
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h
 
-
 import (
 	"bytes"
 	"errors"
@@ -228,6 +227,51 @@ type DB interface {
 	UnlockWAL() error
 }
 
+// ReplicationDB exposes WAL inspection and transaction-log iteration APIs.
+//
+// Contract: Implementations provide a stable view of WAL files and batches, suitable for replication or incremental backup.
+type ReplicationDB interface {
+	DB
+
+	// GetUpdatesSince returns an iterator positioned at the first write batch whose sequence number is >= seqNumber.
+	GetUpdatesSince(seqNumber uint64, readOpts TransactionLogIteratorReadOptions) (*TransactionLogIterator, error)
+
+	// GetSortedWalFiles returns WAL files sorted by log number.
+	GetSortedWalFiles() ([]WalFile, error)
+}
+
+// WriteStallController exposes write-stall release for shutdown/unblocking.
+//
+// Contract: ReleaseWriteStall is safe to call at shutdown to unblock any stalled writers.
+type WriteStallController interface {
+	DB
+
+	ReleaseWriteStall()
+}
+
+// ReadOnlyDB is a DB opened in read-only mode.
+//
+// Contract: ReadOnlyDB never allows write operations; write methods return ErrReadOnly.
+type ReadOnlyDB interface {
+	DB
+
+	// NewCheckpoint returns a checkpoint helper bound to the same underlying DB.
+	NewCheckpoint() *Checkpoint
+}
+
+// SecondaryDB is a DB opened as a secondary instance of a primary.
+//
+// Contract: SecondaryDB never allows write operations; write methods return ErrReadOnly.
+type SecondaryDB interface {
+	DB
+
+	// TryCatchUpWithPrimary refreshes the secondary view by reading new MANIFEST records.
+	TryCatchUpWithPrimary() error
+
+	// NewCheckpoint returns a checkpoint helper bound to the same underlying DB.
+	NewCheckpoint() *Checkpoint
+}
+
 // Open opens the database at the specified path.
 func Open(path string, opts *Options) (DB, error) {
 	// This file contains sync points and kill points for whitebox
@@ -276,7 +320,7 @@ func Open(path string, opts *Options) (DB, error) {
 	logger := logging.OrDefault(opts.Logger)
 
 	// Create the DB implementation
-	db := &DBImpl{
+	db := &dbImpl{
 		name:            path,
 		options:         opts,
 		fs:              fs,
@@ -284,7 +328,7 @@ func Open(path string, opts *Options) (DB, error) {
 		cmp:             comparator,
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
-		writeController: NewWriteController(),
+		writeController: newWriteController(),
 		logger:          logger,
 	}
 
@@ -329,10 +373,10 @@ func Open(path string, opts *Options) (DB, error) {
 
 	// Start background workers
 	db.bgWork = newBackgroundWork(db, opts)
-	db.bgWork.Start()
+	db.bgWork.start()
 
 	// Check if compaction is needed after recovery
-	db.bgWork.MaybeScheduleCompaction()
+	db.bgWork.maybeScheduleCompaction()
 
 	// Whitebox [synctest]: barrier at DB open complete
 	_ = testutil.SP(testutil.SPDBOpenComplete)
@@ -340,8 +384,8 @@ func Open(path string, opts *Options) (DB, error) {
 	return db, nil
 }
 
-// DBImpl is the concrete implementation of the DB interface.
-type DBImpl struct {
+// dbImpl is the concrete implementation of the DB interface.
+type dbImpl struct {
 	// Database path
 	name string
 
@@ -378,10 +422,10 @@ type DBImpl struct {
 	snapshotLock sync.Mutex
 
 	// Background work (compaction, flush)
-	bgWork *BackgroundWork
+	bgWork *backgroundWork
 
 	// Write controller for stalling
-	writeController *WriteController
+	writeController *writeController
 
 	// Background error state
 	// When a fatal I/O error occurs (e.g., EPERM, EROFS), this is set
@@ -403,7 +447,7 @@ type DBImpl struct {
 }
 
 // create initializes a new database.
-func (db *DBImpl) create() error {
+func (db *dbImpl) create() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -447,7 +491,7 @@ func (db *DBImpl) create() error {
 }
 
 // recover recovers the database from an existing state.
-func (db *DBImpl) recover() error {
+func (db *dbImpl) recover() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -463,13 +507,13 @@ func (db *DBImpl) recover() error {
 	recoveredCFs := db.versions.RecoveredColumnFamilies()
 	maxCF := db.versions.MaxColumnFamily()
 	for _, cf := range recoveredCFs {
-		_, err := db.columnFamilies.CreateWithID(cf.ID, cf.Name, DefaultColumnFamilyOptions())
+		_, err := db.columnFamilies.createWithID(cf.ID, cf.Name, DefaultColumnFamilyOptions())
 		if err != nil && !errors.Is(err, ErrColumnFamilyExists) {
 			return fmt.Errorf("failed to restore column family %s: %w", cf.Name, err)
 		}
 	}
 	// Update the next CF ID based on what was in the MANIFEST
-	db.columnFamilies.SetNextID(maxCF + 1)
+	db.columnFamilies.setNextID(maxCF + 1)
 
 	// CRITICAL: Delete orphaned SST files before WAL replay.
 	// Orphaned SSTs can contain sequences that aren't in the MANIFEST's LastSequence,
@@ -514,12 +558,12 @@ func (db *DBImpl) recover() error {
 }
 
 // Put sets the value for the given key in the default column family.
-func (db *DBImpl) Put(opts *WriteOptions, key, value []byte) error {
+func (db *dbImpl) Put(opts *WriteOptions, key, value []byte) error {
 	return db.PutCF(opts, nil, key, value)
 }
 
 // PutCF sets the value for the given key in the specified column family.
-func (db *DBImpl) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
+func (db *dbImpl) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
 	cfd, err := db.getColumnFamilyData(cf)
 	if err != nil {
 		return err
@@ -535,12 +579,12 @@ func (db *DBImpl) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []
 }
 
 // Get retrieves the value for the given key from the default column family.
-func (db *DBImpl) Get(opts *ReadOptions, key []byte) ([]byte, error) {
+func (db *dbImpl) Get(opts *ReadOptions, key []byte) ([]byte, error) {
 	return db.GetCF(opts, nil, key)
 }
 
 // GetCF retrieves the value for the given key from the specified column family.
-func (db *DBImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([]byte, error) {
+func (db *dbImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([]byte, error) {
 	// Whitebox [synctest]: barrier at Get start
 	_ = testutil.SP(testutil.SPDBGet)
 
@@ -665,7 +709,7 @@ func (db *DBImpl) GetCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte) ([
 // MultiGet retrieves multiple values for the given keys.
 // Returns a slice of values in the same order as keys.
 // If a key doesn't exist, the corresponding value is nil and error is ErrNotFound.
-func (db *DBImpl) MultiGet(opts *ReadOptions, keys [][]byte) ([][]byte, []error) {
+func (db *dbImpl) MultiGet(opts *ReadOptions, keys [][]byte) ([][]byte, []error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -687,14 +731,14 @@ func (db *DBImpl) MultiGet(opts *ReadOptions, keys [][]byte) ([][]byte, []error)
 // getFromVersion searches for a key in the SST files of a version.
 // It also handles merge operands by collecting them and applying the merge operator.
 // Reserved for future use - currently getFromVersionWithMerge is used directly.
-func (db *DBImpl) getFromVersion(v *version.Version, key []byte, seq dbformat.SequenceNumber, cfID uint32) ([]byte, error) { //nolint:unused // reserved for future use
+func (db *dbImpl) getFromVersion(v *version.Version, key []byte, seq dbformat.SequenceNumber, cfID uint32) ([]byte, error) { //nolint:unused // reserved for future use
 	return db.getFromVersionWithMerge(v, key, seq, nil, cfID)
 }
 
 // getFromVersionWithMerge searches for a key in SST files and handles merge operands.
 // mergeOperands contains any merge operands already collected from memtable.
 // cfID specifies which column family to search in (for CF isolation).
-func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq dbformat.SequenceNumber, mergeOperands [][]byte, cfID uint32) ([]byte, error) {
+func (db *dbImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq dbformat.SequenceNumber, mergeOperands [][]byte, cfID uint32) ([]byte, error) {
 	// Create a range deletion aggregator to track tombstones across files.
 	// The upperBound is the snapshot sequence - tombstones with seq > upperBound are invisible.
 	rangeDelAgg := rangedel.NewRangeDelAggregator(seq)
@@ -826,7 +870,7 @@ func (db *DBImpl) getFromVersionWithMerge(v *version.Version, key []byte, seq db
 
 // applyMerge applies the merge operator to resolve merge operands.
 // operands are in newest-first order, so we reverse them for FullMerge.
-func (db *DBImpl) applyMerge(key []byte, existingValue []byte, operands [][]byte) ([]byte, error) {
+func (db *dbImpl) applyMerge(key []byte, existingValue []byte, operands [][]byte) ([]byte, error) {
 	if db.options.MergeOperator == nil {
 		return nil, ErrMergeOperatorNotSet
 	}
@@ -868,7 +912,7 @@ func extractUserKey(internalKey []byte) []byte {
 // getFromFile searches for a key in a single SST file.
 // It also loads range tombstones from the file and adds them to the aggregator.
 // Returns: value, found, deleted, isMerge, foundSeqNum, error
-func (db *DBImpl) getFromFile(f *manifest.FileMetaData, key []byte, seq dbformat.SequenceNumber, rangeDelAgg *rangedel.RangeDelAggregator) ([]byte, bool, bool, bool, dbformat.SequenceNumber, error) {
+func (db *dbImpl) getFromFile(f *manifest.FileMetaData, key []byte, seq dbformat.SequenceNumber, rangeDelAgg *rangedel.RangeDelAggregator) ([]byte, bool, bool, bool, dbformat.SequenceNumber, error) {
 	fileNum := f.FD.GetNumber()
 	path := db.sstFilePath(fileNum)
 
@@ -970,7 +1014,7 @@ func extractSequenceNumber(internalKey []byte) dbformat.SequenceNumber {
 // this function should be reinstated for O(log n) file lookup.
 //
 //nolint:unused // reinstated once compaction guarantees non-overlapping files at L1+
-func (db *DBImpl) findFile(files []*manifest.FileMetaData, key []byte) int {
+func (db *dbImpl) findFile(files []*manifest.FileMetaData, key []byte) int {
 	lo := 0
 	hi := len(files)
 	for lo < hi {
@@ -986,7 +1030,7 @@ func (db *DBImpl) findFile(files []*manifest.FileMetaData, key []byte) int {
 
 // Delete removes the given key from the database.
 // Delete removes the given key from the default column family.
-func (db *DBImpl) Delete(opts *WriteOptions, key []byte) error {
+func (db *dbImpl) Delete(opts *WriteOptions, key []byte) error {
 	return db.DeleteCF(opts, nil, key)
 }
 
@@ -994,14 +1038,14 @@ func (db *DBImpl) Delete(opts *WriteOptions, key []byte) error {
 // Unlike Delete, SingleDelete is only valid for keys that have been Put exactly once
 // without any Merge operations. If there are multiple Put operations for a key,
 // SingleDelete may not work correctly.
-func (db *DBImpl) SingleDelete(opts *WriteOptions, key []byte) error {
+func (db *dbImpl) SingleDelete(opts *WriteOptions, key []byte) error {
 	internal := batch.New()
 	internal.SingleDelete(key)
 	return db.Write(opts, newWriteBatchFromInternal(internal))
 }
 
 // DeleteCF removes the given key from the specified column family.
-func (db *DBImpl) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
+func (db *dbImpl) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
 	cfd, err := db.getColumnFamilyData(cf)
 	if err != nil {
 		return err
@@ -1017,12 +1061,12 @@ func (db *DBImpl) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte
 }
 
 // DeleteRange removes all keys in the range [startKey, endKey) from the default column family.
-func (db *DBImpl) DeleteRange(opts *WriteOptions, startKey, endKey []byte) error {
+func (db *dbImpl) DeleteRange(opts *WriteOptions, startKey, endKey []byte) error {
 	return db.DeleteRangeCF(opts, nil, startKey, endKey)
 }
 
 // DeleteRangeCF removes all keys in the range [startKey, endKey) from the specified column family.
-func (db *DBImpl) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, startKey, endKey []byte) error {
+func (db *dbImpl) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, startKey, endKey []byte) error {
 	cfd, err := db.getColumnFamilyData(cf)
 	if err != nil {
 		return err
@@ -1038,12 +1082,12 @@ func (db *DBImpl) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start
 }
 
 // Merge applies a merge operation for the given key in the default column family.
-func (db *DBImpl) Merge(opts *WriteOptions, key, value []byte) error {
+func (db *dbImpl) Merge(opts *WriteOptions, key, value []byte) error {
 	return db.MergeCF(opts, nil, key, value)
 }
 
 // MergeCF applies a merge operation for the given key in the specified column family.
-func (db *DBImpl) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
+func (db *dbImpl) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
 	if db.options.MergeOperator == nil {
 		return ErrMergeOperatorNotSet
 	}
@@ -1063,7 +1107,7 @@ func (db *DBImpl) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value 
 }
 
 // Write applies a batch of operations atomically.
-func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
+func (db *dbImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 	// Whitebox [synctest]: barrier at Write start
 	_ = testutil.SP(testutil.SPDBWrite)
 
@@ -1076,7 +1120,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 
 	// Check write stall condition and wait if needed
 	writeSize := len(internal.Data())
-	db.writeController.MaybeStallWrite(writeSize)
+	db.writeController.maybeStallWrite(writeSize)
 
 	db.mu.Lock()
 	if db.closed {
@@ -1154,7 +1198,7 @@ func (db *DBImpl) Write(opts *WriteOptions, wb *WriteBatch) error {
 
 // memtableInserter applies batch operations to a memtable.
 type memtableInserter struct {
-	db         *DBImpl
+	db         *dbImpl
 	sequence   uint64
 	defaultMem *memtable.MemTable // Captured at write time to avoid race with flush
 	lockHeld   bool               // True if caller already holds db.mu (e.g., during recovery)
@@ -1170,7 +1214,7 @@ func (m *memtableInserter) getMemtable(cfID uint32) *memtable.MemTable {
 		m.db.mu.RLock()
 		defer m.db.mu.RUnlock()
 	}
-	cfd := m.db.columnFamilies.GetByID(cfID)
+	cfd := m.db.columnFamilies.getByID(cfID)
 	if cfd == nil {
 		return m.defaultMem // Fallback to default
 	}
@@ -1237,12 +1281,12 @@ func (m *memtableInserter) LogData(blob []byte) {
 }
 
 // NewIterator creates an iterator over the default column family.
-func (db *DBImpl) NewIterator(opts *ReadOptions) Iterator {
+func (db *dbImpl) NewIterator(opts *ReadOptions) Iterator {
 	return db.NewIteratorCF(opts, nil)
 }
 
 // NewIteratorCF creates an iterator over the specified column family.
-func (db *DBImpl) NewIteratorCF(opts *ReadOptions, cf ColumnFamilyHandle) Iterator {
+func (db *dbImpl) NewIteratorCF(opts *ReadOptions, cf ColumnFamilyHandle) Iterator {
 	cfd, err := db.getColumnFamilyData(cf)
 	if err != nil {
 		return &errorIterator{err: err}
@@ -1273,7 +1317,7 @@ func (db *DBImpl) NewIteratorCF(opts *ReadOptions, cf ColumnFamilyHandle) Iterat
 }
 
 // GetSnapshot creates a new snapshot of the database.
-func (db *DBImpl) GetSnapshot() *Snapshot {
+func (db *dbImpl) GetSnapshot() *Snapshot {
 	db.mu.RLock()
 	seq := db.seq
 	db.mu.RUnlock()
@@ -1293,12 +1337,12 @@ func (db *DBImpl) GetSnapshot() *Snapshot {
 }
 
 // ReleaseSnapshot releases a previously acquired snapshot.
-func (db *DBImpl) ReleaseSnapshot(s *Snapshot) {
+func (db *dbImpl) ReleaseSnapshot(s *Snapshot) {
 	s.Release()
 }
 
 // releaseSnapshot is called when a snapshot's reference count reaches zero.
-func (db *DBImpl) releaseSnapshot(s *Snapshot) {
+func (db *dbImpl) releaseSnapshot(s *Snapshot) {
 	db.snapshotLock.Lock()
 	defer db.snapshotLock.Unlock()
 
@@ -1314,7 +1358,7 @@ func (db *DBImpl) releaseSnapshot(s *Snapshot) {
 }
 
 // Flush flushes the memtable to disk.
-func (db *DBImpl) Flush(opts *FlushOptions) error {
+func (db *dbImpl) Flush(opts *FlushOptions) error {
 	if opts == nil {
 		opts = DefaultFlushOptions()
 	}
@@ -1384,7 +1428,7 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 
 	// Trigger compaction check after flush
 	if db.bgWork != nil {
-		db.bgWork.MaybeScheduleCompaction()
+		db.bgWork.maybeScheduleCompaction()
 	}
 
 	return nil
@@ -1395,7 +1439,7 @@ func (db *DBImpl) Flush(opts *FlushOptions) error {
 //
 //	db/db_impl/db_impl.cc - SyncWAL() implementation (lines 1533-1550)
 //	include/rocksdb/db.h - SyncWAL() interface (lines 1782-1789)
-func (db *DBImpl) SyncWAL() error {
+func (db *dbImpl) SyncWAL() error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -1418,7 +1462,7 @@ func (db *DBImpl) SyncWAL() error {
 //
 //	db/db_impl/db_impl.cc - FlushWAL() implementation (lines 1483-1512)
 //	include/rocksdb/db.h - FlushWAL() interface (lines 1775-1780)
-func (db *DBImpl) FlushWAL(sync bool) error {
+func (db *dbImpl) FlushWAL(sync bool) error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -1445,14 +1489,14 @@ func (db *DBImpl) FlushWAL(sync bool) error {
 
 // GetLatestSequenceNumber returns the sequence number of the most recent transaction.
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h GetLatestSequenceNumber()
-func (db *DBImpl) GetLatestSequenceNumber() uint64 {
+func (db *dbImpl) GetLatestSequenceNumber() uint64 {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.seq
 }
 
 // Close closes the database, releasing all resources.
-func (db *DBImpl) Close() error {
+func (db *dbImpl) Close() error {
 	db.mu.Lock()
 	if db.closed {
 		db.mu.Unlock()
@@ -1464,7 +1508,7 @@ func (db *DBImpl) Close() error {
 
 	// Stop background workers first (outside mutex to avoid deadlock)
 	if db.bgWork != nil {
-		db.bgWork.Stop()
+		db.bgWork.stop()
 	}
 
 	db.mu.Lock()
@@ -1497,7 +1541,7 @@ func (db *DBImpl) Close() error {
 // This is called when I/O errors occur in background operations (flush, compaction).
 // Once set, new write operations will fail with this error.
 // The error is sticky - it can only be cleared by reopening the database.
-func (db *DBImpl) SetBackgroundError(err error) {
+func (db *dbImpl) SetBackgroundError(err error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	// Only set if not already set (first error wins)
@@ -1508,7 +1552,7 @@ func (db *DBImpl) SetBackgroundError(err error) {
 }
 
 // GetBackgroundError returns the current background error, if any.
-func (db *DBImpl) GetBackgroundError() error {
+func (db *dbImpl) GetBackgroundError() error {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return db.backgroundError
@@ -1516,7 +1560,7 @@ func (db *DBImpl) GetBackgroundError() error {
 
 // Logger returns the database logger.
 // This is primarily for testing and debugging purposes.
-func (db *DBImpl) Logger() Logger {
+func (db *dbImpl) Logger() Logger {
 	return db.logger
 }
 
@@ -1524,8 +1568,8 @@ func (db *DBImpl) Logger() Logger {
 // This is useful for graceful shutdown when write stalls are active.
 // After calling this, waiting writers will recheck their conditions and can exit.
 // Note: This does NOT change the stall condition - use SetStallCondition for that.
-func (db *DBImpl) ReleaseWriteStall() {
-	db.writeController.ReleaseWriteStall()
+func (db *dbImpl) ReleaseWriteStall() {
+	db.writeController.releaseWriteStall()
 }
 
 // Property name constants for GetProperty.
@@ -1572,7 +1616,7 @@ const (
 
 // GetProperty returns the value of a database property.
 // Returns the property value and true if the property exists, otherwise ("", false).
-func (db *DBImpl) GetProperty(name string) (string, bool) {
+func (db *dbImpl) GetProperty(name string) (string, bool) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -1643,20 +1687,20 @@ func (db *DBImpl) GetProperty(name string) (string, bool) {
 
 	// Compaction properties
 	case PropertyCompactionPending:
-		if db.bgWork != nil && db.bgWork.IsCompactionPending() {
+		if db.bgWork != nil && db.bgWork.isCompactionPending() {
 			return "1", true
 		}
 		return "0", true
 
 	case PropertyNumRunningFlushes:
 		if db.bgWork != nil {
-			return strconv.Itoa(db.bgWork.NumRunningFlushes()), true
+			return strconv.Itoa(db.bgWork.numRunningFlushes()), true
 		}
 		return "0", true
 
 	case PropertyNumRunningCompactions:
 		if db.bgWork != nil {
-			return strconv.Itoa(db.bgWork.NumRunningCompactions()), true
+			return strconv.Itoa(db.bgWork.numRunningCompactions()), true
 		}
 		return "0", true
 
@@ -1692,7 +1736,7 @@ func (db *DBImpl) GetProperty(name string) (string, bool) {
 	// Background errors
 	case PropertyBackgroundErrors:
 		if db.bgWork != nil {
-			return strconv.Itoa(db.bgWork.NumBackgroundErrors()), true
+			return strconv.Itoa(db.bgWork.numBackgroundErrors()), true
 		}
 		return "0", true
 
@@ -1710,7 +1754,7 @@ func (db *DBImpl) GetProperty(name string) (string, bool) {
 		return "0", true
 
 	case PropertyNumColumnFamilies:
-		return strconv.Itoa(db.columnFamilies.Count()), true
+		return strconv.Itoa(db.columnFamilies.count()), true
 
 	default:
 		return "", false
@@ -1718,7 +1762,7 @@ func (db *DBImpl) GetProperty(name string) (string, bool) {
 }
 
 // getLevelStats returns a formatted string with level statistics.
-func (db *DBImpl) getLevelStats() string {
+func (db *dbImpl) getLevelStats() string {
 	v := db.versions.Current()
 	if v == nil {
 		return "Level Files Size(MB)\n"
@@ -1739,7 +1783,7 @@ func (db *DBImpl) getLevelStats() string {
 }
 
 // countSnapshots counts the number of active snapshots.
-func (db *DBImpl) countSnapshots() int {
+func (db *dbImpl) countSnapshots() int {
 	db.snapshotLock.Lock()
 	defer db.snapshotLock.Unlock()
 
@@ -1751,7 +1795,7 @@ func (db *DBImpl) countSnapshots() int {
 }
 
 // getOldestSnapshotTime returns the creation time of the oldest snapshot (Unix timestamp).
-func (db *DBImpl) getOldestSnapshotTime() int64 {
+func (db *dbImpl) getOldestSnapshotTime() int64 {
 	db.snapshotLock.Lock()
 	defer db.snapshotLock.Unlock()
 
@@ -1770,7 +1814,7 @@ func (db *DBImpl) getOldestSnapshotTime() int64 {
 }
 
 // estimateNumKeys estimates the total number of keys in the database.
-func (db *DBImpl) estimateNumKeys() uint64 {
+func (db *dbImpl) estimateNumKeys() uint64 {
 	var estimate uint64
 
 	// Count keys in memtables
@@ -1797,7 +1841,7 @@ func (db *DBImpl) estimateNumKeys() uint64 {
 }
 
 // getTotalSstFilesSize returns the total size of all SST files.
-func (db *DBImpl) getTotalSstFilesSize() uint64 {
+func (db *dbImpl) getTotalSstFilesSize() uint64 {
 	v := db.versions.Current()
 	if v == nil {
 		return 0
@@ -1813,7 +1857,7 @@ func (db *DBImpl) getTotalSstFilesSize() uint64 {
 }
 
 // CreateColumnFamily creates a new column family.
-func (db *DBImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
+func (db *dbImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -1821,7 +1865,7 @@ func (db *DBImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (Col
 		return nil, ErrDBClosed
 	}
 
-	cfd, err := db.columnFamilies.Create(name, opts)
+	cfd, err := db.columnFamilies.create(name, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1830,10 +1874,10 @@ func (db *DBImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (Col
 	edit := &manifest.VersionEdit{}
 	edit.SetColumnFamily(cfd.id)
 	edit.AddColumnFamily(name)
-	edit.SetMaxColumnFamily(db.columnFamilies.NextID())
+	edit.SetMaxColumnFamily(db.columnFamilies.nextID())
 	if err := db.versions.LogAndApply(edit); err != nil {
 		// Rollback: remove from in-memory set
-		_ = db.columnFamilies.Drop(cfd) // Ignore error during rollback
+		_ = db.columnFamilies.drop(cfd) // Ignore error during rollback
 		return nil, fmt.Errorf("failed to persist column family: %w", err)
 	}
 
@@ -1842,7 +1886,7 @@ func (db *DBImpl) CreateColumnFamily(opts ColumnFamilyOptions, name string) (Col
 }
 
 // DropColumnFamily drops the specified column family.
-func (db *DBImpl) DropColumnFamily(cf ColumnFamilyHandle) error {
+func (db *dbImpl) DropColumnFamily(cf ColumnFamilyHandle) error {
 	if cf == nil {
 		return ErrInvalidColumnFamilyHandle
 	}
@@ -1871,25 +1915,25 @@ func (db *DBImpl) DropColumnFamily(cf ColumnFamilyHandle) error {
 	}
 
 	db.logger.Infof("[cf] dropped column family %q (id=%d)", cfName, cfID)
-	return db.columnFamilies.Drop(handle.cfd)
+	return db.columnFamilies.drop(handle.cfd)
 }
 
 // ListColumnFamilies returns the names of all column families.
-func (db *DBImpl) ListColumnFamilies() []string {
-	return db.columnFamilies.ListNames()
+func (db *dbImpl) ListColumnFamilies() []string {
+	return db.columnFamilies.listNames()
 }
 
 // DefaultColumnFamily returns a handle to the default column family.
-func (db *DBImpl) DefaultColumnFamily() ColumnFamilyHandle {
-	return &columnFamilyHandle{cfd: db.columnFamilies.GetDefault()}
+func (db *dbImpl) DefaultColumnFamily() ColumnFamilyHandle {
+	return &columnFamilyHandle{cfd: db.columnFamilies.getDefault()}
 }
 
 // GetColumnFamily returns a handle to the named column family, or nil if not found.
-func (db *DBImpl) GetColumnFamily(name string) ColumnFamilyHandle {
+func (db *dbImpl) GetColumnFamily(name string) ColumnFamilyHandle {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	cfd := db.columnFamilies.GetByName(name)
+	cfd := db.columnFamilies.getByName(name)
 	if cfd == nil {
 		return nil
 	}
@@ -1909,7 +1953,7 @@ type CompactRangeOptions struct {
 
 // CompactRange manually triggers compaction for the specified key range.
 // If start and end are nil, the entire database is compacted.
-func (db *DBImpl) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
+func (db *dbImpl) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
 	if opts == nil {
 		opts = &CompactRangeOptions{}
 	}
@@ -1956,7 +2000,7 @@ func (db *DBImpl) CompactRange(opts *CompactRangeOptions, start, end []byte) err
 }
 
 // compactLevel compacts files in a specific level that overlap the given range.
-func (db *DBImpl) compactLevel(v *version.Version, level int, start, end []byte, opts *CompactRangeOptions) error {
+func (db *dbImpl) compactLevel(v *version.Version, level int, start, end []byte, opts *CompactRangeOptions) error {
 	files := v.Files(level)
 	if len(files) == 0 {
 		return nil
@@ -2044,7 +2088,7 @@ func (db *DBImpl) compactLevel(v *version.Version, level int, start, end []byte,
 }
 
 // BeginTransaction begins a new optimistic transaction.
-func (db *DBImpl) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
+func (db *dbImpl) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
 	if writeOpts == nil {
 		writeOpts = DefaultWriteOptions()
 	}
@@ -2052,7 +2096,7 @@ func (db *DBImpl) BeginTransaction(opts TransactionOptions, writeOpts *WriteOpti
 }
 
 // logFilePath returns the path to a log file.
-func (db *DBImpl) logFilePath(number uint64) string {
+func (db *dbImpl) logFilePath(number uint64) string {
 	return filepath.Join(db.name, logFileName(number))
 }
 
@@ -2063,7 +2107,7 @@ func logFileName(number uint64) string {
 
 // recalculateWriteStall recalculates and updates the write stall condition.
 // REQUIRES: db.mu is held.
-func (db *DBImpl) recalculateWriteStall() {
+func (db *dbImpl) recalculateWriteStall() {
 	// Count unflushed memtables
 	numUnflushed := 1 // Current memtable
 	if db.imm != nil {
@@ -2077,10 +2121,10 @@ func (db *DBImpl) recalculateWriteStall() {
 	}
 
 	// Get previous condition for logging
-	prevCondition, _ := db.writeController.GetStallCondition()
+	prevCondition, _ := db.writeController.getStallCondition()
 
 	// Recalculate condition
-	condition, cause := RecalculateWriteStallCondition(
+	condition, cause := recalculateWriteStallCondition(
 		numUnflushed,
 		numL0Files,
 		db.options.MaxWriteBufferNumber,
@@ -2090,7 +2134,7 @@ func (db *DBImpl) recalculateWriteStall() {
 	)
 
 	// Update write controller
-	db.writeController.SetStallCondition(condition, cause)
+	db.writeController.setStallCondition(condition, cause)
 
 	// Log stall condition changes (rare but critical for debugging)
 	if condition != prevCondition {

@@ -9,7 +9,6 @@ package rockyardkv
 //   - include/rocksdb/snapshot.h
 //   - db/snapshot_impl.h
 
-
 import (
 	"sync/atomic"
 	"time"
@@ -18,7 +17,7 @@ import (
 // Snapshot provides a consistent read view of the database.
 // The contents of a snapshot are guaranteed to be consistent.
 type Snapshot struct {
-	db        *DBImpl
+	db        *dbImpl
 	sequence  uint64
 	refs      atomic.Int32
 	createdAt int64 // Unix timestamp when snapshot was created
@@ -29,7 +28,7 @@ type Snapshot struct {
 }
 
 // newSnapshot creates a new snapshot at the given sequence number.
-func newSnapshot(db *DBImpl, seq uint64) *Snapshot {
+func newSnapshot(db *dbImpl, seq uint64) *Snapshot {
 	s := &Snapshot{
 		db:        db,
 		sequence:  seq,

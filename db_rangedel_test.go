@@ -2,7 +2,6 @@ package rockyardkv
 
 // db_rangedel_test.go implements tests for db rangedel.
 
-
 import (
 	"bytes"
 	"errors"

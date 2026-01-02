@@ -8,7 +8,6 @@ package rockyardkv
 //   - db/db_impl/db_impl_secondary.cc
 //   - include/rocksdb/db.h (OpenAsSecondary)
 
-
 import (
 	"fmt"
 	"strings"
@@ -20,10 +19,10 @@ import (
 	"github.com/aalhour/rockyardkv/internal/vfs"
 )
 
-// DBImplSecondary is a secondary instance that can read from a primary.
+// dbImplSecondary is a secondary instance that can read from a primary.
 // It periodically catches up with the primary by tailing the MANIFEST.
-type DBImplSecondary struct {
-	*DBImpl
+type dbImplSecondary struct {
+	*dbImpl
 
 	// Path to the primary database
 	primaryPath string
@@ -39,7 +38,7 @@ type DBImplSecondary struct {
 // The secondary can read data from the primary but cannot write.
 // primaryPath is the path to the primary database directory.
 // secondaryPath is an optional path for the secondary's local state.
-func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, error) {
+func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (SecondaryDB, error) {
 	if opts == nil {
 		opts = DefaultOptions()
 	}
@@ -65,7 +64,7 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 	logger := logging.OrDefault(opts.Logger)
 
 	// Create the base DB implementation (read-only)
-	db := &DBImpl{
+	db := &dbImpl{
 		name:            primaryPath,
 		options:         opts,
 		fs:              fs,
@@ -73,7 +72,7 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 		cmp:             cmp,
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
-		writeController: NewWriteController(),
+		writeController: newWriteController(),
 		logger:          logger,
 	}
 
@@ -117,8 +116,8 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 	db.columnFamilies.byID[DefaultColumnFamilyID] = defaultCF
 	db.columnFamilies.byName[DefaultColumnFamilyName] = defaultCF
 
-	secondary := &DBImplSecondary{
-		DBImpl:        db,
+	secondary := &dbImplSecondary{
+		dbImpl:        db,
 		primaryPath:   primaryPath,
 		secondaryPath: secondaryPath,
 	}
@@ -128,7 +127,7 @@ func OpenAsSecondary(primaryPath, secondaryPath string, opts *Options) (DB, erro
 
 // TryCatchUpWithPrimary attempts to catch up with the primary database.
 // It reads new records from the MANIFEST and applies them.
-func (db *DBImplSecondary) TryCatchUpWithPrimary() error {
+func (db *dbImplSecondary) TryCatchUpWithPrimary() error {
 	db.catchupMu.Lock()
 	defer db.catchupMu.Unlock()
 
@@ -146,92 +145,92 @@ func (db *DBImplSecondary) TryCatchUpWithPrimary() error {
 }
 
 // Put is not supported in secondary mode.
-func (db *DBImplSecondary) Put(opts *WriteOptions, key, value []byte) error {
+func (db *dbImplSecondary) Put(opts *WriteOptions, key, value []byte) error {
 	return ErrReadOnly
 }
 
 // Delete is not supported in secondary mode.
-func (db *DBImplSecondary) Delete(opts *WriteOptions, key []byte) error {
+func (db *dbImplSecondary) Delete(opts *WriteOptions, key []byte) error {
 	return ErrReadOnly
 }
 
 // SingleDelete is not supported in secondary mode.
-func (db *DBImplSecondary) SingleDelete(opts *WriteOptions, key []byte) error {
+func (db *dbImplSecondary) SingleDelete(opts *WriteOptions, key []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteRange is not supported in secondary mode.
-func (db *DBImplSecondary) DeleteRange(opts *WriteOptions, start, end []byte) error {
+func (db *dbImplSecondary) DeleteRange(opts *WriteOptions, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // Merge is not supported in secondary mode.
-func (db *DBImplSecondary) Merge(opts *WriteOptions, key, operand []byte) error {
+func (db *dbImplSecondary) Merge(opts *WriteOptions, key, operand []byte) error {
 	return ErrReadOnly
 }
 
 // Write is not supported in secondary mode.
-func (db *DBImplSecondary) Write(opts *WriteOptions, b *WriteBatch) error {
+func (db *dbImplSecondary) Write(opts *WriteOptions, b *WriteBatch) error {
 	return ErrReadOnly
 }
 
 // Flush is not supported in secondary mode.
-func (db *DBImplSecondary) Flush(opts *FlushOptions) error {
+func (db *dbImplSecondary) Flush(opts *FlushOptions) error {
 	return ErrReadOnly
 }
 
 // CompactRange is not supported in secondary mode.
-func (db *DBImplSecondary) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
+func (db *dbImplSecondary) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // CreateColumnFamily is not supported in secondary mode.
-func (db *DBImplSecondary) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
+func (db *dbImplSecondary) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
 	return nil, ErrReadOnly
 }
 
 // DropColumnFamily is not supported in secondary mode.
-func (db *DBImplSecondary) DropColumnFamily(handle ColumnFamilyHandle) error {
+func (db *dbImplSecondary) DropColumnFamily(handle ColumnFamilyHandle) error {
 	return ErrReadOnly
 }
 
 // PutCF is not supported in secondary mode.
-func (db *DBImplSecondary) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
+func (db *dbImplSecondary) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteCF is not supported in secondary mode.
-func (db *DBImplSecondary) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
+func (db *dbImplSecondary) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteRangeCF is not supported in secondary mode.
-func (db *DBImplSecondary) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start, end []byte) error {
+func (db *dbImplSecondary) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // MergeCF is not supported in secondary mode.
-func (db *DBImplSecondary) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, operand []byte) error {
+func (db *dbImplSecondary) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, operand []byte) error {
 	return ErrReadOnly
 }
 
 // IngestExternalFile is not supported in secondary mode.
-func (db *DBImplSecondary) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
+func (db *dbImplSecondary) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
 	return ErrReadOnly
 }
 
 // SyncWAL is not supported in secondary mode.
-func (db *DBImplSecondary) SyncWAL() error {
+func (db *dbImplSecondary) SyncWAL() error {
 	return ErrReadOnly
 }
 
 // FlushWAL is not supported in secondary mode.
-func (db *DBImplSecondary) FlushWAL(sync bool) error {
+func (db *dbImplSecondary) FlushWAL(sync bool) error {
 	return ErrReadOnly
 }
 
 // GetLatestSequenceNumber returns the sequence number of the most recent transaction.
-func (db *DBImplSecondary) GetLatestSequenceNumber() uint64 {
+func (db *dbImplSecondary) GetLatestSequenceNumber() uint64 {
 	if db.versions == nil {
 		return 0
 	}
@@ -240,55 +239,55 @@ func (db *DBImplSecondary) GetLatestSequenceNumber() uint64 {
 
 // GetLiveFiles returns a list of all files in the database.
 // flushMemtable is ignored in secondary mode (no memtable to flush).
-func (db *DBImplSecondary) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
+func (db *dbImplSecondary) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 	if db.closed {
 		return nil, 0, ErrDBClosed
 	}
-	// Delegate to embedded DBImpl, but ignore flushMemtable since we're secondary
-	return db.DBImpl.GetLiveFiles(false)
+	// Delegate to embedded dbImpl, but ignore flushMemtable since we're secondary
+	return db.dbImpl.GetLiveFiles(false)
 }
 
 // GetLiveFilesMetaData returns metadata about all live SST files.
-func (db *DBImplSecondary) GetLiveFilesMetaData() []LiveFileMetaData {
+func (db *dbImplSecondary) GetLiveFilesMetaData() []LiveFileMetaData {
 	if db.closed {
 		return nil
 	}
-	// Delegate to embedded DBImpl
-	return db.DBImpl.GetLiveFilesMetaData()
+	// Delegate to embedded dbImpl
+	return db.dbImpl.GetLiveFilesMetaData()
 }
 
 // DisableFileDeletions is a no-op in secondary mode.
-func (db *DBImplSecondary) DisableFileDeletions() error {
+func (db *dbImplSecondary) DisableFileDeletions() error {
 	return nil
 }
 
 // EnableFileDeletions is a no-op in secondary mode.
-func (db *DBImplSecondary) EnableFileDeletions() error {
+func (db *dbImplSecondary) EnableFileDeletions() error {
 	return nil
 }
 
 // PauseBackgroundWork is a no-op in secondary mode.
-func (db *DBImplSecondary) PauseBackgroundWork() error {
+func (db *dbImplSecondary) PauseBackgroundWork() error {
 	return nil
 }
 
 // ContinueBackgroundWork is a no-op in secondary mode.
-func (db *DBImplSecondary) ContinueBackgroundWork() error {
+func (db *dbImplSecondary) ContinueBackgroundWork() error {
 	return nil
 }
 
 // BeginTransaction is not supported in secondary mode.
-func (db *DBImplSecondary) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
+func (db *dbImplSecondary) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
 	return nil
 }
 
 // NewCheckpoint is not supported in secondary mode.
-func (db *DBImplSecondary) NewCheckpoint() *Checkpoint {
+func (db *dbImplSecondary) NewCheckpoint() *Checkpoint {
 	return nil
 }
 
 // Close closes the secondary database.
-func (db *DBImplSecondary) Close() error {
+func (db *dbImplSecondary) Close() error {
 	if db.closed {
 		return ErrDBClosed
 	}
@@ -302,7 +301,7 @@ func (db *DBImplSecondary) Close() error {
 }
 
 // GetProperty returns a property value, with additional secondary-specific properties.
-func (db *DBImplSecondary) GetProperty(name string) (string, bool) {
+func (db *dbImplSecondary) GetProperty(name string) (string, bool) {
 	if strings.HasPrefix(name, "rocksdb.secondary.") {
 		switch name {
 		case "rocksdb.secondary.primary-path":
@@ -313,5 +312,5 @@ func (db *DBImplSecondary) GetProperty(name string) (string, bool) {
 			return "", false
 		}
 	}
-	return db.DBImpl.GetProperty(name)
+	return db.dbImpl.GetProperty(name)
 }

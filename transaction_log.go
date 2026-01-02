@@ -11,7 +11,6 @@ package rockyardkv
 //   - db/transaction_log_impl.h
 //   - db/transaction_log_impl.cc
 
-
 import (
 	"errors"
 	"fmt"
@@ -84,7 +83,7 @@ func DefaultTransactionLogIteratorReadOptions() TransactionLogIteratorReadOption
 
 // TransactionLogIterator iterates over WAL records.
 type TransactionLogIterator struct {
-	db            *DBImpl
+	db            *dbImpl
 	fs            vfs.FS
 	readOpts      TransactionLogIteratorReadOptions
 	startSeq      uint64
@@ -101,7 +100,7 @@ type TransactionLogIterator struct {
 // whose sequence number is >= seq_number.
 //
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc (GetUpdatesSince)
-func (db *DBImpl) GetUpdatesSince(seqNumber uint64, readOpts TransactionLogIteratorReadOptions) (*TransactionLogIterator, error) {
+func (db *dbImpl) GetUpdatesSince(seqNumber uint64, readOpts TransactionLogIteratorReadOptions) (*TransactionLogIterator, error) {
 	// Get list of WAL files
 	walFiles, err := db.getSortedWalFiles()
 	if err != nil {
@@ -295,7 +294,7 @@ func (iter *TransactionLogIterator) readBatchFromReader() (*BatchResult, error) 
 }
 
 // getSortedWalFiles returns a list of WAL files sorted by log number.
-func (db *DBImpl) getSortedWalFiles() ([]WalFile, error) {
+func (db *dbImpl) getSortedWalFiles() ([]WalFile, error) {
 	entries, err := db.fs.ListDir(db.name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list database directory: %w", err)
@@ -344,6 +343,6 @@ func (db *DBImpl) getSortedWalFiles() ([]WalFile, error) {
 
 // GetSortedWalFiles returns a list of all WAL files sorted by log number.
 // This is useful for backup and replication scenarios.
-func (db *DBImpl) GetSortedWalFiles() ([]WalFile, error) {
+func (db *dbImpl) GetSortedWalFiles() ([]WalFile, error) {
 	return db.getSortedWalFiles()
 }

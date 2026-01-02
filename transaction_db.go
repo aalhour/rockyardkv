@@ -9,8 +9,8 @@ package rockyardkv
 //   - utilities/transactions/pessimistic_transaction_db.h
 //   - utilities/transactions/pessimistic_transaction_db.cc
 
-
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -19,7 +19,7 @@ import (
 // It supports both optimistic and pessimistic concurrency control.
 type TransactionDB struct {
 	// The underlying database
-	db *DBImpl
+	db *dbImpl
 
 	// Lock manager for pessimistic transactions
 	lockManager *LockManager
@@ -73,11 +73,11 @@ func OpenTransactionDB(path string, dbOpts *Options, txnDBOpts TransactionDBOpti
 		return nil, err
 	}
 
-	// Cast to *DBImpl
-	dbImpl, ok := database.(*DBImpl)
+	// Cast to *dbImpl
+	dbImpl, ok := database.(*dbImpl)
 	if !ok {
 		_ = database.Close()
-		return nil, ErrColumnFamilyNotFound // Use existing error for type assertion failure
+		return nil, fmt.Errorf("transactiondb: requires rockyardkv DB implementation, got %T", database)
 	}
 
 	txnDB := &TransactionDB{
@@ -91,13 +91,17 @@ func OpenTransactionDB(path string, dbOpts *Options, txnDBOpts TransactionDBOpti
 }
 
 // WrapDB wraps an existing database as a TransactionDB.
-func WrapDB(db *DBImpl, txnDBOpts TransactionDBOptions) *TransactionDB {
+func WrapDB(database DB, txnDBOpts TransactionDBOptions) (*TransactionDB, error) {
+	dbImpl, ok := database.(*dbImpl)
+	if !ok {
+		return nil, fmt.Errorf("transactiondb: requires rockyardkv DB implementation, got %T", database)
+	}
 	return &TransactionDB{
-		db:          db,
+		db:          dbImpl,
 		lockManager: NewLockManager(txnDBOpts.LockManagerOptions),
 		activeTxns:  make(map[uint64]*PessimisticTransaction),
 		opts:        txnDBOpts,
-	}
+	}, nil
 }
 
 // Close closes the TransactionDB and the underlying database.
@@ -114,7 +118,7 @@ func (txnDB *TransactionDB) Close() error {
 }
 
 // GetDB returns the underlying database.
-func (txnDB *TransactionDB) GetDB() *DBImpl {
+func (txnDB *TransactionDB) GetDB() DB {
 	return txnDB.db
 }
 

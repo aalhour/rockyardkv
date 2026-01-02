@@ -15,7 +15,6 @@ package rockyardkv
 //   - utilities/transactions/write_prepared_txn.cc
 //   - utilities/transactions/write_prepared_txn_db.cc
 
-
 import (
 	"errors"
 	"fmt"
@@ -53,10 +52,10 @@ const (
 	TxnStateRolledBack
 )
 
-// CommitCache tracks prepared->committed sequence mappings.
+// commitCache tracks prepared->committed sequence mappings.
 // It's used to determine if data written by a prepared transaction
 // should be visible to a reader at a given sequence number.
-type CommitCache struct {
+type commitCache struct {
 	mu sync.RWMutex
 
 	// Maps prepareSeq -> commitSeq
@@ -69,19 +68,19 @@ type CommitCache struct {
 	capacity int
 }
 
-// NewCommitCache creates a new commit cache.
-func NewCommitCache(capacity int) *CommitCache {
+// newCommitCache creates a new commit cache.
+func newCommitCache(capacity int) *commitCache {
 	if capacity <= 0 {
 		capacity = 8 * 1024 // 8K entries default
 	}
-	return &CommitCache{
+	return &commitCache{
 		cache:    make(map[uint64]uint64, capacity),
 		capacity: capacity,
 	}
 }
 
 // Add records a prepare->commit mapping.
-func (c *CommitCache) Add(prepareSeq, commitSeq uint64) {
+func (c *commitCache) Add(prepareSeq, commitSeq uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -95,7 +94,7 @@ func (c *CommitCache) Add(prepareSeq, commitSeq uint64) {
 
 // Get returns the commit sequence for a prepare sequence.
 // Returns (commitSeq, true) if found, (0, false) otherwise.
-func (c *CommitCache) Get(prepareSeq uint64) (uint64, bool) {
+func (c *commitCache) Get(prepareSeq uint64) (uint64, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -105,7 +104,7 @@ func (c *CommitCache) Get(prepareSeq uint64) (uint64, bool) {
 
 // IsCommitted checks if a prepare sequence has been committed.
 // Also returns true if the sequence is old enough to have been evicted.
-func (c *CommitCache) IsCommitted(prepareSeq uint64) bool {
+func (c *commitCache) IsCommitted(prepareSeq uint64) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -120,7 +119,7 @@ func (c *CommitCache) IsCommitted(prepareSeq uint64) bool {
 
 // evictOldest removes the oldest entries from the cache.
 // Must be called with mu held.
-func (c *CommitCache) evictOldest() {
+func (c *commitCache) evictOldest() {
 	// Find and remove the oldest entries (lowest prepareSeq)
 	evictCount := len(c.cache) - c.capacity + 100 // Evict 100 extra
 
@@ -141,8 +140,8 @@ func (c *CommitCache) evictOldest() {
 	}
 }
 
-// PrepareHeap tracks in-flight prepared transactions.
-type PrepareHeap struct {
+// prepareHeap tracks in-flight prepared transactions.
+type prepareHeap struct {
 	mu sync.RWMutex
 
 	// Set of prepare sequence numbers that are still in-flight
@@ -152,16 +151,16 @@ type PrepareHeap struct {
 	minPrepared uint64
 }
 
-// NewPrepareHeap creates a new prepare heap.
-func NewPrepareHeap() *PrepareHeap {
-	return &PrepareHeap{
+// newPrepareHeap creates a new prepare heap.
+func newPrepareHeap() *prepareHeap {
+	return &prepareHeap{
 		prepared:    make(map[uint64]struct{}),
 		minPrepared: ^uint64(0), // Max value
 	}
 }
 
 // Add adds a prepare sequence to the heap.
-func (h *PrepareHeap) Add(prepareSeq uint64) {
+func (h *prepareHeap) Add(prepareSeq uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -172,7 +171,7 @@ func (h *PrepareHeap) Add(prepareSeq uint64) {
 }
 
 // Remove removes a prepare sequence from the heap.
-func (h *PrepareHeap) Remove(prepareSeq uint64) {
+func (h *prepareHeap) Remove(prepareSeq uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -190,7 +189,7 @@ func (h *PrepareHeap) Remove(prepareSeq uint64) {
 }
 
 // Contains checks if a prepare sequence is in the heap.
-func (h *PrepareHeap) Contains(prepareSeq uint64) bool {
+func (h *prepareHeap) Contains(prepareSeq uint64) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -203,10 +202,10 @@ type WritePreparedTxnDB struct {
 	*TransactionDB
 
 	// Commit cache for tracking prepared->committed mappings
-	commitCache *CommitCache
+	commitCache *commitCache
 
 	// Prepare heap for tracking in-flight prepared transactions
-	prepareHeap *PrepareHeap
+	prepareHeap *prepareHeap
 
 	// Sequence number for the next prepare
 	prepareSeq atomic.Uint64
@@ -239,8 +238,8 @@ func OpenWritePreparedTxnDB(path string, opts *Options, txnOpts TransactionDBOpt
 
 	wpDB := &WritePreparedTxnDB{
 		TransactionDB: txnDB,
-		commitCache:   NewCommitCache(8 * 1024),
-		prepareHeap:   NewPrepareHeap(),
+		commitCache:   newCommitCache(8 * 1024),
+		prepareHeap:   newPrepareHeap(),
 		recovered: recoveredPreparedTxns{
 			txns: make(map[string]*RecoveredPreparedTxn),
 		},

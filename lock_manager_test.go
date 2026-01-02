@@ -2,7 +2,6 @@ package rockyardkv
 
 // lock_manager_test.go implements tests for lock manager.
 
-
 import (
 	"errors"
 	"sync"

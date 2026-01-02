@@ -9,7 +9,6 @@ package rockyardkv
 //   - db/external_sst_file_ingestion_job.h
 //   - db/external_sst_file_ingestion_job.cc
 
-
 import (
 	"bytes"
 	"errors"
@@ -115,12 +114,12 @@ type ingestedFileInfo struct {
 // Keys in the ingested files will be visible after this call returns.
 // If snapshot_consistency is true, the ingested keys will not be visible
 // in snapshots created before this call.
-func (db *DBImpl) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
+func (db *dbImpl) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
 	return db.IngestExternalFileCF(nil, paths, opts)
 }
 
 // IngestExternalFileCF loads external SST files into a specific column family.
-func (db *DBImpl) IngestExternalFileCF(cf ColumnFamilyHandle, paths []string, opts IngestExternalFileOptions) error {
+func (db *dbImpl) IngestExternalFileCF(cf ColumnFamilyHandle, paths []string, opts IngestExternalFileOptions) error {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -194,7 +193,7 @@ func (db *DBImpl) IngestExternalFileCF(cf ColumnFamilyHandle, paths []string, op
 }
 
 // verifyAndPrepareIngestFiles verifies each file is a valid SST and collects metadata.
-func (db *DBImpl) verifyAndPrepareIngestFiles(paths []string, opts IngestExternalFileOptions) ([]*ingestedFileInfo, error) {
+func (db *dbImpl) verifyAndPrepareIngestFiles(paths []string, opts IngestExternalFileOptions) ([]*ingestedFileInfo, error) {
 	files := make([]*ingestedFileInfo, 0, len(paths))
 
 	for _, path := range paths {
@@ -214,7 +213,7 @@ func (db *DBImpl) verifyAndPrepareIngestFiles(paths []string, opts IngestExterna
 }
 
 // verifyIngestFile verifies a single SST file and returns its metadata.
-func (db *DBImpl) verifyIngestFile(path string, opts IngestExternalFileOptions) (*ingestedFileInfo, error) {
+func (db *dbImpl) verifyIngestFile(path string, opts IngestExternalFileOptions) (*ingestedFileInfo, error) {
 	// Open and read the file
 	file, err := os.Open(path)
 	if err != nil {
@@ -284,7 +283,7 @@ func (w *osFileWrapper) Size() int64 {
 }
 
 // checkIngestedFilesOverlap checks if any ingested files overlap with each other.
-func (db *DBImpl) checkIngestedFilesOverlap(files []*ingestedFileInfo) error {
+func (db *dbImpl) checkIngestedFilesOverlap(files []*ingestedFileInfo) error {
 	// Files are sorted by smallest key
 	for i := 1; i < len(files); i++ {
 		// Check if previous file's largest key >= current file's smallest key
@@ -296,7 +295,7 @@ func (db *DBImpl) checkIngestedFilesOverlap(files []*ingestedFileInfo) error {
 }
 
 // checkMemtableOverlap checks if any ingested file overlaps with the memtable.
-func (db *DBImpl) checkMemtableOverlap(files []*ingestedFileInfo) bool {
+func (db *dbImpl) checkMemtableOverlap(files []*ingestedFileInfo) bool {
 	if db.mem == nil || db.mem.ApproximateMemoryUsage() == 0 {
 		return false
 	}
@@ -318,7 +317,7 @@ func (db *DBImpl) checkMemtableOverlap(files []*ingestedFileInfo) bool {
 }
 
 // getMemtableKeyRange returns the smallest and largest user keys in the memtable.
-func (db *DBImpl) getMemtableKeyRange() (smallest, largest []byte) {
+func (db *dbImpl) getMemtableKeyRange() (smallest, largest []byte) {
 	if db.mem == nil {
 		return nil, nil
 	}
@@ -346,7 +345,7 @@ func ingestRangesOverlap(aMin, aMax, bMin, bMax []byte) bool {
 }
 
 // assignGlobalSeqNos assigns global sequence numbers to ingested files.
-func (db *DBImpl) assignGlobalSeqNos(files []*ingestedFileInfo, opts IngestExternalFileOptions) error { //nolint:unparam // Error return kept for API consistency
+func (db *dbImpl) assignGlobalSeqNos(files []*ingestedFileInfo, opts IngestExternalFileOptions) error { //nolint:unparam // Error return kept for API consistency
 	if opts.IngestBehind {
 		// Ingest behind: all files get seqno 0
 		for _, f := range files {
@@ -374,7 +373,7 @@ func (db *DBImpl) assignGlobalSeqNos(files []*ingestedFileInfo, opts IngestExter
 }
 
 // determineTargetLevels finds the appropriate level for each ingested file.
-func (db *DBImpl) determineTargetLevels(files []*ingestedFileInfo, opts IngestExternalFileOptions) error {
+func (db *dbImpl) determineTargetLevels(files []*ingestedFileInfo, opts IngestExternalFileOptions) error {
 	current := db.versions.Current()
 	if current == nil {
 		// No version yet, place in L0
@@ -413,7 +412,7 @@ func (db *DBImpl) determineTargetLevels(files []*ingestedFileInfo, opts IngestEx
 }
 
 // levelOverlapsFile checks if a level has any files overlapping with the given key range.
-func (db *DBImpl) levelOverlapsFile(v *version.Version, level int, smallest, largest []byte) bool {
+func (db *dbImpl) levelOverlapsFile(v *version.Version, level int, smallest, largest []byte) bool {
 	files := v.Files(level)
 	for _, f := range files {
 		fileSmallest := dbformat.ExtractUserKey(f.Smallest)
@@ -426,7 +425,7 @@ func (db *DBImpl) levelOverlapsFile(v *version.Version, level int, smallest, lar
 }
 
 // installIngestedFiles copies or moves files to the DB directory.
-func (db *DBImpl) installIngestedFiles(files []*ingestedFileInfo, opts IngestExternalFileOptions) error {
+func (db *dbImpl) installIngestedFiles(files []*ingestedFileInfo, opts IngestExternalFileOptions) error {
 	for _, f := range files {
 		if opts.MoveFiles {
 			// Try to rename (move) the file
@@ -449,7 +448,7 @@ func (db *DBImpl) installIngestedFiles(files []*ingestedFileInfo, opts IngestExt
 }
 
 // updateManifestForIngest adds the ingested files to the MANIFEST.
-func (db *DBImpl) updateManifestForIngest(files []*ingestedFileInfo, _ ColumnFamilyHandle) error {
+func (db *dbImpl) updateManifestForIngest(files []*ingestedFileInfo, _ ColumnFamilyHandle) error {
 	edit := manifest.NewVersionEdit()
 
 	for _, f := range files {

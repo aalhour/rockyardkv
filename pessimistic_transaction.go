@@ -9,7 +9,6 @@ package rockyardkv
 //   - utilities/transactions/pessimistic_transaction.h
 //   - utilities/transactions/pessimistic_transaction.cc
 
-
 import (
 	"errors"
 	"sync"

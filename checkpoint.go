@@ -10,7 +10,6 @@ package rockyardkv
 //   - utilities/checkpoint/checkpoint_impl.h
 //   - utilities/checkpoint/checkpoint_impl.cc
 
-
 import (
 	"fmt"
 	"os"
@@ -21,12 +20,12 @@ import (
 
 // Checkpoint provides functionality to create database checkpoints.
 type Checkpoint struct {
-	db *DBImpl
+	db *dbImpl
 }
 
 // NewCheckpoint creates a new Checkpoint instance for the given database.
 func NewCheckpoint(database DB) (*Checkpoint, error) {
-	impl, ok := database.(*DBImpl)
+	impl, ok := database.(*dbImpl)
 	if !ok {
 		return nil, fmt.Errorf("checkpoint: unsupported database type")
 	}

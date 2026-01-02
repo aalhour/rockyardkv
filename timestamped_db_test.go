@@ -2,7 +2,6 @@ package rockyardkv
 
 // timestamped_db_test.go implements tests for timestamped db.
 
-
 import (
 	"bytes"
 	"errors"

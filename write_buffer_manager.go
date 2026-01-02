@@ -9,7 +9,6 @@ package rockyardkv
 //   - include/rocksdb/write_buffer_manager.h
 //   - memtable/write_buffer_manager.cc
 
-
 import (
 	"sync"
 	"sync/atomic"

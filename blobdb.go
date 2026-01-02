@@ -11,7 +11,6 @@ package rockyardkv
 //   - db/blob/blob_source.h
 //   - include/rocksdb/advanced_options.h (blob_options)
 
-
 import (
 	"fmt"
 	"sync"

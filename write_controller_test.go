@@ -2,7 +2,6 @@ package rockyardkv
 
 // write_controller_test.go implements tests for write controller.
 
-
 import (
 	"sync"
 	"testing"
@@ -10,10 +9,10 @@ import (
 )
 
 func TestWriteControllerBasic(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Initial state should be normal
-	condition, cause := wc.GetStallCondition()
+	condition, cause := wc.getStallCondition()
 	if condition != WriteStallConditionNormal {
 		t.Errorf("Expected normal condition, got %v", condition)
 	}
@@ -23,11 +22,11 @@ func TestWriteControllerBasic(t *testing.T) {
 }
 
 func TestWriteControllerSetCondition(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Set to delayed
-	wc.SetStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
-	condition, cause := wc.GetStallCondition()
+	wc.setStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
+	condition, cause := wc.getStallCondition()
 	if condition != WriteStallConditionDelayed {
 		t.Errorf("Expected delayed condition, got %v", condition)
 	}
@@ -36,8 +35,8 @@ func TestWriteControllerSetCondition(t *testing.T) {
 	}
 
 	// Set to stopped
-	wc.SetStallCondition(WriteStallConditionStopped, WriteStallCauseMemtableLimit)
-	condition, cause = wc.GetStallCondition()
+	wc.setStallCondition(WriteStallConditionStopped, WriteStallCauseMemtableLimit)
+	condition, cause = wc.getStallCondition()
 	if condition != WriteStallConditionStopped {
 		t.Errorf("Expected stopped condition, got %v", condition)
 	}
@@ -46,18 +45,18 @@ func TestWriteControllerSetCondition(t *testing.T) {
 	}
 
 	// Set back to normal
-	wc.SetStallCondition(WriteStallConditionNormal, WriteStallCauseNone)
-	condition, _ = wc.GetStallCondition()
+	wc.setStallCondition(WriteStallConditionNormal, WriteStallCauseNone)
+	condition, _ = wc.getStallCondition()
 	if condition != WriteStallConditionNormal {
 		t.Errorf("Expected normal condition, got %v", condition)
 	}
 }
 
 func TestWriteControllerStoppedWakesUp(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Set to stopped
-	wc.SetStallCondition(WriteStallConditionStopped, WriteStallCauseL0FileCountLimit)
+	wc.setStallCondition(WriteStallConditionStopped, WriteStallCauseL0FileCountLimit)
 
 	var wg sync.WaitGroup
 	started := make(chan struct{})
@@ -66,7 +65,7 @@ func TestWriteControllerStoppedWakesUp(t *testing.T) {
 	wg.Go(func() {
 		close(started)
 		// This should block until released
-		wc.MaybeStallWrite(100)
+		wc.maybeStallWrite(100)
 		close(done)
 	})
 
@@ -75,7 +74,7 @@ func TestWriteControllerStoppedWakesUp(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Release the stall
-	wc.SetStallCondition(WriteStallConditionNormal, WriteStallCauseNone)
+	wc.setStallCondition(WriteStallConditionNormal, WriteStallCauseNone)
 
 	// Wait for completion with timeout
 	select {
@@ -89,18 +88,18 @@ func TestWriteControllerStoppedWakesUp(t *testing.T) {
 }
 
 func TestWriteControllerDelayedSlowsDown(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Set a high write rate for testing
-	wc.SetDelayedWriteRate(1024 * 1024) // 1 MB/s
+	wc.setDelayedWriteRate(1024 * 1024) // 1 MB/s
 
 	// Set to delayed
-	wc.SetStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
+	wc.setStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
 
 	// Write should be delayed proportionally
 	writeSize := 100 * 1024 // 100 KB
 	start := time.Now()
-	wc.MaybeStallWrite(writeSize)
+	wc.maybeStallWrite(writeSize)
 	elapsed := time.Since(start)
 
 	// Expected delay: 100KB / 1MB/s = 0.1s = 100ms
@@ -194,7 +193,7 @@ func TestRecalculateWriteStallCondition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			condition, cause := RecalculateWriteStallCondition(
+			condition, cause := recalculateWriteStallCondition(
 				tt.numUnflushed,
 				tt.numL0Files,
 				tt.maxWriteBufferNumber,
@@ -213,24 +212,24 @@ func TestRecalculateWriteStallCondition(t *testing.T) {
 }
 
 func TestWriteControllerStats(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Initially zero
-	stopped, delayed := wc.GetStats()
+	stopped, delayed := wc.getStats()
 	if stopped != 0 || delayed != 0 {
 		t.Errorf("Initial stats should be 0, got stopped=%d, delayed=%d", stopped, delayed)
 	}
 
 	// Set stopped
-	wc.SetStallCondition(WriteStallConditionStopped, WriteStallCauseL0FileCountLimit)
-	stopped, _ = wc.GetStats()
+	wc.setStallCondition(WriteStallConditionStopped, WriteStallCauseL0FileCountLimit)
+	stopped, _ = wc.getStats()
 	if stopped != 1 {
 		t.Errorf("Expected 1 stopped, got %d", stopped)
 	}
 
 	// Set delayed
-	wc.SetStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
-	_, delayed = wc.GetStats()
+	wc.setStallCondition(WriteStallConditionDelayed, WriteStallCauseL0FileCountLimit)
+	_, delayed = wc.getStats()
 	if delayed != 1 {
 		t.Errorf("Expected 1 delayed, got %d", delayed)
 	}
@@ -257,10 +256,10 @@ func TestWriteStallCauseString(t *testing.T) {
 // that ReleaseWriteStall unblocks goroutines waiting in MaybeStallWrite
 // even when the stall condition is still Stopped.
 func TestWriteControllerReleaseWriteStall(t *testing.T) {
-	wc := NewWriteController()
+	wc := newWriteController()
 
 	// Set to stopped condition
-	wc.SetStallCondition(WriteStallConditionStopped, WriteStallCauseMemtableLimit)
+	wc.setStallCondition(WriteStallConditionStopped, WriteStallCauseMemtableLimit)
 
 	var wg sync.WaitGroup
 	started := make(chan struct{})
@@ -269,7 +268,7 @@ func TestWriteControllerReleaseWriteStall(t *testing.T) {
 	wg.Go(func() {
 		close(started)
 		// This should block until ReleaseWriteStall is called
-		wc.MaybeStallWrite(100)
+		wc.maybeStallWrite(100)
 		close(done)
 	})
 
@@ -286,7 +285,7 @@ func TestWriteControllerReleaseWriteStall(t *testing.T) {
 	}
 
 	// Call ReleaseWriteStall - should unblock even though condition is Stopped
-	wc.ReleaseWriteStall()
+	wc.releaseWriteStall()
 
 	// Wait for completion with timeout
 	select {
@@ -300,7 +299,7 @@ func TestWriteControllerReleaseWriteStall(t *testing.T) {
 
 	// Verify subsequent calls to MaybeStallWrite return immediately (closed state)
 	start := time.Now()
-	wc.MaybeStallWrite(1000000)
+	wc.maybeStallWrite(1000000)
 	if time.Since(start) > 100*time.Millisecond {
 		t.Error("MaybeStallWrite should return immediately after ReleaseWriteStall")
 	}

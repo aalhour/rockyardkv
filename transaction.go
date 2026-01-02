@@ -10,7 +10,6 @@ package rockyardkv
 //   - include/rocksdb/utilities/transaction.h
 //   - utilities/transactions/optimistic_transaction.h
 
-
 import (
 	"errors"
 	"sync"
@@ -101,7 +100,7 @@ type optimisticTransaction struct {
 	mu sync.Mutex
 
 	// The database
-	db *DBImpl
+	db *dbImpl
 
 	// Write batch for transaction writes
 	writeBatch *batch.WriteBatch
@@ -120,7 +119,7 @@ type optimisticTransaction struct {
 }
 
 // newOptimisticTransaction creates a new optimistic transaction.
-func newOptimisticTransaction(db *DBImpl, opts TransactionOptions, writeOpts *WriteOptions) *optimisticTransaction {
+func newOptimisticTransaction(db *dbImpl, opts TransactionOptions, writeOpts *WriteOptions) *optimisticTransaction {
 	txn := &optimisticTransaction{
 		db:          db,
 		writeBatch:  batch.New(),
@@ -374,7 +373,7 @@ func (txn *optimisticTransaction) checkForConflicts() error {
 			return err
 		}
 		if tracked.cfID != 0 {
-			cfd = txn.db.columnFamilies.GetByID(tracked.cfID)
+			cfd = txn.db.columnFamilies.getByID(tracked.cfID)
 			if cfd == nil {
 				return ErrColumnFamilyNotFound
 			}

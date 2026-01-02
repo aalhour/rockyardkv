@@ -2,7 +2,6 @@ package rockyardkv
 
 // multiget_test.go implements tests for multiget.
 
-
 import (
 	"bytes"
 	"errors"

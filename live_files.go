@@ -7,7 +7,6 @@ package rockyardkv
 //   db/db_filesnapshot.cc - GetLiveFiles, GetLiveFilesMetaData implementations
 //   include/rocksdb/db.h - API definitions
 
-
 import (
 	"fmt"
 	"path/filepath"
@@ -59,7 +58,7 @@ type LiveFileMetaData struct {
 
 // GetLiveFiles returns a list of all files in the database except WAL files.
 // Reference: RocksDB v10.7.5 db/db_filesnapshot.cc GetLiveFiles()
-func (db *DBImpl) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
+func (db *dbImpl) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -122,7 +121,7 @@ func (db *DBImpl) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 
 // GetLiveFilesMetaData returns metadata about all live SST files.
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc GetLiveFilesMetaData()
-func (db *DBImpl) GetLiveFilesMetaData() []LiveFileMetaData {
+func (db *dbImpl) GetLiveFilesMetaData() []LiveFileMetaData {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -167,7 +166,7 @@ var fileDeletionDisabledCount atomic.Int32
 
 // DisableFileDeletions prevents file deletions.
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h DisableFileDeletions()
-func (db *DBImpl) DisableFileDeletions() error {
+func (db *dbImpl) DisableFileDeletions() error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -181,7 +180,7 @@ func (db *DBImpl) DisableFileDeletions() error {
 
 // EnableFileDeletions re-enables file deletions.
 // Reference: RocksDB v10.7.5 include/rocksdb/db.h EnableFileDeletions()
-func (db *DBImpl) EnableFileDeletions() error {
+func (db *dbImpl) EnableFileDeletions() error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -208,7 +207,7 @@ func IsFileDeletionsDisabled() bool {
 
 // PauseBackgroundWork pauses all background work.
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc PauseBackgroundWork()
-func (db *DBImpl) PauseBackgroundWork() error {
+func (db *dbImpl) PauseBackgroundWork() error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -218,14 +217,14 @@ func (db *DBImpl) PauseBackgroundWork() error {
 	db.mu.RUnlock()
 
 	if bgWork != nil {
-		bgWork.Pause()
+		bgWork.pause()
 	}
 	return nil
 }
 
 // ContinueBackgroundWork resumes background work.
 // Reference: RocksDB v10.7.5 db/db_impl/db_impl.cc ContinueBackgroundWork()
-func (db *DBImpl) ContinueBackgroundWork() error {
+func (db *dbImpl) ContinueBackgroundWork() error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -235,7 +234,7 @@ func (db *DBImpl) ContinueBackgroundWork() error {
 	db.mu.RUnlock()
 
 	if bgWork != nil {
-		bgWork.Continue()
+		bgWork.resume()
 	}
 	return nil
 }

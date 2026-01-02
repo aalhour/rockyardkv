@@ -2,7 +2,6 @@ package rockyardkv
 
 // background_error_test.go implements tests for background error.
 
-
 import (
 	"errors"
 	"testing"
@@ -29,7 +28,7 @@ func TestBackgroundErrorBlocksWrites(t *testing.T) {
 
 	// Simulate a background error (e.g., I/O failure)
 	testError := errors.New("simulated I/O error: permission denied")
-	db.(*DBImpl).SetBackgroundError(testError)
+	db.(*dbImpl).SetBackgroundError(testError)
 
 	// Write should now fail with background error
 	err = db.Put(nil, []byte("key2"), []byte("value2"))
@@ -68,7 +67,7 @@ func TestBackgroundErrorFirstErrorWins(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Set first error
 	err1 := errors.New("first error")
@@ -98,7 +97,7 @@ func TestBackgroundErrorFlushBlocked(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Set background error
 	testError := errors.New("simulated I/O error")

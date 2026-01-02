@@ -2,7 +2,6 @@ package rockyardkv
 
 // wide_columns_test.go implements tests for wide columns.
 
-
 import (
 	"bytes"
 	"errors"
@@ -139,7 +138,7 @@ func TestWideColumnDB(t *testing.T) {
 	}
 	defer database.Close()
 
-	wcdb := NewWideColumnDB(database.(*DBImpl))
+	wcdb := NewWideColumnDB(database)
 
 	// Test PutEntity
 	user := WideColumns{
@@ -203,7 +202,7 @@ func TestWideColumnDBMerge(t *testing.T) {
 	}
 	defer database.Close()
 
-	wcdb := NewWideColumnDB(database.(*DBImpl))
+	wcdb := NewWideColumnDB(database)
 
 	// Initial entity
 	initial := WideColumns{
@@ -262,7 +261,7 @@ func TestWideColumnDBMergeNonExistent(t *testing.T) {
 	}
 	defer database.Close()
 
-	wcdb := NewWideColumnDB(database.(*DBImpl))
+	wcdb := NewWideColumnDB(database)
 
 	// Merge into non-existent entity should create it
 	cols := WideColumns{

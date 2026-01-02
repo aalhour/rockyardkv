@@ -6,7 +6,6 @@ package rockyardkv
 //   - include/rocksdb/db.h (DB interface)
 //   - db/db_impl/db_impl.cc (implementation)
 
-
 import (
 	"errors"
 	"fmt"
@@ -68,8 +67,8 @@ type WaitForCompactOptions struct {
 //
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1022-1050
-//   - db/db_impl/db_impl.cc DBImpl::KeyMayExist
-func (db *DBImpl) KeyMayExist(opts *ReadOptions, key []byte, value *[]byte) (mayExist bool, valueFound bool) {
+//   - db/db_impl/db_impl.cc dbImpl::KeyMayExist
+func (db *dbImpl) KeyMayExist(opts *ReadOptions, key []byte, value *[]byte) (mayExist bool, valueFound bool) {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -141,7 +140,7 @@ func (db *DBImpl) KeyMayExist(opts *ReadOptions, key []byte, value *[]byte) (may
 }
 
 // KeyMayExistCF checks if a key may exist in the specified column family.
-func (db *DBImpl) KeyMayExistCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte, value *[]byte) (mayExist bool, valueFound bool) {
+func (db *dbImpl) KeyMayExistCF(opts *ReadOptions, cf ColumnFamilyHandle, key []byte, value *[]byte) (mayExist bool, valueFound bool) {
 	// For now, delegate to default implementation
 	return db.KeyMayExist(opts, key, value)
 }
@@ -150,7 +149,7 @@ func (db *DBImpl) KeyMayExistCF(opts *ReadOptions, cf ColumnFamilyHandle, key []
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1705-1708
 //   - db/db_impl/db_impl_compaction_flush.cc
-func (db *DBImpl) WaitForCompact(opts *WaitForCompactOptions) error {
+func (db *dbImpl) WaitForCompact(opts *WaitForCompactOptions) error {
 	if opts == nil {
 		opts = &WaitForCompactOptions{}
 	}
@@ -210,8 +209,8 @@ func (db *DBImpl) WaitForCompact(opts *WaitForCompactOptions) error {
 // GetApproximateSizes returns the approximate sizes of key ranges.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1533-1565
-//   - db/db_impl/db_impl.cc DBImpl::GetApproximateSizes
-func (db *DBImpl) GetApproximateSizes(ranges []Range, flags SizeApproximationFlags) ([]uint64, error) {
+//   - db/db_impl/db_impl.cc dbImpl::GetApproximateSizes
+func (db *dbImpl) GetApproximateSizes(ranges []Range, flags SizeApproximationFlags) ([]uint64, error) {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -273,7 +272,7 @@ func (db *DBImpl) GetApproximateSizes(ranges []Range, flags SizeApproximationFla
 // GetApproximateMemTableStats returns approximate memtable statistics for a range.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1556-1564
-func (db *DBImpl) GetApproximateMemTableStats(r Range) (count, size uint64) {
+func (db *dbImpl) GetApproximateMemTableStats(r Range) (count, size uint64) {
 	db.mu.RLock()
 	mem := db.mem
 	imm := db.imm
@@ -294,35 +293,35 @@ func (db *DBImpl) GetApproximateMemTableStats(r Range) (count, size uint64) {
 // NumberLevels returns the number of levels in the LSM tree.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1710-1712
-func (db *DBImpl) NumberLevels() int {
+func (db *dbImpl) NumberLevels() int {
 	return version.MaxNumLevels
 }
 
 // Level0StopWriteTrigger returns the number of L0 files that triggers write stop.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1725-1727
-func (db *DBImpl) Level0StopWriteTrigger() int {
+func (db *dbImpl) Level0StopWriteTrigger() int {
 	return db.options.Level0StopWritesTrigger
 }
 
 // GetName returns the name/path of the database.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h line 1733
-func (db *DBImpl) GetName() string {
+func (db *dbImpl) GetName() string {
 	return db.name
 }
 
 // GetEnv returns the Env/VFS used by the database.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h line 1735
-func (db *DBImpl) GetEnv() vfs.FS {
+func (db *dbImpl) GetEnv() vfs.FS {
 	return db.fs
 }
 
 // GetOptions returns a copy of the current database options.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1741-1748
-func (db *DBImpl) GetOptions() Options {
+func (db *dbImpl) GetOptions() Options {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 	return *db.options
@@ -331,14 +330,14 @@ func (db *DBImpl) GetOptions() Options {
 // GetDBOptions returns a copy of the current database-wide options.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h line 1750
-func (db *DBImpl) GetDBOptions() Options {
+func (db *dbImpl) GetDBOptions() Options {
 	return db.GetOptions()
 }
 
 // SetOptions dynamically changes database options.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1807-1809
-func (db *DBImpl) SetOptions(newOptions map[string]string) error {
+func (db *dbImpl) SetOptions(newOptions map[string]string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -370,14 +369,14 @@ func (db *DBImpl) SetOptions(newOptions map[string]string) error {
 // SetDBOptions dynamically changes database-wide options.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1810-1812
-func (db *DBImpl) SetDBOptions(newOptions map[string]string) error {
+func (db *dbImpl) SetDBOptions(newOptions map[string]string) error {
 	return db.SetOptions(newOptions)
 }
 
 // GetIntProperty returns an integer property value.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1366-1368
-func (db *DBImpl) GetIntProperty(name string) (uint64, bool) {
+func (db *dbImpl) GetIntProperty(name string) (uint64, bool) {
 	strVal, ok := db.GetProperty(name)
 	if !ok {
 		return 0, false
@@ -392,7 +391,7 @@ func (db *DBImpl) GetIntProperty(name string) (uint64, bool) {
 // GetMapProperty returns a map property value.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1370-1372
-func (db *DBImpl) GetMapProperty(name string) (map[string]string, bool) {
+func (db *dbImpl) GetMapProperty(name string) (map[string]string, bool) {
 	// For now, return basic properties as a map
 	result := make(map[string]string)
 
@@ -413,7 +412,7 @@ func (db *DBImpl) GetMapProperty(name string) (map[string]string, bool) {
 // NewIterators creates iterators for multiple column families.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1066-1069
-func (db *DBImpl) NewIterators(opts *ReadOptions, cfs []ColumnFamilyHandle) ([]Iterator, error) {
+func (db *dbImpl) NewIterators(opts *ReadOptions, cfs []ColumnFamilyHandle) ([]Iterator, error) {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()
@@ -431,7 +430,7 @@ func (db *DBImpl) NewIterators(opts *ReadOptions, cfs []ColumnFamilyHandle) ([]I
 // Resume resumes the database after an error.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 476-482
-func (db *DBImpl) Resume() error {
+func (db *dbImpl) Resume() error {
 	// No-op for now - database auto-resumes
 	return nil
 }
@@ -442,7 +441,7 @@ var walLockMu sync.Mutex
 // LockWAL locks the WAL, preventing new writes.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1791-1800
-func (db *DBImpl) LockWAL() error {
+func (db *dbImpl) LockWAL() error {
 	walLockMu.Lock()
 	return nil
 }
@@ -450,7 +449,7 @@ func (db *DBImpl) LockWAL() error {
 // UnlockWAL unlocks the WAL.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1801-1806
-func (db *DBImpl) UnlockWAL() error {
+func (db *dbImpl) UnlockWAL() error {
 	walLockMu.Unlock()
 	return nil
 }
@@ -458,7 +457,7 @@ func (db *DBImpl) UnlockWAL() error {
 // ResetStats resets database statistics.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h
-func (db *DBImpl) ResetStats() error {
+func (db *dbImpl) ResetStats() error {
 	// Statistics are reset internally if a stats object exists
 	// This is a no-op if no statistics are configured
 	return nil
@@ -467,7 +466,7 @@ func (db *DBImpl) ResetStats() error {
 // CompactFiles compacts specific files.
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/db.h lines 1633-1653
-func (db *DBImpl) CompactFiles(opts *CompactionOptions, inputFileNames []string, outputLevel int) error {
+func (db *dbImpl) CompactFiles(opts *CompactionOptions, inputFileNames []string, outputLevel int) error {
 	db.mu.RLock()
 	if db.closed {
 		db.mu.RUnlock()

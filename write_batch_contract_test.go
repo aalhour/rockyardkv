@@ -2,7 +2,6 @@ package rockyardkv
 
 // write_batch_contract_test.go implements tests for write batch contract.
 
-
 import (
 	"testing"
 

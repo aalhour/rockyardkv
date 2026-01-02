@@ -3,7 +3,6 @@ package rockyardkv
 // event_listener.go implements the EventListener interface for receiving database events.
 // Reference: RocksDB v10.7.5 include/rocksdb/listener.h
 
-
 import (
 	"sync"
 	"time"

@@ -12,7 +12,6 @@ package rockyardkv
 // (requires -tags crashtest) for whitebox testing. In production builds,
 // these compile to no-ops with zero overhead. See docs/testing/README.md for usage.
 
-
 import (
 	"errors"
 	"fmt"
@@ -28,7 +27,7 @@ var errFlushNoOutput = errors.New("flush: no output")
 
 // FlushJob flushes a memtable to an SST file.
 type FlushJob struct {
-	db *DBImpl
+	db *dbImpl
 
 	// The memtable being flushed
 	mem *memtable.MemTable
@@ -38,7 +37,7 @@ type FlushJob struct {
 }
 
 // newFlushJob creates a new flush job for the given memtable.
-func newFlushJob(db *DBImpl, mem *memtable.MemTable) *FlushJob {
+func newFlushJob(db *dbImpl, mem *memtable.MemTable) *FlushJob {
 	return &FlushJob{
 		db:  db,
 		mem: mem,
@@ -198,7 +197,7 @@ func extractSeqNum(internalKey []byte) uint64 {
 }
 
 // sstFilePath returns the path to an SST file.
-func (db *DBImpl) sstFilePath(number uint64) string {
+func (db *dbImpl) sstFilePath(number uint64) string {
 	return filepath.Join(db.name, sstFileName(number))
 }
 
@@ -209,7 +208,7 @@ func sstFileName(number uint64) string {
 
 // doFlush performs the actual flush of the immutable memtable.
 // This is called from the background flush goroutine or synchronously.
-func (db *DBImpl) doFlush() error {
+func (db *dbImpl) doFlush() error {
 	// Whitebox [synctest]: barrier at doFlush start
 	_ = testutil.SP(testutil.SPDoFlushStart)
 
@@ -337,7 +336,7 @@ func (db *DBImpl) doFlush() error {
 // backgroundFlush runs in a goroutine to handle flush requests.
 //
 //nolint:unused // Reserved for future use when background flush scheduling is implemented
-func (db *DBImpl) backgroundFlush() {
+func (db *dbImpl) backgroundFlush() {
 	for {
 		select {
 		case <-db.shutdownCh:

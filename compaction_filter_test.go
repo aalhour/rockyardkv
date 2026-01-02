@@ -2,7 +2,6 @@ package rockyardkv
 
 // compaction_filter_test.go implements tests for compaction filter.
 
-
 import (
 	"os"
 	"strconv"

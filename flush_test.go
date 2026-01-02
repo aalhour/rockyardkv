@@ -2,7 +2,6 @@ package rockyardkv
 
 // flush_test.go implements tests for flush.
 
-
 import (
 	"errors"
 	"os"

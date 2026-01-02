@@ -5,7 +5,6 @@ package rockyardkv
 // These tests verify that database options are correctly validated and
 // applied, affecting database behavior as expected.
 
-
 import (
 	"bytes"
 	"errors"

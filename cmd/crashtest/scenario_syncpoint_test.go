@@ -40,13 +40,13 @@ import (
 )
 
 // =============================================================================
-// Syncpoint Whitebox Test: Flush at DBImpl::Write:BeforeMemtable
+// Syncpoint Whitebox Test: Flush at dbImpl::Write:BeforeMemtable
 // =============================================================================
 
 // TestScenarioSyncpoint_WriteBeforeMemtable verifies that a crash before
 // memtable insertion (but after WAL write) recovers the write from WAL.
 //
-// Sync point: DBImpl::Write:BeforeMemtable
+// Sync point: dbImpl::Write:BeforeMemtable
 // Invariant: WAL-logged writes survive crash before memtable insertion.
 func TestScenarioSyncpoint_WriteBeforeMemtable(t *testing.T) {
 	runSyncpointScenario(t, testutil.SPDBWriteMemtable, func(database rockyardkv.DB) {
@@ -57,7 +57,7 @@ func TestScenarioSyncpoint_WriteBeforeMemtable(t *testing.T) {
 		if err := database.Put(opts, []byte("syncpoint_key"), []byte("syncpoint_value")); err != nil {
 			t.Fatalf("Put failed: %v", err)
 		}
-		// Crash will occur at DBImpl::Write:BeforeMemtable
+		// Crash will occur at dbImpl::Write:BeforeMemtable
 	}, func(t *testing.T, database rockyardkv.DB) {
 		// Verify: key should exist (recovered from WAL)
 		val, err := database.Get(nil, []byte("syncpoint_key"))

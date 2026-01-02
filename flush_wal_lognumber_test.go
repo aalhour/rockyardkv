@@ -2,7 +2,6 @@ package rockyardkv
 
 // flush_wal_lognumber_test.go implements tests for WAL log number handling during flush operations.
 
-
 import (
 	"testing"
 )
@@ -39,7 +38,7 @@ func TestFlush_LogNumber_OnlyAdvancesAfterFlush(t *testing.T) {
 	}
 
 	// Get initial log number from MANIFEST
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 	initialLogNumber := dbImpl.versions.LogNumber()
 	t.Logf("Initial LogNumber: %d", initialLogNumber)
 	t.Logf("Initial logFileNumber: %d", dbImpl.logFileNumber)
@@ -131,7 +130,7 @@ func TestFlush_LogNumber_MultipleFlushes(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 	writeOpts := DefaultWriteOptions()
 
 	// Track log numbers through multiple flush cycles
@@ -240,7 +239,7 @@ func TestFlush_LogNumber_CrashBeforeFlushComplete(t *testing.T) {
 		}
 	}
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 	manifestLogBeforeClose := dbImpl.versions.LogNumber()
 	logFileNumberBeforeClose := dbImpl.logFileNumber
 	t.Logf("Before close: manifestLog=%d, logFileNumber=%d",

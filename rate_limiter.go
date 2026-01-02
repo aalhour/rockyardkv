@@ -6,7 +6,6 @@ package rockyardkv
 //   - include/rocksdb/rate_limiter.h
 //   - util/rate_limiter.cc
 
-
 import (
 	"sync"
 	"time"

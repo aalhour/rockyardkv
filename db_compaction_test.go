@@ -5,7 +5,6 @@ package rockyardkv
 // These tests verify compaction correctness: deletion markers, L0 ordering,
 // overlapping files, and the interaction between compaction and reads.
 
-
 import (
 	"bytes"
 	"errors"

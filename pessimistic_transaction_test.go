@@ -2,7 +2,6 @@ package rockyardkv
 
 // pessimistic_transaction_test.go implements tests for pessimistic transaction.
 
-
 import (
 	"errors"
 	"path/filepath"
@@ -499,13 +498,16 @@ func TestTransactionDBWrapDB(t *testing.T) {
 		t.Fatalf("Failed to open DB: %v", err)
 	}
 
-	dbImpl := database.(*DBImpl)
+	dbImpl := database.(*dbImpl)
 
 	// Put some data
 	database.Put(nil, []byte("key1"), []byte("value1"))
 
 	// Wrap as TransactionDB
-	txnDB := WrapDB(dbImpl, DefaultTransactionDBOptions())
+	txnDB, err := WrapDB(dbImpl, DefaultTransactionDBOptions())
+	if err != nil {
+		t.Fatalf("WrapDB: %v", err)
+	}
 
 	// Should be able to read existing data
 	val, err := txnDB.Get([]byte("key1"))

@@ -5,7 +5,6 @@ package rockyardkv
 // Reference: RocksDB v10.7.5.
 //   - include/rocksdb/db.h
 
-
 import (
 	"os"
 	"path/filepath"
@@ -24,7 +23,7 @@ func TestKeyMayExist(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Test non-existent key
 	mayExist, valueFound := impl.KeyMayExist(nil, []byte("nonexistent"), nil)
@@ -60,7 +59,7 @@ func TestWaitForCompact(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Write some data
 	for i := range 100 {
@@ -90,7 +89,7 @@ func TestGetApproximateSizes(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Write some data
 	for i := range 1000 {
@@ -128,7 +127,7 @@ func TestGetApproximateMemTableStats(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Write some data
 	for i := range 100 {
@@ -162,7 +161,7 @@ func TestNumberLevels(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	numLevels := impl.NumberLevels()
 	if numLevels <= 0 {
@@ -181,7 +180,7 @@ func TestLevel0StopWriteTrigger(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	trigger := impl.Level0StopWriteTrigger()
 	if trigger <= 0 {
@@ -200,7 +199,7 @@ func TestGetName(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	name := impl.GetName()
 	if name != dir {
@@ -218,7 +217,7 @@ func TestGetEnv(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	env := impl.GetEnv()
 	if env == nil {
@@ -237,7 +236,7 @@ func TestGetOptions(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	gotOpts := impl.GetOptions()
 	if gotOpts.WriteBufferSize != 12345678 {
@@ -255,7 +254,7 @@ func TestSetOptions(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Set new options
 	err = impl.SetOptions(map[string]string{
@@ -282,7 +281,7 @@ func TestGetIntProperty(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Write some data
 	if err := db.Put(nil, []byte("key"), []byte("value")); err != nil {
@@ -306,7 +305,7 @@ func TestNewIterators(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Create iterators for default CF
 	cfs := []ColumnFamilyHandle{impl.DefaultColumnFamily()}
@@ -336,7 +335,7 @@ func TestLockUnlockWAL(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Lock WAL
 	if err := impl.LockWAL(); err != nil {
@@ -359,7 +358,7 @@ func TestResume(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Resume should be a no-op
 	if err := impl.Resume(); err != nil {
@@ -377,7 +376,7 @@ func TestResetStats(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// ResetStats should be a no-op
 	if err := impl.ResetStats(); err != nil {
@@ -395,7 +394,7 @@ func TestCompactFiles(t *testing.T) {
 	}
 	defer db.Close()
 
-	impl := db.(*DBImpl)
+	impl := db.(*dbImpl)
 
 	// Write some data
 	for i := range 100 {
@@ -484,7 +483,7 @@ func TestSizeApproximationFlags(t *testing.T) {
 }
 
 func TestDBImplImplementsExtendedAPI(t *testing.T) {
-	// Compile-time check that DBImpl implements all extended APIs
+	// Compile-time check that dbImpl implements all extended APIs
 	var _ interface {
 		KeyMayExist(*ReadOptions, []byte, *[]byte) (bool, bool)
 		WaitForCompact(*WaitForCompactOptions) error
@@ -501,7 +500,7 @@ func TestDBImplImplementsExtendedAPI(t *testing.T) {
 		UnlockWAL() error
 		ResetStats() error
 		CompactFiles(*CompactionOptions, []string, int) error
-	} = (*DBImpl)(nil)
+	} = (*dbImpl)(nil)
 }
 
 // Cleanup helper for tests

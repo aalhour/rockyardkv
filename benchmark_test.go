@@ -2,7 +2,6 @@ package rockyardkv
 
 // benchmark_test.go implements tests for benchmark.
 
-
 import (
 	"fmt"
 	"math/rand"

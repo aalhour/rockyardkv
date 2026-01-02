@@ -8,12 +8,11 @@ package rockyardkv
 // - Rollback markers: Indicates the prepared transaction was rolled back
 //
 // Prepared transactions that have no Commit or Rollback marker are restored
-// to the PrepareHeap so they can be committed or rolled back after recovery.
+// to the prepareHeap so they can be committed or rolled back after recovery.
 //
 // Reference: RocksDB v10.7.5
 //   - utilities/transactions/write_prepared_txn_db.cc (RecoverPreparedTransactions)
 //   - db/db_impl/db_impl_open.cc (RecoverLogFiles)
-
 
 import (
 	"github.com/aalhour/rockyardkv/internal/batch"

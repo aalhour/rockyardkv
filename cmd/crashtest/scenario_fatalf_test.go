@@ -21,6 +21,11 @@ import (
 	"github.com/aalhour/rockyardkv/internal/logging"
 )
 
+type fatalDB interface {
+	Logger() rockyardkv.Logger
+	GetBackgroundError() error
+}
+
 // =============================================================================
 // Fatalf: In-Session Behavior
 // =============================================================================
@@ -38,7 +43,10 @@ func TestScenario_Fatalf_RejectsWritesInSession(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	dbImpl := database.(*rockyardkv.DBImpl)
+	dbImpl, ok := database.(fatalDB)
+	if !ok {
+		t.Fatalf("Open returned unexpected DB type: %T", database)
+	}
 
 	// Write before fatal
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
@@ -83,7 +91,10 @@ func TestScenario_Fatalf_ReopenClearsError(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	dbImpl := database.(*rockyardkv.DBImpl)
+	dbImpl, ok := database.(fatalDB)
+	if !ok {
+		t.Fatalf("Open returned unexpected DB type: %T", database)
+	}
 
 	if err := database.Put(nil, []byte("key1"), []byte("value1")); err != nil {
 		t.Fatalf("Put: %v", err)
@@ -107,7 +118,10 @@ func TestScenario_Fatalf_ReopenClearsError(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl = database.(*rockyardkv.DBImpl)
+	dbImpl, ok = database.(fatalDB)
+	if !ok {
+		t.Fatalf("Open returned unexpected DB type: %T", database)
+	}
 
 	// Background error should be nil after reopen
 	if bgErr := dbImpl.GetBackgroundError(); bgErr != nil {
@@ -213,7 +227,10 @@ func runChildFatalf(t *testing.T) {
 		t.Fatalf("Child open: %v", err)
 	}
 
-	dbImpl := database.(*rockyardkv.DBImpl)
+	dbImpl, ok := database.(fatalDB)
+	if !ok {
+		t.Fatalf("Child open returned unexpected DB type: %T", database)
+	}
 
 	// Write before fatal
 	if err := database.Put(nil, []byte("child_before"), []byte("before_fatal")); err != nil {
@@ -256,7 +273,10 @@ func TestScenario_Fatalf_FlushRejected(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*rockyardkv.DBImpl)
+	dbImpl, ok := database.(fatalDB)
+	if !ok {
+		t.Fatalf("Open returned unexpected DB type: %T", database)
+	}
 
 	// Write some data
 	if err := database.Put(nil, []byte("key"), []byte("value")); err != nil {
@@ -294,7 +314,10 @@ func TestScenario_Fatalf_ConcurrentWritersRejected(t *testing.T) {
 	}
 	defer database.Close()
 
-	dbImpl := database.(*rockyardkv.DBImpl)
+	dbImpl, ok := database.(fatalDB)
+	if !ok {
+		t.Fatalf("Open returned unexpected DB type: %T", database)
+	}
 
 	// Trigger fatal first
 	dbImpl.Logger().Fatalf("[test] fatal before concurrent writes")

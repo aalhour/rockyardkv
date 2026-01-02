@@ -2,7 +2,6 @@ package rockyardkv
 
 // ttl_test.go implements tests for ttl.
 
-
 import (
 	"errors"
 	"os"

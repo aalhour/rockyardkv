@@ -5,7 +5,6 @@ package rockyardkv
 // These tests verify the fundamental correctness of basic database operations.
 // They should pass before any other tests are considered.
 
-
 import (
 	"bytes"
 	"errors"

@@ -16,7 +16,6 @@ package rockyardkv
 //   - include/rocksdb/wide_columns.h
 //   - db/wide/wide_column_serialization.cc
 
-
 import (
 	"bytes"
 	"encoding/binary"
@@ -194,11 +193,11 @@ type WideColumnDBInterface interface {
 
 // WideColumnDB wraps a DB to provide wide column operations.
 type WideColumnDB struct {
-	db *DBImpl
+	db DB
 }
 
 // NewWideColumnDB creates a new WideColumnDB wrapper.
-func NewWideColumnDB(db *DBImpl) *WideColumnDB {
+func NewWideColumnDB(db DB) *WideColumnDB {
 	return &WideColumnDB{db: db}
 }
 

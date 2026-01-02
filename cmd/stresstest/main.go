@@ -870,8 +870,8 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 	// ReleaseWriteStall just broadcasts on a sync.Cond, which is safe even if
 	// the reopener is in the middle of replacing the DB. The workers will wake
 	// up, check stop, and exit cleanly.
-	if impl, ok := database.(*rockyardkv.DBImpl); ok {
-		impl.ReleaseWriteStall()
+	if r, ok := database.(rockyardkv.WriteStallController); ok {
+		r.ReleaseWriteStall()
 	}
 
 	wg.Wait()

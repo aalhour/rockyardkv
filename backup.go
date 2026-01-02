@@ -11,7 +11,6 @@ package rockyardkv
 //
 // Reference: RocksDB v10.7.5 utilities/backup/backup_engine.cc
 
-
 import (
 	"encoding/json"
 	"errors"
@@ -26,7 +25,7 @@ import (
 // BackupEngine manages database backups.
 type BackupEngine struct {
 	backupDir string
-	db        *DBImpl
+	db        *dbImpl
 }
 
 // BackupInfo contains information about a backup.
@@ -51,7 +50,7 @@ type backupMeta struct {
 // CreateBackupEngine creates a BackupEngine for the given database.
 // The backup directory must be different from the database directory.
 func CreateBackupEngine(db DB, backupDir string) (*BackupEngine, error) {
-	impl, ok := db.(*DBImpl)
+	impl, ok := db.(*dbImpl)
 	if !ok {
 		return nil, fmt.Errorf("db: unsupported database type for backup")
 	}

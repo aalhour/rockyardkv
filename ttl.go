@@ -11,7 +11,6 @@ package rockyardkv
 //   - utilities/ttl/db_ttl_impl.h
 //   - utilities/ttl/db_ttl_impl.cc
 
-
 import (
 	"encoding/binary"
 	"errors"

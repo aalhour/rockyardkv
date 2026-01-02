@@ -3,7 +3,6 @@ package rockyardkv
 // statistics.go implements the Statistics interface for collecting database metrics.
 // Reference: RocksDB v10.7.5 include/rocksdb/statistics.h
 
-
 import (
 	"sync/atomic"
 )
@@ -304,8 +303,8 @@ type Statistics interface {
 	String() string
 }
 
-// StatisticsImpl is the default implementation of Statistics.
-type StatisticsImpl struct {
+// statisticsImpl is the default implementation of Statistics.
+type statisticsImpl struct {
 	tickers    [TickerEnumMax]uint64
 	histograms [HistogramEnumMax]*histogramImpl
 }
@@ -320,7 +319,7 @@ type histogramImpl struct {
 
 // NewStatistics creates a new Statistics instance.
 func NewStatistics() Statistics {
-	s := &StatisticsImpl{}
+	s := &statisticsImpl{}
 	for i := range s.histograms {
 		s.histograms[i] = &histogramImpl{min: ^uint64(0)}
 	}
@@ -328,7 +327,7 @@ func NewStatistics() Statistics {
 }
 
 // GetTickerCount returns the current value of a ticker.
-func (s *StatisticsImpl) GetTickerCount(tickerType TickerType) uint64 {
+func (s *statisticsImpl) GetTickerCount(tickerType TickerType) uint64 {
 	if tickerType < 0 || tickerType >= TickerEnumMax {
 		return 0
 	}
@@ -336,7 +335,7 @@ func (s *StatisticsImpl) GetTickerCount(tickerType TickerType) uint64 {
 }
 
 // RecordTick increments a ticker by count.
-func (s *StatisticsImpl) RecordTick(tickerType TickerType, count uint64) {
+func (s *statisticsImpl) RecordTick(tickerType TickerType, count uint64) {
 	if tickerType < 0 || tickerType >= TickerEnumMax {
 		return
 	}
@@ -344,7 +343,7 @@ func (s *StatisticsImpl) RecordTick(tickerType TickerType, count uint64) {
 }
 
 // SetTickerCount sets the ticker to a specific value.
-func (s *StatisticsImpl) SetTickerCount(tickerType TickerType, count uint64) {
+func (s *statisticsImpl) SetTickerCount(tickerType TickerType, count uint64) {
 	if tickerType < 0 || tickerType >= TickerEnumMax {
 		return
 	}
@@ -352,7 +351,7 @@ func (s *StatisticsImpl) SetTickerCount(tickerType TickerType, count uint64) {
 }
 
 // GetHistogramData returns histogram statistics.
-func (s *StatisticsImpl) GetHistogramData(histogramType HistogramType) HistogramData {
+func (s *statisticsImpl) GetHistogramData(histogramType HistogramType) HistogramData {
 	if histogramType < 0 || histogramType >= HistogramEnumMax {
 		return HistogramData{}
 	}
@@ -379,7 +378,7 @@ func (s *StatisticsImpl) GetHistogramData(histogramType HistogramType) Histogram
 }
 
 // MeasureTime records a value to a histogram.
-func (s *StatisticsImpl) MeasureTime(histogramType HistogramType, value uint64) {
+func (s *statisticsImpl) MeasureTime(histogramType HistogramType, value uint64) {
 	if histogramType < 0 || histogramType >= HistogramEnumMax {
 		return
 	}
@@ -412,7 +411,7 @@ func (s *StatisticsImpl) MeasureTime(histogramType HistogramType, value uint64) 
 }
 
 // Reset clears all statistics.
-func (s *StatisticsImpl) Reset() {
+func (s *statisticsImpl) Reset() {
 	for i := range s.tickers {
 		atomic.StoreUint64(&s.tickers[i], 0)
 	}
@@ -422,7 +421,7 @@ func (s *StatisticsImpl) Reset() {
 }
 
 // String returns a formatted string of all statistics.
-func (s *StatisticsImpl) String() string {
+func (s *statisticsImpl) String() string {
 	var result string
 
 	// Tickers

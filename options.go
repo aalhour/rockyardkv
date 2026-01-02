@@ -2,7 +2,6 @@ package rockyardkv
 
 // options.go implements database configuration options.
 
-
 import (
 	"time"
 

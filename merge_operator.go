@@ -8,7 +8,6 @@ package rockyardkv
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/merge_operator.h
 
-
 // MergeOperator is the interface for user-defined merge operations.
 //
 // A MergeOperator specifies the semantics of a merge operation, which only
@@ -204,23 +203,25 @@ func (o *MaxOperator) PartialMerge(key []byte, left, right []byte) ([]byte, bool
 // Helper Adapter
 // =============================================================================
 
-// AssociativeMergeOperatorAdapter wraps an AssociativeMergeOperator to implement MergeOperator.
-type AssociativeMergeOperatorAdapter struct {
-	Op AssociativeMergeOperator
+// WrapAssociativeMergeOperator adapts an AssociativeMergeOperator into a MergeOperator.
+func WrapAssociativeMergeOperator(op AssociativeMergeOperator) MergeOperator {
+	return &associativeMergeOperatorAdapter{op: op}
 }
 
-// Name returns the name of the underlying operator.
-func (a *AssociativeMergeOperatorAdapter) Name() string {
-	return a.Op.Name()
+type associativeMergeOperatorAdapter struct {
+	op AssociativeMergeOperator
 }
 
-// FullMerge implements MergeOperator by calling Merge repeatedly.
-func (a *AssociativeMergeOperatorAdapter) FullMerge(key []byte, existingValue []byte, operands [][]byte) ([]byte, bool) {
+func (a *associativeMergeOperatorAdapter) Name() string {
+	return a.op.Name()
+}
+
+func (a *associativeMergeOperatorAdapter) FullMerge(key []byte, existingValue []byte, operands [][]byte) ([]byte, bool) {
 	result := existingValue
 
-	for _, op := range operands {
+	for _, operand := range operands {
 		var ok bool
-		result, ok = a.Op.Merge(key, result, op)
+		result, ok = a.op.Merge(key, result, operand)
 		if !ok {
 			return nil, false
 		}
@@ -229,9 +230,8 @@ func (a *AssociativeMergeOperatorAdapter) FullMerge(key []byte, existingValue []
 	return result, true
 }
 
-// PartialMerge implements MergeOperator using Merge.
-func (a *AssociativeMergeOperatorAdapter) PartialMerge(key []byte, left, right []byte) ([]byte, bool) {
-	return a.Op.Merge(key, left, right)
+func (a *associativeMergeOperatorAdapter) PartialMerge(key []byte, left, right []byte) ([]byte, bool) {
+	return a.op.Merge(key, left, right)
 }
 
 // =============================================================================

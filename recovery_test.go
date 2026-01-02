@@ -2,7 +2,6 @@ package rockyardkv
 
 // recovery_test.go implements tests for recovery.
 
-
 import (
 	"errors"
 	"fmt"

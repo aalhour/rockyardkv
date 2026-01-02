@@ -2,7 +2,6 @@ package rockyardkv
 
 // compaction_filter_contract_test.go implements tests for compaction filter contract.
 
-
 import (
 	"testing"
 )

@@ -4,7 +4,6 @@ package rockyardkv
 //
 // Reference: RocksDB v10.7.5 include/rocksdb/write_batch.h
 
-
 import (
 	"github.com/aalhour/rockyardkv/internal/batch"
 )

@@ -9,7 +9,6 @@ package rockyardkv
 // Reference: RocksDB v10.7.5
 //   - include/rocksdb/comparator.h
 
-
 import "bytes"
 
 // Comparator defines a total ordering over keys.

@@ -2,7 +2,6 @@ package rockyardkv
 
 // sst_file_writer_fuzz_test.go implements tests for sst file writer fuzz.
 
-
 import (
 	"bytes"
 	"os"

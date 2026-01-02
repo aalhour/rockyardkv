@@ -2,7 +2,6 @@ package rockyardkv
 
 // external_sst_ingestion_test.go implements tests for external sst ingestion.
 
-
 import (
 	"bytes"
 	"errors"

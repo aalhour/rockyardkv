@@ -9,7 +9,6 @@ package rockyardkv
 //   - db/column_family.h
 //   - db/column_family.cc
 
-
 import (
 	"errors"
 	"sync"
@@ -88,11 +87,11 @@ type columnFamilyData struct {
 	dropped atomic.Bool
 
 	// The parent database
-	db *DBImpl
+	db *dbImpl
 }
 
 // newColumnFamilyData creates a new column family data.
-func newColumnFamilyData(id uint32, name string, opts ColumnFamilyOptions, db *DBImpl) *columnFamilyData {
+func newColumnFamilyData(id uint32, name string, opts ColumnFamilyOptions, db *dbImpl) *columnFamilyData {
 	var cmp memtable.Comparator
 	if opts.Comparator != nil {
 		cmp = memtable.Comparator(opts.Comparator.Compare)
@@ -108,13 +107,13 @@ func newColumnFamilyData(id uint32, name string, opts ColumnFamilyOptions, db *D
 	}
 }
 
-// Ref increments the reference count.
-func (cfd *columnFamilyData) Ref() {
+// ref increments the reference count.
+func (cfd *columnFamilyData) ref() {
 	atomic.AddInt32(&cfd.refs, 1)
 }
 
-// Unref decrements the reference count.
-func (cfd *columnFamilyData) Unref() {
+// unref decrements the reference count.
+func (cfd *columnFamilyData) unref() {
 	if atomic.AddInt32(&cfd.refs, -1) == 0 {
 		// Clean up resources
 		cfd.mem = nil
@@ -153,22 +152,22 @@ type columnFamilySet struct {
 	byID map[uint32]*columnFamilyData
 
 	// Next column family ID to assign
-	nextID uint32
+	nextCFID uint32
 
 	// The default column family
 	defaultCF *columnFamilyData
 
 	// Parent database
-	db *DBImpl
+	db *dbImpl
 }
 
 // newColumnFamilySet creates a new column family set.
-func newColumnFamilySet(db *DBImpl) *columnFamilySet {
+func newColumnFamilySet(db *dbImpl) *columnFamilySet {
 	cfs := &columnFamilySet{
-		byName: make(map[string]*columnFamilyData),
-		byID:   make(map[uint32]*columnFamilyData),
-		nextID: 1, // Default CF uses ID 0
-		db:     db,
+		byName:   make(map[string]*columnFamilyData),
+		byID:     make(map[uint32]*columnFamilyData),
+		nextCFID: 1, // Default CF uses ID 0
+		db:       db,
 	}
 
 	// Create the default column family
@@ -180,27 +179,27 @@ func newColumnFamilySet(db *DBImpl) *columnFamilySet {
 	return cfs
 }
 
-// GetDefault returns the default column family.
-func (cfs *columnFamilySet) GetDefault() *columnFamilyData {
+// getDefault returns the default column family.
+func (cfs *columnFamilySet) getDefault() *columnFamilyData {
 	return cfs.defaultCF
 }
 
-// GetByName returns the column family with the given name.
-func (cfs *columnFamilySet) GetByName(name string) *columnFamilyData {
+// getByName returns the column family with the given name.
+func (cfs *columnFamilySet) getByName(name string) *columnFamilyData {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
 	return cfs.byName[name]
 }
 
-// GetByID returns the column family with the given ID.
-func (cfs *columnFamilySet) GetByID(id uint32) *columnFamilyData {
+// getByID returns the column family with the given ID.
+func (cfs *columnFamilySet) getByID(id uint32) *columnFamilyData {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
 	return cfs.byID[id]
 }
 
-// Create creates a new column family.
-func (cfs *columnFamilySet) Create(name string, opts ColumnFamilyOptions) (*columnFamilyData, error) {
+// create creates a new column family.
+func (cfs *columnFamilySet) create(name string, opts ColumnFamilyOptions) (*columnFamilyData, error) {
 	cfs.mu.Lock()
 	defer cfs.mu.Unlock()
 
@@ -208,8 +207,8 @@ func (cfs *columnFamilySet) Create(name string, opts ColumnFamilyOptions) (*colu
 		return nil, ErrColumnFamilyExists
 	}
 
-	id := cfs.nextID
-	cfs.nextID++
+	id := cfs.nextCFID
+	cfs.nextCFID++
 
 	cfd := newColumnFamilyData(id, name, opts, cfs.db)
 	cfs.byName[name] = cfd
@@ -218,8 +217,8 @@ func (cfs *columnFamilySet) Create(name string, opts ColumnFamilyOptions) (*colu
 	return cfd, nil
 }
 
-// Drop marks a column family as dropped.
-func (cfs *columnFamilySet) Drop(cfd *columnFamilyData) error {
+// drop marks a column family as dropped.
+func (cfs *columnFamilySet) drop(cfd *columnFamilyData) error {
 	cfs.mu.Lock()
 	defer cfs.mu.Unlock()
 
@@ -234,13 +233,13 @@ func (cfs *columnFamilySet) Drop(cfd *columnFamilyData) error {
 	cfd.dropped.Store(true)
 	delete(cfs.byName, cfd.name)
 	delete(cfs.byID, cfd.id)
-	cfd.Unref()
+	cfd.unref()
 
 	return nil
 }
 
-// ListNames returns the names of all column families.
-func (cfs *columnFamilySet) ListNames() []string {
+// listNames returns the names of all column families.
+func (cfs *columnFamilySet) listNames() []string {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
 
@@ -251,31 +250,31 @@ func (cfs *columnFamilySet) ListNames() []string {
 	return names
 }
 
-// Count returns the number of column families.
-func (cfs *columnFamilySet) Count() int {
+// count returns the number of column families.
+func (cfs *columnFamilySet) count() int {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
 	return len(cfs.byName)
 }
 
-// NextID returns the next column family ID that will be assigned.
-func (cfs *columnFamilySet) NextID() uint32 {
+// nextID returns the next column family ID that will be assigned.
+func (cfs *columnFamilySet) nextID() uint32 {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
-	return cfs.nextID
+	return cfs.nextCFID
 }
 
-// SetNextID sets the next column family ID (used during recovery).
-func (cfs *columnFamilySet) SetNextID(id uint32) {
+// setNextID sets the next column family ID (used during recovery).
+func (cfs *columnFamilySet) setNextID(id uint32) {
 	cfs.mu.Lock()
 	defer cfs.mu.Unlock()
-	if id > cfs.nextID {
-		cfs.nextID = id
+	if id > cfs.nextCFID {
+		cfs.nextCFID = id
 	}
 }
 
-// CreateWithID creates a column family with a specific ID (used during recovery).
-func (cfs *columnFamilySet) CreateWithID(id uint32, name string, opts ColumnFamilyOptions) (*columnFamilyData, error) {
+// createWithID creates a column family with a specific ID (used during recovery).
+func (cfs *columnFamilySet) createWithID(id uint32, name string, opts ColumnFamilyOptions) (*columnFamilyData, error) {
 	cfs.mu.Lock()
 	defer cfs.mu.Unlock()
 
@@ -288,15 +287,15 @@ func (cfs *columnFamilySet) CreateWithID(id uint32, name string, opts ColumnFami
 	cfs.byID[id] = cfd
 
 	// Update nextID if necessary
-	if id >= cfs.nextID {
-		cfs.nextID = id + 1
+	if id >= cfs.nextCFID {
+		cfs.nextCFID = id + 1
 	}
 
 	return cfd, nil
 }
 
-// ForEach calls the given function for each column family.
-func (cfs *columnFamilySet) ForEach(fn func(*columnFamilyData)) {
+// forEach calls the given function for each column family.
+func (cfs *columnFamilySet) forEach(fn func(*columnFamilyData)) {
 	cfs.mu.RLock()
 	defer cfs.mu.RUnlock()
 
@@ -307,9 +306,9 @@ func (cfs *columnFamilySet) ForEach(fn func(*columnFamilyData)) {
 
 // getColumnFamilyData resolves a ColumnFamilyHandle to its internal data.
 // If cf is nil, returns the default column family.
-func (db *DBImpl) getColumnFamilyData(cf ColumnFamilyHandle) (*columnFamilyData, error) {
+func (db *dbImpl) getColumnFamilyData(cf ColumnFamilyHandle) (*columnFamilyData, error) {
 	if cf == nil {
-		return db.columnFamilies.GetDefault(), nil
+		return db.columnFamilies.getDefault(), nil
 	}
 
 	handle, ok := cf.(*columnFamilyHandle)

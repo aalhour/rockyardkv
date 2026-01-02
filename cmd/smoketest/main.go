@@ -2018,14 +2018,12 @@ func testSecondaryInstance(path string, keys, values [][]byte) error {
 	log("  Primary: wrote 50 more keys")
 
 	// Catch up secondary with primary
-	if secondaryDB, ok := secondary.(*rockyardkv.DBImplSecondary); ok {
-		if err := secondaryDB.TryCatchUpWithPrimary(); err != nil {
-			primary.Close()
-			secondary.Close()
-			return fmt.Errorf("catch up failed: %w", err)
-		}
-		log("  Secondary: caught up with primary")
+	if err := secondary.TryCatchUpWithPrimary(); err != nil {
+		primary.Close()
+		secondary.Close()
+		return fmt.Errorf("catch up failed: %w", err)
 	}
+	log("  Secondary: caught up with primary")
 
 	// Verify secondary can read new data
 	newKeysToVerify := 50
@@ -2342,7 +2340,10 @@ func testReplicationAPI(path string, keys, values [][]byte) error {
 	}
 	defer database.Close()
 
-	impl := database.(*rockyardkv.DBImpl)
+	impl, ok := database.(rockyardkv.ReplicationDB)
+	if !ok {
+		return fmt.Errorf("replication API requires DB implementation, got %T", database)
+	}
 
 	// Write first batch of data
 	numFirstBatch := 10

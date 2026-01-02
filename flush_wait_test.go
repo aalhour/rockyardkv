@@ -2,7 +2,6 @@ package rockyardkv
 
 // flush_wait_test.go implements tests for flush wait.
 
-
 import (
 	"sync"
 	"testing"

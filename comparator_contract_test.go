@@ -2,7 +2,6 @@ package rockyardkv
 
 // comparator_contract_test.go implements tests for comparator contract.
 
-
 import (
 	"path/filepath"
 	"sort"

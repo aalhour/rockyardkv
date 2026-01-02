@@ -5,7 +5,6 @@ package rockyardkv
 // These tests verify that keys from one column family do not leak into another,
 // which was identified as a critical bug in the Red Team audit (Dec 2025).
 
-
 import (
 	"errors"
 	"testing"

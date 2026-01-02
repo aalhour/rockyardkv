@@ -6,7 +6,6 @@ package rockyardkv
 //   - db/db_impl/db_impl_open.cc (RecoverLogFiles)
 //   - db/db_impl/db_impl_write.cc
 
-
 import (
 	"errors"
 	"fmt"
@@ -29,7 +28,7 @@ var sstFileRegex = regexp.MustCompile(`^(\d{6})\.sst$`)
 
 // replayWAL replays all WAL files that haven't been flushed yet.
 // This recovers any writes that were made but not yet persisted to SST files.
-func (db *DBImpl) replayWAL() error {
+func (db *dbImpl) replayWAL() error {
 	// Get the minimum log number we need to replay from
 	// Any log file with number >= minLogNumber might contain unflushed data
 	minLogNumber := db.versions.LogNumber()
@@ -82,7 +81,7 @@ func (db *DBImpl) replayWAL() error {
 }
 
 // findLogFiles returns all log file numbers in the database directory.
-func (db *DBImpl) findLogFiles() ([]uint64, error) {
+func (db *dbImpl) findLogFiles() ([]uint64, error) {
 	entries, err := db.fs.ListDir(db.name)
 	if err != nil {
 		return nil, err
@@ -107,7 +106,7 @@ func (db *DBImpl) findLogFiles() ([]uint64, error) {
 }
 
 // replayLogFile replays a single log file and returns the max sequence number seen.
-func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
+func (db *dbImpl) replayLogFile(logNum uint64) (uint64, error) {
 	logPath := db.logFilePath(logNum)
 
 	// Open the log file
@@ -186,7 +185,7 @@ func (db *DBImpl) replayLogFile(logNum uint64) (uint64, error) {
 // a single undeletable orphan would be overly disruptive.
 //
 // Reference: RocksDB db/db_impl/db_impl_files.cc DeleteObsoleteFiles
-func (db *DBImpl) deleteOrphanedSSTFiles() error {
+func (db *dbImpl) deleteOrphanedSSTFiles() error {
 	// Get all SST file numbers referenced in the current version
 	liveFiles := make(map[uint64]bool)
 	version := db.versions.Current()

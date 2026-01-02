@@ -1,6 +1,6 @@
 package rockyardkv
 
-// write_controller.go implements WriteController for managing write stalling.
+// write_controller.go implements writeController for managing write stalling.
 //
 // Write stalling prevents the database from being overwhelmed when compaction
 // cannot keep up with writes. It has three states:
@@ -9,7 +9,6 @@ package rockyardkv
 //   - Stopped: Writes are blocked until compaction catches up
 //
 // Reference: RocksDB v10.7.5 db/write_controller.h
-
 
 import (
 	"sync"
@@ -30,8 +29,8 @@ const (
 	WriteStallCausePendingCompactionBytes
 )
 
-// WriteController manages write stalling to prevent compaction from falling behind.
-type WriteController struct {
+// writeController manages write stalling to prevent compaction from falling behind.
+type writeController struct {
 	mu sync.Mutex
 
 	// Current stall state
@@ -53,9 +52,9 @@ type WriteController struct {
 	totalDelayed uint64
 }
 
-// NewWriteController creates a new write controller.
-func NewWriteController() *WriteController {
-	wc := &WriteController{
+// newWriteController creates a new write controller.
+func newWriteController() *writeController {
+	wc := &writeController{
 		condition:        WriteStallConditionNormal,
 		cause:            WriteStallCauseNone,
 		delayedWriteRate: 16 * 1024 * 1024, // 16 MB/s default
@@ -65,14 +64,14 @@ func NewWriteController() *WriteController {
 }
 
 // GetStallCondition returns the current stall condition and cause.
-func (wc *WriteController) GetStallCondition() (WriteStallCondition, WriteStallCause) {
+func (wc *writeController) getStallCondition() (WriteStallCondition, WriteStallCause) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	return wc.condition, wc.cause
 }
 
 // SetStallCondition updates the stall condition.
-func (wc *WriteController) SetStallCondition(condition WriteStallCondition, cause WriteStallCause) {
+func (wc *writeController) setStallCondition(condition WriteStallCondition, cause WriteStallCause) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 
@@ -94,14 +93,11 @@ func (wc *WriteController) SetStallCondition(condition WriteStallCondition, caus
 	}
 }
 
-// MaybeStallWrite checks the stall condition and blocks or delays if needed.
-// Returns the time spent waiting (for statistics).
-// If the controller is closed (via ReleaseWriteStall), returns immediately.
-func (wc *WriteController) MaybeStallWrite(writeSize int) time.Duration {
+// maybeStallWrite checks the stall condition and blocks or delays if needed.
+// If the controller is closed (via releaseWriteStall), returns immediately.
+func (wc *writeController) maybeStallWrite(writeSize int) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
-
-	startTime := time.Now()
 
 	// Handle stopped condition - block until released or closed
 	for wc.condition == WriteStallConditionStopped && !wc.closed {
@@ -110,7 +106,7 @@ func (wc *WriteController) MaybeStallWrite(writeSize int) time.Duration {
 
 	// If closed, return immediately without delay
 	if wc.closed {
-		return time.Since(startTime)
+		return
 	}
 
 	// Handle delayed condition - sleep based on write rate
@@ -124,26 +120,17 @@ func (wc *WriteController) MaybeStallWrite(writeSize int) time.Duration {
 			wc.mu.Lock()
 		}
 	}
-
-	return time.Since(startTime)
-}
-
-// GetDelayedWriteRate returns the current delayed write rate.
-func (wc *WriteController) GetDelayedWriteRate() uint64 {
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	return wc.delayedWriteRate
 }
 
 // SetDelayedWriteRate sets the delayed write rate.
-func (wc *WriteController) SetDelayedWriteRate(rate uint64) {
+func (wc *writeController) setDelayedWriteRate(rate uint64) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	wc.delayedWriteRate = rate
 }
 
 // GetStats returns statistics about write stalls.
-func (wc *WriteController) GetStats() (stopped, delayed uint64) {
+func (wc *writeController) getStats() (stopped, delayed uint64) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	return wc.totalStopped, wc.totalDelayed
@@ -152,15 +139,15 @@ func (wc *WriteController) GetStats() (stopped, delayed uint64) {
 // ReleaseWriteStall marks the controller as closed and wakes up all waiting writers.
 // After calling this, MaybeStallWrite returns immediately instead of blocking.
 // Use this during graceful shutdown to unblock workers stuck in MaybeStallWrite.
-func (wc *WriteController) ReleaseWriteStall() {
+func (wc *writeController) releaseWriteStall() {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	wc.closed = true
 	wc.stallCond.Broadcast()
 }
 
-// RecalculateWriteStallCondition determines the write stall condition based on current state.
-func RecalculateWriteStallCondition(
+// recalculateWriteStallCondition determines the write stall condition based on current state.
+func recalculateWriteStallCondition(
 	numUnflushedMemtables int,
 	numL0Files int,
 	maxWriteBufferNumber int,

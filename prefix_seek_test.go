@@ -2,7 +2,6 @@ package rockyardkv_test
 
 // prefix_seek_test.go implements tests for prefix seek.
 
-
 import (
 	"fmt"
 	"os"

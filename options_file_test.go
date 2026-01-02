@@ -2,7 +2,6 @@ package rockyardkv
 
 // options_file_test.go implements tests for options file.
 
-
 import (
 	"os"
 	"path/filepath"

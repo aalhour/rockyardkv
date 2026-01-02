@@ -2,7 +2,6 @@ package rockyardkv
 
 // merge_operator_test.go implements tests for merge operator.
 
-
 import (
 	"bytes"
 	"testing"
@@ -388,7 +387,7 @@ func (o *testAssociativeOp) Merge(key []byte, existing, value []byte) ([]byte, b
 }
 
 func TestAssociativeMergeOperatorAdapter(t *testing.T) {
-	adapter := &AssociativeMergeOperatorAdapter{Op: &testAssociativeOp{}}
+	adapter := WrapAssociativeMergeOperator(&testAssociativeOp{})
 
 	if adapter.Name() != "testAssociativeOp" {
 		t.Errorf("Name() = %q, want %q", adapter.Name(), "testAssociativeOp")

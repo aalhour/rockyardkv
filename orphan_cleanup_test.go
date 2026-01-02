@@ -2,7 +2,6 @@ package rockyardkv
 
 // orphan_cleanup_test.go implements Orphan SST cleanup tests for recovery edge cases.
 
-
 import (
 	"fmt"
 	"os"

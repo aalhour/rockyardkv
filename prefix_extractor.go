@@ -12,7 +12,6 @@ package rockyardkv
 //   - include/rocksdb/slice_transform.h
 //   - db/db_iter.cc (prefix seeking logic)
 
-
 // PrefixExtractor extracts prefixes from keys for prefix-based operations.
 // This is equivalent to RocksDB's SliceTransform interface.
 //

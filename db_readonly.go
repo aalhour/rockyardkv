@@ -6,7 +6,6 @@ package rockyardkv
 //   - db/db_impl/db_impl_readonly.cc
 //   - include/rocksdb/db.h (OpenForReadOnly)
 
-
 import (
 	"errors"
 	"fmt"
@@ -21,16 +20,16 @@ import (
 // ErrReadOnly is returned when attempting a write operation on a read-only database.
 var ErrReadOnly = errors.New("db: database is opened in read-only mode")
 
-// DBImplReadOnly is a read-only view of the database.
-// It wraps DBImpl and disables all write operations.
-type DBImplReadOnly struct {
-	*DBImpl
+// dbImplReadOnly is a read-only view of the database.
+// It wraps dbImpl and disables all write operations.
+type dbImplReadOnly struct {
+	*dbImpl
 }
 
 // OpenForReadOnly opens a database in read-only mode.
 // If errorIfWALExists is true, an error is returned if there are WAL files
 // that would need to be replayed (indicating unclean shutdown).
-func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, error) {
+func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (ReadOnlyDB, error) {
 	if opts == nil {
 		opts = DefaultOptions()
 	}
@@ -70,7 +69,7 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 	logger := logging.OrDefault(opts.Logger)
 
 	// Create the base DB implementation
-	db := &DBImpl{
+	db := &dbImpl{
 		name:            path,
 		options:         opts,
 		fs:              fs,
@@ -78,7 +77,7 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 		cmp:             cmp,
 		shutdownCh:      make(chan struct{}),
 		tableCache:      table.NewTableCache(fs, table.DefaultTableCacheOptions()),
-		writeController: NewWriteController(),
+		writeController: newWriteController(),
 		logger:          logger,
 	}
 
@@ -113,96 +112,96 @@ func OpenForReadOnly(path string, opts *Options, errorIfWALExists bool) (DB, err
 	db.seq = ^uint64(0) >> 1 // MaxSequenceNumber
 
 	// Return the read-only wrapper
-	return &DBImplReadOnly{DBImpl: db}, nil
+	return &dbImplReadOnly{dbImpl: db}, nil
 }
 
 // Put is not supported in read-only mode.
-func (db *DBImplReadOnly) Put(opts *WriteOptions, key, value []byte) error {
+func (db *dbImplReadOnly) Put(opts *WriteOptions, key, value []byte) error {
 	return ErrReadOnly
 }
 
 // Delete is not supported in read-only mode.
-func (db *DBImplReadOnly) Delete(opts *WriteOptions, key []byte) error {
+func (db *dbImplReadOnly) Delete(opts *WriteOptions, key []byte) error {
 	return ErrReadOnly
 }
 
 // SingleDelete is not supported in read-only mode.
-func (db *DBImplReadOnly) SingleDelete(opts *WriteOptions, key []byte) error {
+func (db *dbImplReadOnly) SingleDelete(opts *WriteOptions, key []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteRange is not supported in read-only mode.
-func (db *DBImplReadOnly) DeleteRange(opts *WriteOptions, start, end []byte) error {
+func (db *dbImplReadOnly) DeleteRange(opts *WriteOptions, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // Merge is not supported in read-only mode.
-func (db *DBImplReadOnly) Merge(opts *WriteOptions, key, operand []byte) error {
+func (db *dbImplReadOnly) Merge(opts *WriteOptions, key, operand []byte) error {
 	return ErrReadOnly
 }
 
 // Write is not supported in read-only mode.
-func (db *DBImplReadOnly) Write(opts *WriteOptions, b *WriteBatch) error {
+func (db *dbImplReadOnly) Write(opts *WriteOptions, b *WriteBatch) error {
 	return ErrReadOnly
 }
 
 // Flush is not supported in read-only mode.
-func (db *DBImplReadOnly) Flush(opts *FlushOptions) error {
+func (db *dbImplReadOnly) Flush(opts *FlushOptions) error {
 	return ErrReadOnly
 }
 
 // CompactRange is not supported in read-only mode.
-func (db *DBImplReadOnly) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
+func (db *dbImplReadOnly) CompactRange(opts *CompactRangeOptions, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // CreateColumnFamily is not supported in read-only mode.
-func (db *DBImplReadOnly) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
+func (db *dbImplReadOnly) CreateColumnFamily(opts ColumnFamilyOptions, name string) (ColumnFamilyHandle, error) {
 	return nil, ErrReadOnly
 }
 
 // DropColumnFamily is not supported in read-only mode.
-func (db *DBImplReadOnly) DropColumnFamily(handle ColumnFamilyHandle) error {
+func (db *dbImplReadOnly) DropColumnFamily(handle ColumnFamilyHandle) error {
 	return ErrReadOnly
 }
 
 // PutCF is not supported in read-only mode.
-func (db *DBImplReadOnly) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
+func (db *dbImplReadOnly) PutCF(opts *WriteOptions, cf ColumnFamilyHandle, key, value []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteCF is not supported in read-only mode.
-func (db *DBImplReadOnly) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
+func (db *dbImplReadOnly) DeleteCF(opts *WriteOptions, cf ColumnFamilyHandle, key []byte) error {
 	return ErrReadOnly
 }
 
 // DeleteRangeCF is not supported in read-only mode.
-func (db *DBImplReadOnly) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start, end []byte) error {
+func (db *dbImplReadOnly) DeleteRangeCF(opts *WriteOptions, cf ColumnFamilyHandle, start, end []byte) error {
 	return ErrReadOnly
 }
 
 // MergeCF is not supported in read-only mode.
-func (db *DBImplReadOnly) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, operand []byte) error {
+func (db *dbImplReadOnly) MergeCF(opts *WriteOptions, cf ColumnFamilyHandle, key, operand []byte) error {
 	return ErrReadOnly
 }
 
 // IngestExternalFile is not supported in read-only mode.
-func (db *DBImplReadOnly) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
+func (db *dbImplReadOnly) IngestExternalFile(paths []string, opts IngestExternalFileOptions) error {
 	return ErrReadOnly
 }
 
 // SyncWAL is not supported in read-only mode.
-func (db *DBImplReadOnly) SyncWAL() error {
+func (db *dbImplReadOnly) SyncWAL() error {
 	return ErrReadOnly
 }
 
 // FlushWAL is not supported in read-only mode.
-func (db *DBImplReadOnly) FlushWAL(sync bool) error {
+func (db *dbImplReadOnly) FlushWAL(sync bool) error {
 	return ErrReadOnly
 }
 
 // GetLatestSequenceNumber returns the sequence number of the most recent transaction.
-func (db *DBImplReadOnly) GetLatestSequenceNumber() uint64 {
+func (db *dbImplReadOnly) GetLatestSequenceNumber() uint64 {
 	if db.versions == nil {
 		return 0
 	}
@@ -211,55 +210,55 @@ func (db *DBImplReadOnly) GetLatestSequenceNumber() uint64 {
 
 // GetLiveFiles returns a list of all files in the database.
 // flushMemtable is ignored in read-only mode (no memtable to flush).
-func (db *DBImplReadOnly) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
+func (db *dbImplReadOnly) GetLiveFiles(flushMemtable bool) ([]string, uint64, error) {
 	if db.closed {
 		return nil, 0, ErrDBClosed
 	}
-	// Delegate to embedded DBImpl, but ignore flushMemtable since we're read-only
-	return db.DBImpl.GetLiveFiles(false)
+	// Delegate to embedded dbImpl, but ignore flushMemtable since we're read-only
+	return db.dbImpl.GetLiveFiles(false)
 }
 
 // GetLiveFilesMetaData returns metadata about all live SST files.
-func (db *DBImplReadOnly) GetLiveFilesMetaData() []LiveFileMetaData {
+func (db *dbImplReadOnly) GetLiveFilesMetaData() []LiveFileMetaData {
 	if db.closed {
 		return nil
 	}
-	// Delegate to embedded DBImpl
-	return db.DBImpl.GetLiveFilesMetaData()
+	// Delegate to embedded dbImpl
+	return db.dbImpl.GetLiveFilesMetaData()
 }
 
 // DisableFileDeletions is a no-op in read-only mode.
-func (db *DBImplReadOnly) DisableFileDeletions() error {
+func (db *dbImplReadOnly) DisableFileDeletions() error {
 	return nil
 }
 
 // EnableFileDeletions is a no-op in read-only mode.
-func (db *DBImplReadOnly) EnableFileDeletions() error {
+func (db *dbImplReadOnly) EnableFileDeletions() error {
 	return nil
 }
 
 // PauseBackgroundWork is a no-op in read-only mode.
-func (db *DBImplReadOnly) PauseBackgroundWork() error {
+func (db *dbImplReadOnly) PauseBackgroundWork() error {
 	return nil
 }
 
 // ContinueBackgroundWork is a no-op in read-only mode.
-func (db *DBImplReadOnly) ContinueBackgroundWork() error {
+func (db *dbImplReadOnly) ContinueBackgroundWork() error {
 	return nil
 }
 
 // BeginTransaction is not supported in read-only mode.
-func (db *DBImplReadOnly) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
+func (db *dbImplReadOnly) BeginTransaction(opts TransactionOptions, writeOpts *WriteOptions) Transaction {
 	return nil
 }
 
 // NewCheckpoint is not supported in read-only mode.
-func (db *DBImplReadOnly) NewCheckpoint() *Checkpoint {
+func (db *dbImplReadOnly) NewCheckpoint() *Checkpoint {
 	return nil
 }
 
 // Close closes the read-only database.
-func (db *DBImplReadOnly) Close() error {
+func (db *dbImplReadOnly) Close() error {
 	if db.closed {
 		return ErrDBClosed
 	}

@@ -2,7 +2,6 @@ package rockyardkv
 
 // merge_operator_contract_test.go implements tests for merge operator contract.
 
-
 import (
 	"path/filepath"
 	"testing"
@@ -286,7 +285,7 @@ func TestMergeOperator_Contract_MergeAfterPut(t *testing.T) {
 func TestMergeOperator_Contract_AssociativeAdapter(t *testing.T) {
 	// Simple counter operator
 	counter := &simpleCounter{}
-	adapter := &AssociativeMergeOperatorAdapter{Op: counter}
+	adapter := WrapAssociativeMergeOperator(counter)
 
 	operands := [][]byte{
 		encodeUint64(1),

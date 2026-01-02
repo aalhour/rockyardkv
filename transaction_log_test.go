@@ -2,7 +2,6 @@ package rockyardkv
 
 // transaction_log_test.go implements tests for transaction log.
 
-
 import (
 	"errors"
 	"os"
@@ -27,7 +26,7 @@ func TestGetUpdatesSinceBasic(t *testing.T) {
 	}
 	defer database.Close()
 
-	impl := database.(*DBImpl)
+	impl := database.(*dbImpl)
 
 	// Write some data
 	for i := range 10 {
@@ -87,7 +86,7 @@ func TestGetUpdatesSinceFromSequence(t *testing.T) {
 	}
 	defer database.Close()
 
-	impl := database.(*DBImpl)
+	impl := database.(*dbImpl)
 
 	// Write first batch
 	for i := range 5 {
@@ -153,7 +152,7 @@ func TestGetSortedWalFiles(t *testing.T) {
 	}
 	defer database.Close()
 
-	impl := database.(*DBImpl)
+	impl := database.(*dbImpl)
 
 	// Write some data to ensure WAL is created
 	if err := database.Put(nil, []byte("key"), []byte("value")); err != nil {
@@ -202,7 +201,7 @@ func TestTransactionLogIteratorAfterFlush(t *testing.T) {
 	}
 	defer database.Close()
 
-	impl := database.(*DBImpl)
+	impl := database.(*dbImpl)
 
 	// Write some data
 	for i := range 5 {
@@ -269,7 +268,7 @@ func TestTransactionLogIteratorInvalidOperations(t *testing.T) {
 	}
 	defer database.Close()
 
-	impl := database.(*DBImpl)
+	impl := database.(*dbImpl)
 
 	// Write one record to create WAL
 	if err := database.Put(nil, []byte("key"), []byte("value")); err != nil {

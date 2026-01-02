@@ -2,7 +2,6 @@ package rockyardkv
 
 // durability_seqno_test.go implements Durability tests for sequence number management across flush and recovery cycles.
 
-
 import (
 	"bytes"
 	"testing"

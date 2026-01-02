@@ -9,7 +9,6 @@ package rockyardkv
 //   - include/rocksdb/sst_file_writer.h
 //   - table/sst_file_writer.cc
 
-
 import (
 	"bytes"
 	"errors"

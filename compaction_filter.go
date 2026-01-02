@@ -12,7 +12,6 @@ package rockyardkv
 //   - include/rocksdb/compaction_filter.h
 //   - db/compaction/compaction_iterator.cc
 
-
 import "github.com/aalhour/rockyardkv/internal/dbformat"
 
 // CompactionFilterDecision represents the decision made by a compaction filter.
