@@ -9,7 +9,8 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/compression"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/internal/options"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 func TestWriteAndReadOptionsFile(t *testing.T) {
@@ -38,9 +39,9 @@ func TestWriteAndReadOptionsFile(t *testing.T) {
 
 	// Read options file
 	path := filepath.Join(dir, "OPTIONS-000001")
-	parsed, err := ReadOptionsFile(fs, path)
+	parsed, err := readOptionsFile(fs, path)
 	if err != nil {
-		t.Fatalf("ReadOptionsFile failed: %v", err)
+		t.Fatalf("readOptionsFile failed: %v", err)
 	}
 
 	// Verify values
@@ -62,7 +63,7 @@ func TestWriteAndReadOptionsFile(t *testing.T) {
 	if parsed.Compression != opts.Compression {
 		t.Errorf("Compression = %d, want %d", parsed.Compression, opts.Compression)
 	}
-	if parsed.CompactionStyle != opts.CompactionStyle {
+	if int(parsed.CompactionStyle) != int(opts.CompactionStyle) {
 		t.Errorf("CompactionStyle = %d, want %d", parsed.CompactionStyle, opts.CompactionStyle)
 	}
 	if parsed.MaxSubcompactions != opts.MaxSubcompactions {
@@ -86,7 +87,7 @@ func TestParseOptionsFile(t *testing.T) {
   write_buffer_size=33554432
 `
 
-	parsed, err := ParseOptionsFile(strings.NewReader(input))
+	parsed, err := options.ParseOptionsFile(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("ParseOptionsFile failed: %v", err)
 	}
@@ -100,8 +101,8 @@ func TestParseOptionsFile(t *testing.T) {
 	if parsed.Compression != compression.ZstdCompression {
 		t.Errorf("Compression = %d, want %d", parsed.Compression, compression.ZstdCompression)
 	}
-	if parsed.CompactionStyle != CompactionStyleFIFO {
-		t.Errorf("CompactionStyle = %d, want %d", parsed.CompactionStyle, CompactionStyleFIFO)
+	if parsed.CompactionStyle != options.CompactionStyleFIFO {
+		t.Errorf("CompactionStyle = %d, want %d", parsed.CompactionStyle, options.CompactionStyleFIFO)
 	}
 }
 
@@ -154,9 +155,9 @@ func TestCompressionTypeConversions(t *testing.T) {
 			if s != tt.s {
 				t.Errorf("compressionTypeToString(%d) = %s, want %s", tt.ct, s, tt.s)
 			}
-			ct := stringToCompressionType(tt.s)
+			ct := options.StringToCompressionType(tt.s)
 			if ct != tt.ct {
-				t.Errorf("stringToCompressionType(%s) = %d, want %d", tt.s, ct, tt.ct)
+				t.Errorf("StringToCompressionType(%s) = %d, want %d", tt.s, ct, tt.ct)
 			}
 		})
 	}
@@ -178,9 +179,9 @@ func TestCompactionStyleConversions(t *testing.T) {
 			if s != tt.s {
 				t.Errorf("compactionStyleToString(%d) = %s, want %s", tt.cs, s, tt.s)
 			}
-			cs := stringToCompactionStyle(tt.s)
-			if cs != tt.cs {
-				t.Errorf("stringToCompactionStyle(%s) = %d, want %d", tt.s, cs, tt.cs)
+			cs := options.StringToCompactionStyle(tt.s)
+			if int(cs) != int(tt.cs) {
+				t.Errorf("StringToCompactionStyle(%s) = %d, want %d", tt.s, cs, tt.cs)
 			}
 		})
 	}

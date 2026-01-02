@@ -343,7 +343,7 @@ for retry := 0; retry < 3; retry++ {
 For testing, use the in-memory filesystem:
 
 ```go
-import "github.com/aalhour/rockyardkv/internal/vfs"
+import "github.com/aalhour/rockyardkv/vfs"
 
 opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true

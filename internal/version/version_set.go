@@ -29,8 +29,8 @@ import (
 	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/testutil"
-	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Errors returned by VersionSet operations.

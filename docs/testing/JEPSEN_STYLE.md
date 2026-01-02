@@ -86,7 +86,7 @@ Supported instances:
 Supported instances:
 
 - Fault injection filesystem:
-  - `internal/vfs/FaultInjectionFS`.
+  - `vfs.FaultInjectionFS`.
 - Unsynced data loss:
   - `FaultInjectionFS.DropUnsyncedData()`.
 - Delete unsynced files:
@@ -168,12 +168,12 @@ Use the “Missing instances” column to find gaps that fit the same class.
 
 | Fault class | Mechanism | Where it lives | Evidence | Support | Missing instances |
 | --- | --- | --- | --- | --- | --- |
-| Unsynced data loss | `FaultInjectionFS.DropUnsyncedData()` | `internal/vfs` + `cmd/stresstest` + `cmd/crashtest` | Scenario artifacts + repro | Supported | Add file-type specific drop policies for metadata-only tests. |
-| Delete unsynced files | `FaultInjectionFS.DeleteUnsyncedFiles()` | `internal/vfs` + `cmd/stresstest` | Stress/crash harness artifacts | Supported | Add deterministic scenarios that prove orphan handling matches oracle. |
-| Rename not durable without `SyncDir` (N05) | `FaultInjectionFS.pendingRenames` + `RevertUnsyncedRenames()` | `internal/vfs` + `cmd/crashtest` | Scenario artifacts + oracle outputs | Supported | Add rename anomaly variants (double-name, neither-name, revert-after-success). |
-| Directory fsync lies (N05) | `FaultInjectionFS.SetSyncDirLieMode(true)` | `internal/vfs` + `cmd/crashtest` | Scenario artifacts + oracle outputs | Supported | Expand to cover “success lies” across other metadata operations. |
-| File fsync lies | `FaultInjectionFS.SetFileSyncLieMode(true, <pattern>)` | `internal/vfs` + `cmd/crashtest` | Scenario artifacts | Partial | Add a MANIFEST sync lie scenario. |
-| Goroutine-local fault injection | `GoroutineFaultManager` | `internal/vfs/fault_injection_goroutine.go` | None | Not supported (no cmd scenario) | Add a cmd-level harness that enables per-goroutine metadata and sync faults. |
+| Unsynced data loss | `FaultInjectionFS.DropUnsyncedData()` | `vfs` + `cmd/stresstest` + `cmd/crashtest` | Scenario artifacts + repro | Supported | Add file-type specific drop policies for metadata-only tests. |
+| Delete unsynced files | `FaultInjectionFS.DeleteUnsyncedFiles()` | `vfs` + `cmd/stresstest` | Stress/crash harness artifacts | Supported | Add deterministic scenarios that prove orphan handling matches oracle. |
+| Rename not durable without `SyncDir` (N05) | `FaultInjectionFS.pendingRenames` + `RevertUnsyncedRenames()` | `vfs` + `cmd/crashtest` | Scenario artifacts + oracle outputs | Supported | Add rename anomaly variants (double-name, neither-name, revert-after-success). |
+| Directory fsync lies (N05) | `FaultInjectionFS.SetSyncDirLieMode(true)` | `vfs` + `cmd/crashtest` | Scenario artifacts + oracle outputs | Supported | Expand to cover “success lies” across other metadata operations. |
+| File fsync lies | `FaultInjectionFS.SetFileSyncLieMode(true, <pattern>)` | `vfs` + `cmd/crashtest` | Scenario artifacts | Partial | Add a MANIFEST sync lie scenario. |
+| Goroutine-local fault injection | `GoroutineFaultManager` | `vfs/fault_injection_goroutine.go` | None | Not supported (no cmd scenario) | Add a cmd-level harness that enables per-goroutine metadata and sync faults. |
 
 ### On-disk corruption attacks
 

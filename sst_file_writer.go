@@ -85,7 +85,7 @@ type SstFileWriterOptions struct {
 	Comparator Comparator
 
 	// Compression type for the SST file.
-	Compression compression.Type
+	Compression CompressionType
 
 	// BlockSize is the target size for data blocks.
 	BlockSize int

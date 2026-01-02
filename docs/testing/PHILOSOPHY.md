@@ -140,14 +140,14 @@ They fork a child process, crash it, and verify data in the parent.
 // Contract: Synced writes survive crash
 func TestDurability_WALEnabled_WritesAreDurable(t *testing.T) {
     if os.Getenv("CHILD") == "1" {
-        db.Put(key, value)
+        database.Put(key, value)
         os.Exit(0)  // Simulate crash
     }
 
     // Parent spawns child, then reopens and verifies
     exec.Command(os.Args[0], "-test.run=ThisTest").Run()
     db = Open(path)
-    if _, err := db.Get(key); err != nil {
+    if _, err := database.Get(key); err != nil {
         t.Error("Synced write must survive crash")
     }
 }
@@ -168,9 +168,9 @@ They run in-process but use the filesystem.
 // Contract: Orphan SST files are deleted during recovery
 func TestOrphanCleanup_MultipleOrphans(t *testing.T) {
     db := Open(path)
-    db.Put(key, value)
-    db.Flush()
-    db.Close()
+    database.Put(key, value)
+    database.Flush()
+    database.Close()
 
     // Create orphan files
     os.WriteFile(path+"/orphan.sst", data, 0644)

@@ -48,7 +48,7 @@ import (
 	ibatch "github.com/aalhour/rockyardkv/internal/batch"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/trace"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 var (

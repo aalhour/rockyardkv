@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/aalhour/rockyardkv/internal/txn"
 )
 
 // TransactionDB wraps a regular DB and provides transactional operations.
@@ -22,7 +24,7 @@ type TransactionDB struct {
 	db *dbImpl
 
 	// Lock manager for pessimistic transactions
-	lockManager *LockManager
+	lockManager *txn.LockManager
 
 	// Transaction ID counter
 	txnIDCounter uint64
@@ -82,7 +84,7 @@ func OpenTransactionDB(path string, dbOpts *Options, txnDBOpts TransactionDBOpti
 
 	txnDB := &TransactionDB{
 		db:          dbImpl,
-		lockManager: NewLockManager(txnDBOpts.LockManagerOptions),
+		lockManager: txn.NewLockManager(txnDBOpts.LockManagerOptions),
 		activeTxns:  make(map[uint64]*PessimisticTransaction),
 		opts:        txnDBOpts,
 	}
@@ -98,7 +100,7 @@ func WrapDB(database DB, txnDBOpts TransactionDBOptions) (*TransactionDB, error)
 	}
 	return &TransactionDB{
 		db:          dbImpl,
-		lockManager: NewLockManager(txnDBOpts.LockManagerOptions),
+		lockManager: txn.NewLockManager(txnDBOpts.LockManagerOptions),
 		activeTxns:  make(map[uint64]*PessimisticTransaction),
 		opts:        txnDBOpts,
 	}, nil
@@ -177,8 +179,9 @@ func (txnDB *TransactionDB) NumActiveTransactions() int {
 	return len(txnDB.activeTxns)
 }
 
-// GetLockManager returns the lock manager (for testing/debugging).
-func (txnDB *TransactionDB) GetLockManager() *LockManager {
+// getLockManager returns the lock manager (for testing/debugging).
+// Not exported - internal method.
+func (txnDB *TransactionDB) getLockManager() *txn.LockManager {
 	return txnDB.lockManager
 }
 

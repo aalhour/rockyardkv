@@ -26,9 +26,9 @@ rocksdb::Status status = rocksdb::DB::Open(options, "/path/to/db", &db);
 
 **RockyardKV:**
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
-database, err := db.Open("/path/to/db", opts)
+database, err := rockyardkv.Open("/path/to/db", opts)
 ```
 
 ### Put/Get/Delete
@@ -103,7 +103,7 @@ db->ReleaseSnapshot(snapshot);
 ```go
 snapshot := database.GetSnapshot()
 defer database.ReleaseSnapshot(snapshot)
-opts := db.DefaultReadOptions()
+opts := rockyardkv.DefaultReadOptions()
 opts.Snapshot = snapshot
 value, _ := database.Get(opts, []byte("key"))
 ```
@@ -168,7 +168,7 @@ if (status.IsNotFound()) {
 **RockyardKV:**
 ```go
 value, err := database.Get(...)
-if err == db.ErrNotFound {
+if err == rockyardkv.ErrNotFound {
     // Handle not found
 } else if err != nil {
     // Handle error
@@ -179,7 +179,7 @@ if err == db.ErrNotFound {
 
 | C++ Status | Go Error |
 |------------|----------|
-| `Status::NotFound()` | `db.ErrNotFound` |
+| `Status::NotFound()` | `rockyardkv.ErrNotFound` |
 | `Status::IOError()` | `os` package errors |
 | `Status::Corruption()` | `db.ErrCorruption` (if applicable) |
 
@@ -196,7 +196,7 @@ RockyardKV uses **the same on-disk format** as RocksDB v10.7.5:
 If your existing database was created with RocksDB v10.7.5 (or compatible), you can simply open it with RockyardKV:
 
 ```go
-database, err := db.Open("/path/to/existing/rocksdb", opts)
+database, err := rockyardkv.Open("/path/to/existing/rocksdb", opts)
 ```
 
 ### Option 2: Export/Import
@@ -268,7 +268,7 @@ This is competitive with C++ RocksDB for most workloads.
 ### Tuning for Performance
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.WriteBufferSize = 128 * 1024 * 1024  // Larger memtable
 opts.MaxWriteBufferNumber = 4             // More buffers
 opts.MaxOpenFiles = 5000                  // More file handles

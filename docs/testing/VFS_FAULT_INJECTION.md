@@ -18,8 +18,8 @@ Tests use these injectors to simulate filesystem failures, lies, and anomalies.
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `FaultInjectionFS` | `internal/vfs/fault_injection.go` | Deterministic filesystem fault simulation |
-| `GoroutineLocalFaultInjectionFS` | `internal/vfs/fault_injection_goroutine.go` | Per-goroutine probabilistic fault injection |
+| `FaultInjectionFS` | `vfs/fault_injection.go` | Deterministic filesystem fault simulation |
+| `GoroutineLocalFaultInjectionFS` | `vfs/fault_injection_goroutine.go` | Per-goroutine probabilistic fault injection |
 
 ## FaultInjectionFS
 
@@ -239,7 +239,7 @@ fs := vfs.NewGoroutineLocalFaultInjectionFS(vfs.Default)
 manager := fs.FaultManager()
 
 // Create database with no faults
-database, _ := db.Open(path, opts)
+database, _ := rockyardkv.Open(path, opts)
 
 // Activate faults after successful open
 manager.SetGlobalWriteErrorRate(0.1)

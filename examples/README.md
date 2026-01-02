@@ -44,5 +44,5 @@ rm -rf /tmp/rockyardkv_*
 
 ## API
 
-All examples use the stable public API from the `db` package.
-See `db.NewWriteBatch()` for batch writes and the `db.DB` interface for database operations.
+All examples use the stable public API from `package rockyardkv`.
+See `rockyardkv.NewWriteBatch()` for batch writes and the `rockyardkv.DB` interface for database operations.

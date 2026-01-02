@@ -14,7 +14,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/logging"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/version"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // ErrReadOnly is returned when attempting a write operation on a read-only database.

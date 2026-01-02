@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // encodeValueBase encodes a value_base as an 8-byte value.

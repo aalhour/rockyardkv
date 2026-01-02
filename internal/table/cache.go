@@ -10,7 +10,7 @@ package table
 import (
 	"sync"
 
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // TableCache caches open SST file readers to avoid repeatedly opening files.

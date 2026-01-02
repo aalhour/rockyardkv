@@ -234,12 +234,6 @@ func (db *dbImpl) deleteOrphanedSSTFiles() error {
 	return nil
 }
 
-// RecoverLogFile is a helper to parse a log file for testing.
-func RecoverLogFile(fs any, path string) ([]*batch.WriteBatch, error) {
-	// This is for testing - not used in production
-	return nil, nil
-}
-
 // walRecoveryHandler applies recovered operations to the memtable.
 // Reserved for future WAL recovery implementation.
 type walRecoveryHandler struct {

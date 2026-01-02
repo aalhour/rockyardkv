@@ -1,4 +1,4 @@
-package rockyardkv
+package txn
 
 // lock_manager_test.go implements tests for lock manager.
 

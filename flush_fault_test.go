@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // -----------------------------------------------------------------------------

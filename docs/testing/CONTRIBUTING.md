@@ -35,7 +35,7 @@ Where should I add test coverage?
 │
 ├── Is it a concurrency issue?
 │   ├── Yes → Stress test in cmd/stresstest/
-│   │         + db/db_concurrent_test.go
+│   │         + db_concurrent_test.go
 │   └── No ↓
 │
 ├── Is it a parsing or corruption issue?
@@ -45,7 +45,7 @@ Where should I add test coverage?
 │
 └── Is it an API behavior issue?
     ├── Yes → Unit test in
-    │         db/*_test.go or internal/*_test.go
+    │         *_test.go (root) or internal/*_test.go
     └── No → Unit test in
               internal/*_test.go
 ```
@@ -165,7 +165,7 @@ Whitebox tests live in `cmd/crashtest/scenario_whitebox_test.go`.
        }
        
        // Crash at kill point
-       runWhiteboxChild(t, dir, testutil.KPMyComponent0, func(database db.DB) {
+       runWhiteboxChild(t, dir, testutil.KPMyComponent0, func(database rockyardkv.DB) {
            // ... trigger the code path
        })
        
@@ -187,9 +187,9 @@ func TestScenario_ContractDescription(t *testing.T) {
     dir := t.TempDir()
     
     // Run child process
-    runScenarioChild(t, dir, func(database db.DB) {
+    runScenarioChild(t, dir, func(database rockyardkv.DB) {
         // Perform operation
-        opts := db.DefaultWriteOptions()
+        opts := rockyardkv.DefaultWriteOptions()
         opts.Sync = true
         database.Put(opts, key, value)
     })

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/manifest"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 func TestVersionSetNew(t *testing.T) {

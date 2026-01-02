@@ -220,8 +220,8 @@ func TestDB_RoundTrip(t *testing.T) {
     
     // Write with Go
     db := openDB(t, dir)
-    db.Put(opts, key, value)
-    db.Close()
+    database.Put(opts, key, value)
+    database.Close()
     
     // Read with C++ ldb
     output := runLdb(t, "--db="+dir, "get", string(key))

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/dbformat"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // TestCorruptionDetectionDirect verifies that corrupting a data block

@@ -12,6 +12,8 @@ package rockyardkv
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/aalhour/rockyardkv/internal/mempool"
 )
 
 // WriteBufferManager controls memory usage across memtables.
@@ -225,94 +227,15 @@ func (wbm *WriteBufferManager) UsageRatio() float64 {
 }
 
 // ---------------------------------------------------------------------------
-// Buffer slice pool for general byte buffer reuse
+// Global buffer pool (delegates to internal/mempool)
 // ---------------------------------------------------------------------------
-
-// BufferPool manages reusable byte slices of various sizes.
-// This reduces allocations for temporary buffers used in encoding/decoding.
-type BufferPool struct {
-	// Size buckets: 256B, 1KB, 4KB, 16KB, 64KB
-	pools [5]sync.Pool
-}
-
-// Buffer bucket sizes
-var bufferBucketSizes = [5]int{
-	256,       // 256 bytes
-	1024,      // 1KB
-	4 * 1024,  // 4KB
-	16 * 1024, // 16KB
-	64 * 1024, // 64KB
-}
-
-// NewBufferPool creates a new BufferPool.
-func NewBufferPool() *BufferPool {
-	bp := &BufferPool{}
-	for i := range bp.pools {
-		size := bufferBucketSizes[i]
-		bp.pools[i] = sync.Pool{
-			New: func() any {
-				buf := make([]byte, 0, size)
-				return &buf
-			},
-		}
-	}
-	return bp
-}
-
-// Get retrieves a byte slice with at least the specified capacity.
-func (bp *BufferPool) Get(minSize int) []byte {
-	bucket := bp.getBucket(minSize)
-	if bucket < 0 {
-		// Too large for pool
-		return make([]byte, 0, minSize)
-	}
-
-	bufPtr, ok := bp.pools[bucket].Get().(*[]byte)
-	if !ok {
-		return make([]byte, 0, minSize)
-	}
-	buf := *bufPtr
-	return buf[:0]
-}
-
-// Put returns a byte slice to the pool.
-func (bp *BufferPool) Put(buf []byte) {
-	if buf == nil {
-		return
-	}
-
-	bucket := bp.getBucket(cap(buf))
-	if bucket < 0 || cap(buf) > bufferBucketSizes[len(bufferBucketSizes)-1]*2 {
-		// Too large - don't pool
-		return
-	}
-
-	// Clear the slice before returning
-	buf = buf[:0]
-	bp.pools[bucket].Put(&buf)
-}
-
-func (bp *BufferPool) getBucket(size int) int {
-	for i, bucketSize := range bufferBucketSizes {
-		if size <= bucketSize {
-			return i
-		}
-	}
-	return -1
-}
-
-// ---------------------------------------------------------------------------
-// Global buffer pool
-// ---------------------------------------------------------------------------
-
-var globalBufferPool = NewBufferPool()
 
 // GetBuffer retrieves a byte slice from the global buffer pool.
 func GetBuffer(minSize int) []byte {
-	return globalBufferPool.Get(minSize)
+	return mempool.GlobalPool.Get(minSize)
 }
 
 // PutBuffer returns a byte slice to the global buffer pool.
 func PutBuffer(buf []byte) {
-	globalBufferPool.Put(buf)
+	mempool.GlobalPool.Put(buf)
 }

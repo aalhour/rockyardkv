@@ -27,7 +27,7 @@ RockyardKV configuration options and their C++ RocksDB compatibility status.
 
 ## Database Options
 
-Main options passed to `db.Open()`.
+Main options passed to `rockyardkv.Open()`.
 
 | Option | Type | Default | C++ Compatible | Description |
 |--------|------|---------|----------------|-------------|
@@ -64,12 +64,12 @@ Main options passed to `db.Open()`.
 ### Usage
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
 opts.WriteBufferSize = 128 * 1024 * 1024 // 128 MB
-opts.Compression = db.LZ4Compression
+opts.Compression = rockyardkv.CompressionTypeLZ4
 
-database, err := db.Open("/path/to/db", opts)
+database, err := rockyardkv.Open("/path/to/db", opts)
 ```
 
 ---
@@ -93,7 +93,7 @@ Options for `Get()`, `NewIterator()`, and related operations.
 ### Usage
 
 ```go
-ro := db.DefaultReadOptions()
+ro := rockyardkv.DefaultReadOptions()
 ro.VerifyChecksums = true
 ro.FillCache = false  // For large scans
 
@@ -124,7 +124,7 @@ Options for `Put()`, `Delete()`, and `Write()`.
 ### Usage
 
 ```go
-wo := db.DefaultWriteOptions()
+wo := rockyardkv.DefaultWriteOptions()
 wo.Sync = true  // Maximum durability
 
 err := database.Put(wo, key, value)
@@ -174,8 +174,8 @@ Options for `Flush()`.
 ### Usage
 
 ```go
-opts := db.DefaultOptions()
-opts.CompactionStyle = db.CompactionStyleUniversal
+opts := rockyardkv.DefaultOptions()
+opts.CompactionStyle = rockyardkv.CompactionStyleUniversal
 opts.UniversalCompactionOptions = &db.UniversalCompactionOptions{
     SizeRatio: 10,
     MinMergeWidth: 2,
@@ -213,8 +213,8 @@ opts.UniversalCompactionOptions = &db.UniversalCompactionOptions{
 ### Usage
 
 ```go
-opts := db.DefaultOptions()
-opts.Compression = db.LZ4Compression
+opts := rockyardkv.DefaultOptions()
+opts.Compression = rockyardkv.CompressionTypeLZ4
 ```
 
 ---
@@ -234,7 +234,7 @@ opts.Compression = db.LZ4Compression
 ### Usage
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.ChecksumType = checksum.TypeCRC32C
 ```
 
@@ -242,7 +242,8 @@ opts.ChecksumType = checksum.TypeCRC32C
 
 ## BlobDB
 
-Integrated blob storage for large values (reduces write amplification).
+BlobDB is not currently enabled by the DB implementation.
+The option type exists for API surface planning, but DB reads/writes do not route values into blob files yet.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -277,9 +278,9 @@ Integrated blob storage for large values (reduces write amplification).
 ### Usage
 
 ```go
-txnDB, err := db.OpenTransactionDB(path, opts, db.DefaultTransactionDBOptions())
+txnDB, err := rockyardkv.OpenTransactionDB(path, opts, rockyardkv.DefaultTransactionDBOptions())
 
-txn := txnDB.BeginTransaction(db.DefaultWriteOptions(), db.DefaultTransactionOptions())
+txn := txnDB.BeginTransaction(rockyardkv.DefaultWriteOptions(), rockyardkv.DefaultTransactionOptions())
 txn.Put([]byte("key"), []byte("value"))
 err = txn.Commit()
 ```
@@ -305,7 +306,7 @@ External SST files created by `SstFileWriter` can be ingested into the database.
 ### Usage
 
 ```go
-writer, err := db.NewSstFileWriter(db.DefaultSstFileWriterOptions())
+writer, err := rockyardkv.NewSstFileWriter(rockyardkv.DefaultSstFileWriterOptions())
 writer.Open("/path/to/data.sst")
 writer.Put(key1, value1)
 writer.Put(key2, value2)
@@ -313,7 +314,7 @@ writer.Finish()
 
 err = database.IngestExternalFile(
     []string{"/path/to/data.sst"},
-    db.DefaultIngestExternalFileOptions(),
+    rockyardkv.DefaultIngestExternalFileOptions(),
 )
 ```
 
@@ -393,41 +394,40 @@ See `docs/status/durability_report.md` for detailed durability verification stat
 ### Minimal Configuration
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
-db, err := db.Open("/path/to/db", opts)
+database, err := rockyardkv.Open("/path/to/db", opts)
 ```
 
 ### High-Throughput Writes
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
 opts.WriteBufferSize = 256 * 1024 * 1024     // 256 MB
 opts.MaxWriteBufferNumber = 4
 opts.DisableAutoCompactions = false
-opts.CompactionStyle = db.CompactionStyleUniversal
-opts.Compression = db.LZ4Compression
+opts.CompactionStyle = rockyardkv.CompactionStyleUniversal
+opts.Compression = rockyardkv.CompressionTypeLZ4
 ```
 
 ### Read-Heavy Workload
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
 opts.BloomFilterBitsPerKey = 10
-opts.CompactionStyle = db.CompactionStyleLevel
+opts.CompactionStyle = rockyardkv.CompactionStyleLevel
 opts.MaxBytesForLevelBase = 512 * 1024 * 1024
 ```
 
 ### Maximum Durability
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.CreateIfMissing = true
 opts.ParanoidChecks = true
 
-wo := db.DefaultWriteOptions()
+wo := rockyardkv.DefaultWriteOptions()
 wo.Sync = true
 ```
-

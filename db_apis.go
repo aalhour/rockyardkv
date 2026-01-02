@@ -17,7 +17,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/memtable"
 	"github.com/aalhour/rockyardkv/internal/version"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Range represents a key range for size approximation.

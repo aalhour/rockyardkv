@@ -25,7 +25,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/rangedel"
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/testutil"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // RateLimiter is an interface for rate limiting I/O operations.

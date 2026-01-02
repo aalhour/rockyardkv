@@ -8,7 +8,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/checksum"
 	"github.com/aalhour/rockyardkv/internal/compression"
 	"github.com/aalhour/rockyardkv/internal/logging"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Logger is an alias for the logging.Logger interface.
@@ -18,6 +18,14 @@ type Logger = logging.Logger
 // CompressionType is an alias for the compression type.
 type CompressionType = compression.Type
 
+// Compression type constants.
+const (
+	CompressionNone   = compression.NoCompression
+	CompressionSnappy = compression.SnappyCompression
+	CompressionZstd   = compression.ZstdCompression
+	CompressionLZ4    = compression.LZ4Compression
+)
+
 // Compression type constants
 const (
 	NoCompression     = compression.NoCompression
@@ -26,6 +34,18 @@ const (
 	LZ4Compression    = compression.LZ4Compression
 	LZ4HCCompression  = compression.LZ4HCCompression
 	ZstdCompression   = compression.ZstdCompression
+)
+
+// ChecksumType is an alias for the checksum type.
+type ChecksumType = checksum.Type
+
+// Checksum type constants
+const (
+	ChecksumTypeNoChecksum = checksum.TypeNoChecksum
+	ChecksumTypeCRC32C     = checksum.TypeCRC32C
+	ChecksumTypeXXHash     = checksum.TypeXXHash
+	ChecksumTypeXXHash64   = checksum.TypeXXHash64
+	ChecksumTypeXXH3       = checksum.TypeXXH3
 )
 
 // CompactionStyle specifies the compaction strategy.
@@ -160,7 +180,7 @@ type Options struct {
 
 	// ChecksumType specifies the checksum algorithm for SST files.
 	// Default: CRC32C
-	ChecksumType checksum.Type
+	ChecksumType ChecksumType
 
 	// FormatVersion is the SST file format version.
 	// Default: 3
@@ -274,7 +294,7 @@ func DefaultOptions() *Options {
 		MaxOpenFiles:                     1000,
 		BlockSize:                        4096,
 		BlockRestartInterval:             16,
-		ChecksumType:                     checksum.TypeCRC32C,
+		ChecksumType:                     ChecksumTypeCRC32C,
 		FormatVersion:                    3,
 		Level0FileNumCompactionTrigger:   4,
 		MaxBytesForLevelBase:             256 * 1024 * 1024, // 256MB

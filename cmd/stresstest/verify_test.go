@@ -9,7 +9,7 @@ import (
 
 	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/testutil"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 type fakeDB struct {

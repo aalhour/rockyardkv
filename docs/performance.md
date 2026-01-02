@@ -19,7 +19,7 @@ This guide covers performance optimization for RockyardKV, covering configuratio
 ### Options Overview
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 
 // Memory Configuration
 opts.WriteBufferSize = 64 * 1024 * 1024     // 64MB memtable
@@ -50,7 +50,7 @@ opts.BloomFilterBitsPerKey = 10              // 10 bits = ~1% FP rate
 For **write-heavy** workloads:
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.WriteBufferSize = 128 * 1024 * 1024    // Larger memtable (128MB)
 opts.MaxWriteBufferNumber = 6               // More buffer space
 opts.Level0FileNumCompactionTrigger = 8     // Delay compaction triggers
@@ -72,7 +72,7 @@ db.Write(nil, wb)  // Single WAL sync
 
 // Bad: Individual writes
 for i := 0; i < 1000; i++ {
-    db.Put(nil, keys[i], values[i])  // 1000 WAL syncs!
+    database.Put(nil, keys[i], values[i])  // 1000 WAL syncs!
 }
 ```
 
@@ -81,7 +81,7 @@ for i := 0; i < 1000; i++ {
 For maximum write throughput (with durability trade-offs):
 
 ```go
-writeOpts := db.DefaultWriteOptions()
+writeOpts := rockyardkv.DefaultWriteOptions()
 writeOpts.DisableWAL = true  // WARNING: Data loss on crash
 writeOpts.Sync = false       // Default, async writes
 ```
@@ -124,7 +124,7 @@ opts.MaxOpenFiles = 10000  // More open SST files
 Use iterator bounds to reduce scan range:
 
 ```go
-readOpts := db.DefaultReadOptions()
+readOpts := rockyardkv.DefaultReadOptions()
 readOpts.IterateUpperBound = []byte("zzz")  // Stop at key "zzz"
 readOpts.IterateLowerBound = []byte("aaa")  // Start at key "aaa"
 ```
@@ -134,9 +134,9 @@ readOpts.IterateLowerBound = []byte("aaa")  // Start at key "aaa"
 For prefix-based access patterns:
 
 ```go
-opts.PrefixExtractor = db.NewFixedPrefixExtractor(4)  // 4-byte prefix
+opts.PrefixExtractor = rockyardkv.NewFixedPrefixExtractor(4)  // 4-byte prefix
 
-readOpts := db.DefaultReadOptions()
+readOpts := rockyardkv.DefaultReadOptions()
 readOpts.PrefixSameAsStart = true  // Optimize for prefix iteration
 ```
 
@@ -156,12 +156,12 @@ Key areas for allocation reduction:
 // Reuse write batch
 var wbPool = sync.Pool{
     New: func() interface{} {
-        return batch.NewWriteBatch()
+        return rockyardkv.NewWriteBatch()
     },
 }
 
-func writeBatch(db *db.DBImpl, ops []Op) error {
-    wb := wbPool.Get().(*batch.WriteBatch)
+func writeBatch(database rockyardkv.DB, ops []Op) error {
+    wb := wbPool.Get().(*rockyardkv.WriteBatch)
     defer func() {
         wb.Clear()
         wbPool.Put(wb)
@@ -170,7 +170,7 @@ func writeBatch(db *db.DBImpl, ops []Op) error {
     for _, op := range ops {
         wb.Put(op.Key, op.Value)
     }
-    return db.Write(nil, wb)
+    return database.Write(nil, wb)
 }
 ```
 
@@ -282,7 +282,7 @@ Target metrics:
 For time-series workloads (sequential writes, range scans):
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.WriteBufferSize = 128 * 1024 * 1024  // Larger memtable
 opts.BloomFilterBitsPerKey = 0             // No bloom (always scan)
 
@@ -295,7 +295,7 @@ key := fmt.Sprintf("%020d-%s", timestamp, id)
 For cache workloads (random reads, TTL-based):
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.BloomFilterBitsPerKey = 14            // Lower false positives
 opts.MaxOpenFiles = 20000                   // More cached files
 
@@ -308,7 +308,7 @@ readOpts.PrefixSameAsStart = true
 For queue workloads (append-only, sequential reads):
 
 ```go
-opts := db.DefaultOptions()
+opts := rockyardkv.DefaultOptions()
 opts.WriteBufferSize = 256 * 1024 * 1024   // Very large memtable
 writeOpts.Sync = false                      // Async for throughput
 ```

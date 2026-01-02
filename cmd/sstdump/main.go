@@ -33,7 +33,7 @@ import (
 	"strings"
 
 	"github.com/aalhour/rockyardkv/internal/table"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 var (

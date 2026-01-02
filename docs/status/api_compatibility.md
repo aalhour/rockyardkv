@@ -12,12 +12,12 @@ Status key:
 
 | C++ RocksDB | RockyardKV | Status | Notes |
 |-------------|------------|--------|-------|
-| `DB::Open()` | `db.Open()` | ✅ | |
-| `DB::OpenForReadOnly()` | `db.OpenForReadOnly()` | ✅ | |
-| `DB::OpenAsSecondary()` | `db.OpenAsSecondary()` | ✅ | |
+| `DB::Open()` | `rockyardkv.Open()` | ✅ | |
+| `DB::OpenForReadOnly()` | `rockyardkv.OpenForReadOnly()` | ✅ | |
+| `DB::OpenAsSecondary()` | `rockyardkv.OpenAsSecondary()` | ✅ | |
 | `DB::OpenWithColumnFamilies()` | — | ❌ | Use `Open()` then `CreateColumnFamily()` |
 | `DB::OpenAsSecondaryWithColumnFamilies()` | — | ❌ | |
-| `DB::ListColumnFamilies()` | `db.ListColumnFamilies()` | ✅ | Static method in C++, instance in Go |
+| `DB::ListColumnFamilies()` | `rockyardkv.ListColumnFamilies()` | ✅ | Static method in C++, instance in Go |
 | `DB::Close()` | `database.Close()` | ✅ | |
 | `DestroyDB()` | — | ❌ | Use `os.RemoveAll()` |
 | `RepairDB()` | — | ❌ | |
@@ -56,7 +56,7 @@ Status key:
 
 | C++ RocksDB | RockyardKV | Status | Notes |
 |-------------|------------|--------|-------|
-| `WriteBatch()` constructor | `db.NewWriteBatch()` | ✅ | |
+| `WriteBatch()` constructor | `rockyardkv.NewWriteBatch()` | ✅ | |
 | `WriteBatch::Put()` | `wb.Put()` | ✅ | |
 | `WriteBatch::Delete()` | `wb.Delete()` | ✅ | |
 | `WriteBatch::SingleDelete()` | `wb.SingleDelete()` | ✅ | |
@@ -104,7 +104,7 @@ Status key:
 | C++ RocksDB | RockyardKV | Status | Notes |
 |-------------|------------|--------|-------|
 | `OptimisticTransactionDB::Open()` | `database.BeginTransaction()` | 🔄 | Optimistic by default |
-| `TransactionDB::Open()` | `db.OpenTransactionDB()` | ✅ | Pessimistic transactions |
+| `TransactionDB::Open()` | `rockyardkv.OpenTransactionDB()` | ✅ | Pessimistic transactions |
 | `Transaction::Get()` | `txn.Get()` | ✅ | |
 | `Transaction::GetForUpdate()` | `txn.GetForUpdate()` | ✅ | |
 | `Transaction::Put()` | `txn.Put()` | ✅ | |
@@ -138,7 +138,7 @@ Status key:
 
 | C++ RocksDB | RockyardKV | Status | Notes |
 |-------------|------------|--------|-------|
-| `BackupEngine::Open()` | `db.NewBackupEngine()` | ✅ | |
+| `BackupEngine::Open()` | `rockyardkv.NewBackupEngine()` | ✅ | |
 | `BackupEngine::CreateNewBackup()` | `engine.CreateNewBackup()` | ✅ | |
 | `BackupEngine::RestoreDBFromLatestBackup()` | `engine.RestoreDBFromLatestBackup()` | ✅ | |
 | `BackupEngine::RestoreDBFromBackup()` | `engine.RestoreDBFromBackup()` | ✅ | |
@@ -150,7 +150,7 @@ Status key:
 
 | C++ RocksDB | RockyardKV | Status | Notes |
 |-------------|------------|--------|-------|
-| `SstFileWriter()` | `db.NewSstFileWriter()` | ✅ | |
+| `SstFileWriter()` | `rockyardkv.NewSstFileWriter()` | ✅ | |
 | `SstFileWriter::Open()` | `writer.Open()` | ✅ | |
 | `SstFileWriter::Put()` | `writer.Put()` | ✅ | |
 | `SstFileWriter::Delete()` | `writer.Delete()` | ✅ | |
@@ -191,7 +191,7 @@ Status key:
    Go uses explicit error returns rather than status objects.
 
 2. **Options**: Uses struct literals with zero-value defaults.
-   `db.DefaultOptions()` provides sensible defaults.
+   `rockyardkv.DefaultOptions()` provides sensible defaults.
 
 3. **Memory management**: Automatic via garbage collection.
    No need for `delete` or manual cleanup.

@@ -1172,7 +1172,7 @@ func TestLargeTransaction(t *testing.T) {
 	}
 
 	// Locks should be released
-	if txnDB.GetLockManager().NumLocks() != 0 {
+	if txnDB.getLockManager().NumLocks() != 0 {
 		t.Error("Locks should be released after commit")
 	}
 }

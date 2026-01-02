@@ -37,8 +37,8 @@ import (
 	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/manifest"
 	"github.com/aalhour/rockyardkv/internal/table"
-	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 var (

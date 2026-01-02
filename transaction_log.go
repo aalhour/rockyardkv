@@ -18,8 +18,8 @@ import (
 	"strings"
 
 	"github.com/aalhour/rockyardkv/internal/batch"
-	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 var (
@@ -65,7 +65,7 @@ type BatchResult struct {
 	Sequence uint64
 
 	// WriteBatch is the batch of operations.
-	WriteBatch *batch.WriteBatch
+	WriteBatch *WriteBatch
 }
 
 // TransactionLogIteratorReadOptions controls transaction log iterator behavior.
@@ -289,7 +289,7 @@ func (iter *TransactionLogIterator) readBatchFromReader() (*BatchResult, error) 
 
 	return &BatchResult{
 		Sequence:   wb.Sequence(),
-		WriteBatch: wb,
+		WriteBatch: newWriteBatchFromInternal(wb),
 	}, nil
 }
 

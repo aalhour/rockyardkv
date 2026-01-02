@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // TestFlushPreservesSequenceInvariant verifies that sequence numbers assigned

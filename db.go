@@ -23,8 +23,8 @@ import (
 	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/testutil"
 	"github.com/aalhour/rockyardkv/internal/version"
-	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Common errors returned by DB operations.

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/compression"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 func TestHeaderEncodeDecode(t *testing.T) {

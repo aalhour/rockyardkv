@@ -11,7 +11,7 @@ package blob
 import (
 	"sync"
 
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Cache caches blob file readers for efficient blob access.

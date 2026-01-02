@@ -26,6 +26,7 @@ coverage/
 .gocache/
 .gomodcache/
 .cache/
+smoketest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Project Artifacts (Everything else goes to tmp/)

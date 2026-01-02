@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/aalhour/rockyardkv/internal/manifest"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // TestVersionSetManifestFileNumber tests the ManifestFileNumber method

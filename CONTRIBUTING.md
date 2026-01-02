@@ -170,12 +170,12 @@ const DEFAULT_BLOCK_SIZE = 4096
 ### Comments
 
 ```go
-// Package db provides the main database interface.
-package db
+// Package rockyardkv provides a pure Go port of RocksDB.
+package rockyardkv
 
 // Open opens a database at the given path.
 // If the database doesn't exist and CreateIfMissing is true, it creates one.
-func Open(path string, opts *Options) (*DBImpl, error) {
+func Open(path string, opts *Options) (DB, error) {
     // ...
 }
 ```

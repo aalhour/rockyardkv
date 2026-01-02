@@ -17,7 +17,7 @@ import (
 	"github.com/aalhour/rockyardkv/internal/block"
 	"github.com/aalhour/rockyardkv/internal/checksum"
 	"github.com/aalhour/rockyardkv/internal/dbformat"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // makeInternalKeyCompat creates an internal key from user key, sequence, and type.

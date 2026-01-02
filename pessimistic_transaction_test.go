@@ -61,7 +61,7 @@ func TestPessimisticTransactionBasic(t *testing.T) {
 	}
 
 	// Verify locks are released
-	if txnDB.GetLockManager().NumLocks() != 0 {
+	if txnDB.getLockManager().NumLocks() != 0 {
 		t.Error("Expected locks to be released after commit")
 	}
 
@@ -119,7 +119,7 @@ func TestPessimisticTransactionRollback(t *testing.T) {
 	}
 
 	// Locks should be released
-	if txnDB.GetLockManager().NumLocks() != 0 {
+	if txnDB.getLockManager().NumLocks() != 0 {
 		t.Error("Expected locks to be released after rollback")
 	}
 }
@@ -479,8 +479,8 @@ func TestPessimisticTransactionRaceCondition(t *testing.T) {
 	wg.Wait()
 
 	// Verify no lingering locks
-	if txnDB.GetLockManager().NumLocks() != 0 {
-		t.Errorf("Expected 0 locks, got %d", txnDB.GetLockManager().NumLocks())
+	if txnDB.getLockManager().NumLocks() != 0 {
+		t.Errorf("Expected 0 locks, got %d", txnDB.getLockManager().NumLocks())
 	}
 }
 
@@ -614,8 +614,8 @@ func TestPessimisticTransactionStress(t *testing.T) {
 	t.Logf("Stress test results: commits=%d, rollbacks=%d, deadlocks=%d, timeouts=%d",
 		commits, rollbacks, deadlocks, timeouts)
 
-	if txnDB.GetLockManager().NumLocks() != 0 {
-		t.Errorf("Expected 0 locks after test, got %d", txnDB.GetLockManager().NumLocks())
+	if txnDB.getLockManager().NumLocks() != 0 {
+		t.Errorf("Expected 0 locks after test, got %d", txnDB.getLockManager().NumLocks())
 	}
 }
 

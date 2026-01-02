@@ -542,8 +542,14 @@ ci-local: lint-all-platforms test test-all-linux ## Reproduce full CI locally (l
 	@echo ""
 	@echo "🎉 CI simulation complete - all checks passed!"
 
+.PHONY: check-api-leaks
+check-api-leaks: ## Check for internal types leaking into public API
+	@echo "🔍 Checking for API leaks..."
+	@mkdir -p tmp/go-cache
+	@GOCACHE=$$(pwd)/tmp/go-cache $(GO) run ./cmd/apileakcheck
+
 .PHONY: check
-check: fmt lint gocyclo test-short ## Run all quality checks (fmt, lint, gocyclo, test-short)
+check: fmt lint gocyclo check-api-leaks test-short ## Run all quality checks (fmt, lint, gocyclo, api-leaks, test-short)
 	@echo "✅ All checks passed"
 
 $(COV_DIR):
@@ -777,7 +783,7 @@ jepsen-ci: $(CAMPAIGN_BIN) $(STRESS_BIN) $(CRASH_BIN) $(ADVERSARIAL_BIN) oracle-
 # EXAMPLES
 # ═══════════════════════════════════════════════════════════════════════════
 
-EXAMPLES := $(shell find examples -name main.go -type f | xargs -n1 dirname | sort)
+EXAMPLES := $(shell find examples -name main.go -type f -exec dirname {} \; | sort -u)
 
 .PHONY: examples
 examples: ## Run all examples one by one

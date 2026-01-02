@@ -1,4 +1,4 @@
-package rockyardkv
+package txn
 
 // recovery_2pc.go implements 2PC (Two-Phase Commit) recovery for Write-Prepared transactions.
 //
@@ -19,6 +19,10 @@ import (
 	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/memtable"
 )
+
+// Placeholder to satisfy linter - 2PC recovery is prepared for future DB integration.
+// TODO: Wire recovery2PCHandler into DB recovery when 2PC transactions are enabled.
+var _ = newRecovery2PCHandler
 
 // PreparedTransaction represents a recovered prepared transaction.
 type PreparedTransaction struct {

@@ -1,4 +1,4 @@
-package rockyardkv
+package txn
 
 // lock_manager.go implements the lock manager for pessimistic transactions.
 //

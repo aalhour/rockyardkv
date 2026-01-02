@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aalhour/rockyardkv/internal/vfs"
 	"github.com/aalhour/rockyardkv/internal/wal"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // TestAdversarial_ManifestChecksumCorruption tests that we reject MANIFEST files

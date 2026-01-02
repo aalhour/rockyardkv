@@ -17,183 +17,38 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/aalhour/rockyardkv/internal/flush"
 	"github.com/aalhour/rockyardkv/internal/manifest"
-	"github.com/aalhour/rockyardkv/internal/memtable"
-	"github.com/aalhour/rockyardkv/internal/table"
 	"github.com/aalhour/rockyardkv/internal/testutil"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
-var errFlushNoOutput = errors.New("flush: no output")
+// Compile-time check that dbImpl implements flush.DB interface.
+var _ flush.DB = (*dbImpl)(nil)
 
-// FlushJob flushes a memtable to an SST file.
-type FlushJob struct {
-	db *dbImpl
-
-	// The memtable being flushed
-	mem *memtable.MemTable
-
-	// Output file number
-	fileNum uint64
+// NextFileNumber implements flush.DB.
+func (db *dbImpl) NextFileNumber() uint64 {
+	return db.versions.NextFileNumber()
 }
 
-// newFlushJob creates a new flush job for the given memtable.
-func newFlushJob(db *dbImpl, mem *memtable.MemTable) *FlushJob {
-	return &FlushJob{
-		db:  db,
-		mem: mem,
-	}
+// SSTFilePath implements flush.DB.
+func (db *dbImpl) SSTFilePath(fileNum uint64) string {
+	return db.sstFilePath(fileNum)
 }
 
-// Run executes the flush job.
-// Returns the metadata of the created SST file, or an error.
-func (fj *FlushJob) Run() (*manifest.FileMetaData, error) {
-	// Whitebox [synctest]: barrier at flush start
-	_ = testutil.SP(testutil.SPFlushStart)
-
-	// Whitebox [crashtest]: crash before flush begins — tests memtable durability
-	testutil.MaybeKill(testutil.KPFlushStart0)
-
-	// Allocate a file number for the new SST file
-	fj.fileNum = fj.db.versions.NextFileNumber()
-
-	// Create the SST file
-	sstPath := fj.db.sstFilePath(fj.fileNum)
-
-	// Whitebox [synctest]: barrier before SST write
-	_ = testutil.SP(testutil.SPFlushWriteSST)
-
-	// Whitebox [crashtest]: crash before SST write — tests incomplete SST cleanup
-	testutil.MaybeKill(testutil.KPFlushWriteSST0)
-
-	file, err := fj.db.fs.Create(sstPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SST file: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-
-	// Create table builder
-	opts := table.DefaultBuilderOptions()
-	opts.ComparatorName = fj.db.comparator.Name()
-	builder := table.NewTableBuilder(file, opts)
-
-	// Iterate over the memtable and add all entries
-	iter := fj.mem.NewIterator()
-	var firstKey, lastKey []byte
-	var smallestSeq, largestSeq uint64
-
-	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
-		key := iter.Key()
-		value := iter.Value()
-
-		// The key from memtable iterator is an internal key
-		if err := builder.Add(key, value); err != nil {
-			builder.Abandon()
-			return nil, fmt.Errorf("failed to add entry to SST: %w", err)
-		}
-
-		// Track first and last keys
-		if firstKey == nil {
-			firstKey = append([]byte{}, key...)
-			smallestSeq = extractSeqNum(key)
-		}
-		lastKey = append(lastKey[:0], key...)
-		seq := extractSeqNum(key)
-		if seq < smallestSeq {
-			smallestSeq = seq
-		}
-		if seq > largestSeq {
-			largestSeq = seq
-		}
-	}
-
-	// Check for iterator errors
-	if err := iter.Error(); err != nil {
-		builder.Abandon()
-		return nil, fmt.Errorf("memtable iteration error: %w", err)
-	}
-
-	// Add range tombstones from the memtable to the SST file.
-	// Range tombstones are stored in a separate meta-block.
-	// Reference: RocksDB flushes range tombstones in flush_job.cc
-	hasRangeTombstones := false
-	if fj.mem.HasRangeTombstones() {
-		tombstones := fj.mem.GetRangeTombstones()
-		if tombstones != nil && !tombstones.IsEmpty() {
-			if err := builder.AddRangeTombstones(tombstones); err != nil {
-				builder.Abandon()
-				return nil, fmt.Errorf("failed to add range tombstones to SST: %w", err)
-			}
-			hasRangeTombstones = true
-		}
-	}
-
-	// If no entries and no range tombstones were written, abandon the file
-	if builder.NumEntries() == 0 && !hasRangeTombstones {
-		builder.Abandon()
-		// Remove the empty file
-		_ = fj.db.fs.Remove(sstPath) // Best-effort cleanup
-		return nil, errFlushNoOutput
-	}
-
-	// Finish the SST file
-	if err := builder.Finish(); err != nil {
-		return nil, fmt.Errorf("failed to finish SST file: %w", err)
-	}
-	fileSize := builder.FileSize()
-
-	// Whitebox [synctest]: barrier before SST sync
-	_ = testutil.SP(testutil.SPFlushSyncSST)
-
-	// Whitebox [crashtest]: crash before SST file sync — tests partial SST durability
-	testutil.MaybeKill(testutil.KPFileSync0)
-
-	// Sync the file
-	if err := file.Sync(); err != nil {
-		return nil, fmt.Errorf("failed to sync SST file: %w", err)
-	}
-
-	// Whitebox [crashtest]: crash after SST file sync — SST should be fully durable
-	testutil.MaybeKill(testutil.KPFileSync1)
-
-	// Sync directory to make SST file entry durable.
-	// This is required before updating MANIFEST to reference this SST.
-	// Without this, a crash could leave MANIFEST referencing a non-existent SST
-	// (the file content is synced but the directory entry is not).
-	if err := fj.db.fs.SyncDir(fj.db.name); err != nil {
-		return nil, fmt.Errorf("failed to sync directory after SST write: %w", err)
-	}
-
-	// Whitebox [synctest]: barrier at flush complete
-	_ = testutil.SP(testutil.SPFlushComplete)
-
-	// Create file metadata
-	meta := manifest.NewFileMetaData()
-	meta.FD = manifest.NewFileDescriptor(fj.fileNum, 0, fileSize)
-	meta.FD.SmallestSeqno = manifest.SequenceNumber(smallestSeq)
-	meta.FD.LargestSeqno = manifest.SequenceNumber(largestSeq)
-	meta.Smallest = firstKey
-	meta.Largest = lastKey
-
-	return meta, nil
+// FS implements flush.DB.
+func (db *dbImpl) FS() vfs.FS {
+	return db.fs
 }
 
-// extractSeqNum extracts the sequence number from an internal key.
-// Internal key format: user_key + 8 bytes (seq << 8 | type)
-func extractSeqNum(internalKey []byte) uint64 {
-	if len(internalKey) < 8 {
-		return 0
-	}
-	// Last 8 bytes contain (seq << 8 | type) in little-endian
-	tag := uint64(internalKey[len(internalKey)-8]) |
-		uint64(internalKey[len(internalKey)-7])<<8 |
-		uint64(internalKey[len(internalKey)-6])<<16 |
-		uint64(internalKey[len(internalKey)-5])<<24 |
-		uint64(internalKey[len(internalKey)-4])<<32 |
-		uint64(internalKey[len(internalKey)-3])<<40 |
-		uint64(internalKey[len(internalKey)-2])<<48 |
-		uint64(internalKey[len(internalKey)-1])<<56
+// DBPath implements flush.DB.
+func (db *dbImpl) DBPath() string {
+	return db.name
+}
 
-	return tag >> 8 // Remove the type bits
+// ComparatorName implements flush.DB.
+func (db *dbImpl) ComparatorName() string {
+	return db.comparator.Name()
 }
 
 // sstFilePath returns the path to an SST file.
@@ -221,10 +76,10 @@ func (db *dbImpl) doFlush() error {
 	db.mu.Unlock()
 
 	// Create and run the flush job
-	job := newFlushJob(db, imm)
+	job := flush.NewJob(db, imm)
 	meta, err := job.Run()
 	if err != nil {
-		if errors.Is(err, errFlushNoOutput) {
+		if errors.Is(err, flush.ErrNoOutput) {
 			// Empty flush is a no-op but still clears the immutable memtable.
 			db.mu.Lock()
 			db.imm = nil

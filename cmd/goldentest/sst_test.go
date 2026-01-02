@@ -24,7 +24,7 @@ import (
 	"github.com/aalhour/rockyardkv"
 	"github.com/aalhour/rockyardkv/internal/dbformat"
 	"github.com/aalhour/rockyardkv/internal/table"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // =============================================================================

@@ -14,7 +14,7 @@ import (
 	"io"
 
 	"github.com/aalhour/rockyardkv/internal/compression"
-	"github.com/aalhour/rockyardkv/internal/vfs"
+	"github.com/aalhour/rockyardkv/vfs"
 )
 
 // Reader reads blob records from a blob file.
