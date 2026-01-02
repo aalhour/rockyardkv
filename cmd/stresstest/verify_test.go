@@ -63,7 +63,7 @@ func TestVerifyAll_DeletedKeyReadError_ClassifiedAsErrorNotFound(t *testing.T) {
 		outCh <- buf.String()
 	}()
 
-	verifyErr := verifyAll(database, expected, stats)
+	verifyErr := verifyAll(database, expected, stats, nil)
 
 	_ = w.Close()
 	os.Stdout = oldStdout

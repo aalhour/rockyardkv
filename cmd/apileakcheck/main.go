@@ -262,7 +262,7 @@ func buildImportMap(f *ast.File) map[string]string {
 		if err != nil {
 			continue
 		}
-		name := ""
+		var name string
 		if is.Name != nil {
 			name = is.Name.Name
 		} else {

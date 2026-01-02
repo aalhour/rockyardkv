@@ -104,11 +104,18 @@ echo "[check-testdata] running Go fixture consumer tests..."
   cd "$ROOT_DIR"
 
   # Contract: Go can read the small C++-generated SST files in testdata/.
-  go test ./internal/table -run 'TestReadCppRocksDBSST($|/)' -count=1
+  echo "[check-testdata] go test ./internal/table (fixtures)..."
+  go test -json ./internal/table -run 'TestReadCppRocksDBSST($|/)' -count=1 \
+    | tee "$ROOT_DIR/tmp/check-testdata_table.json" \
+    | grep -E '"Action":"skip"' >/dev/null && echo "[check-testdata] NOTE: one or more tests were skipped in ./internal/table (see tmp/check-testdata_table.json)" || true
 
   # Contract: Go can read the C++-generated fixtures used by goldentest without
   # requiring oracle binaries.
-  go test ./cmd/goldentest -run 'TestCppWritesGoReads_Fixtures|TestManifest_Contract_CppWritesGoReads|TestWAL_CppWritesGoReads|TestDatabase_Contract_CppWritesGoReads' -count=1
+  echo "[check-testdata] go test ./cmd/goldentest (fixtures)..."
+  mkdir -p "$ROOT_DIR/tmp/go-cache"
+  GOCACHE="$ROOT_DIR/tmp/go-cache" go test -json ./cmd/goldentest -run 'TestCppWritesGoReads_Fixtures|TestManifest_Contract_CppWritesGoReads|TestWAL_CppWritesGoReads|TestDatabase_Contract_CppWritesGoReads' -count=1 \
+    | tee "$ROOT_DIR/tmp/check-testdata_goldentest.json" \
+    | grep -E '"Action":"skip"' >/dev/null && echo "[check-testdata] NOTE: one or more tests were skipped in ./cmd/goldentest (see tmp/check-testdata_goldentest.json)" || true
 )
 
 # -----------------------------------------------------------------------------

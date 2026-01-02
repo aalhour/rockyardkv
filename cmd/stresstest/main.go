@@ -492,7 +492,25 @@ func main() {
 			}
 		}
 		fmt.Println("\n🔍 Running final verification...")
-		if err := verifyAll(database, verifyState, stats); err != nil {
+		// For crash verification, we allow "DB ahead" scenarios caused by expected-state
+		// persistence lag. To classify "ahead delete" (WAL replay) vs true data loss,
+		// keep a base read-only view that does not replay WAL.
+		var baseReadOnlyDB rockyardkv.DB
+		if *allowDBAhead {
+			opts := rockyardkv.DefaultOptions()
+			opts.CreateIfMissing = false
+			if db, err := rockyardkv.OpenForReadOnly(filepath.Join(testDir, "db"), opts, false); err == nil {
+				baseReadOnlyDB = db
+				if *verbose {
+					fmt.Println("📦 Base read-only view enabled for DB-ahead delete verification")
+				}
+				defer baseReadOnlyDB.Close()
+			} else if *verbose {
+				fmt.Printf("⚠️  Base read-only open failed (skipping DB-ahead delete check): %v\n", err)
+			}
+		}
+
+		if err := verifyAll(database, verifyState, stats, baseReadOnlyDB); err != nil {
 			fmt.Printf("\n❌ STRESS TEST FAILED: final verification failed: %v\n", err)
 			exitWithFailure(err, testDir)
 		}
@@ -886,8 +904,25 @@ func runStressTest(dbPath string, expected *testutil.ExpectedStateV2, stats *Sta
 		}
 	}
 	fmt.Println("\n🔍 Running final verification...")
+	// In crash testing, the expected-state file can lag behind acknowledged operations.
+	// For "DB ahead" verification, keep a read-only view of the base state (no WAL replay)
+	// so we can distinguish "ahead delete" from true data loss.
+	var baseReadOnlyDB rockyardkv.DB
+	if *allowDBAhead {
+		opts := rockyardkv.DefaultOptions()
+		opts.CreateIfMissing = false
+		if db, err := rockyardkv.OpenForReadOnly(filepath.Join(holder.path, "db"), opts, false); err == nil {
+			baseReadOnlyDB = db
+			if *verbose {
+				fmt.Println("📦 Base read-only view enabled for DB-ahead delete verification")
+			}
+			defer baseReadOnlyDB.Close()
+		} else if *verbose {
+			fmt.Printf("⚠️  Base read-only open failed (skipping DB-ahead delete check): %v\n", err)
+		}
+	}
 	holder.mu.RLock()
-	err = verifyAll(holder.db, expected, stats)
+	err = verifyAll(holder.db, expected, stats, baseReadOnlyDB)
 	holder.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("final verification failed: %w", err)
@@ -2400,7 +2435,7 @@ func runFlusher(holder *dbHolder, expected *testutil.ExpectedStateV2, stats *Sta
 }
 
 // verifyAll performs final verification with per-key locking
-func verifyAll(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats) error {
+func verifyAll(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats *Stats, baseReadOnlyDB rockyardkv.DB) error {
 	verified := 0
 	failures := 0
 
@@ -2467,6 +2502,27 @@ func verifyAll(database rockyardkv.DB, expected *testutil.ExpectedStateV2, stats
 					// - Data is lost, but this prevents collision (the real bug)
 					if *verbose {
 						fmt.Printf("Verify: key %d expected to exist but lost (allowed, data loss under DisableWAL)\n", key)
+					}
+				} else if *allowDBAhead && errors.Is(err, rockyardkv.ErrNotFound) && baseReadOnlyDB != nil {
+					// Crash testing: expected state can lag behind acknowledged writes.
+					//
+					// We already allow "DB ahead" for PUTs (expected deleted but found / higher value base).
+					// The symmetric case is when the expected state lags behind an acknowledged DELETE:
+					// - Base state (SST/MANIFEST, no WAL replay): key exists
+					// - Recovered state (WAL replay): key is deleted
+					//
+					// In that case, the DB is ahead of expected state in the DELETE direction, which is
+					// not data loss. We only permit this when the base read-only view confirms the key
+					// existed before WAL replay.
+					if _, baseErr := baseReadOnlyDB.Get(nil, keyBytes); baseErr == nil {
+						if *verbose {
+							fmt.Printf("Verify: key %d expected to exist but missing (allowed, DB ahead delete)\n", key)
+						}
+					} else {
+						failures++
+						if *verbose {
+							fmt.Printf("Verify: key %d expected to exist but got error: %v\n", key, err)
+						}
 					}
 				} else {
 					failures++

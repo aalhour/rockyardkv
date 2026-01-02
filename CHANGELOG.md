@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-01-02
+
+### Changed
+
+Package restructure (Wave 1-4 complete):
+- Promote `internal/vfs/` to public `vfs/` package
+- Move `LockManager`, `recovery_2pc.go` to `internal/txn/`
+- Move `FlushJob` to `internal/flush/`
+- Move `parsedOptions` to `internal/options/`
+- Move `bufferPool` to `internal/mempool/`
+- Add public type aliases for `ChecksumType`, `CompressionType`, `LockManagerOptions`
+- Add capability interfaces: `ReadOnlyDB`, `SecondaryDB`, `ReplicationDB`, `WriteStallController`
+
+Documentation:
+- Update all docs to use `rockyardkv.*` instead of `db.*`
+- Update all docs to use public `vfs/` instead of `internal/vfs/`
+- Add test coverage report (`docs-internal/TEST_COVERAGE_REPORT.md`)
+
+### Added
+
+Tooling:
+- `cmd/apileakcheck` — AST-based API leak detection tool
+- `make check-api-leaks` target integrated into `make check`
+
+### Fixed
+- Linter issues in `cmd/apileakcheck/main.go` (wastedassign)
+- Formatting issues in `cmd/stresstest/main_test.go`
+
 ## [0.3.3] - 2026-01-01
 
 ### Fixed

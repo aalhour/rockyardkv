@@ -51,6 +51,7 @@ var (
 	seed             = flag.Int64("seed", 0, "Random seed (0 for time-based)")
 	stressThreads    = flag.Int("threads", 4, "Number of stress test threads")
 	stressKeys       = flag.Int64("keys", 10000, "Number of keys in the key space")
+	stressValueSize  = flag.Int("value-size", 100, "Size of each value in bytes (stresstest workload)")
 	stressSync       = flag.Bool("sync", false, "Sync writes to disk during stress and verification")
 	stressDisableWAL = flag.Bool("disable-wal", false, "Disable WAL during stress and verification")
 	verifyTimeout    = flag.Duration("verify-timeout", 2*time.Minute, "Verification timeout")
@@ -76,6 +77,13 @@ var (
 
 	// Trace collection (propagated to stresstest)
 	traceDir = flag.String("trace-dir", "", "Directory to write stresstest operation traces (one per crash cycle)")
+
+	// Verification mode for the verification phase (stresstest invocation).
+	//
+	// - auto: if -trace-dir is set and WAL is enabled, use seqno-prefix verification; otherwise expected-state verification.
+	// - expected: use expected-state verification (verify-only + expected-state) with DB-ahead tolerances.
+	// - seqno-prefix: use trace-based seqno-prefix verification (requires -trace-dir; requires WAL enabled).
+	verifyMode = flag.String("verify-mode", "auto", "Verification mode: auto, expected, seqno-prefix")
 )
 
 // TestMode represents the test execution mode
@@ -98,6 +106,10 @@ type Stats struct {
 
 func main() {
 	flag.Parse()
+
+	if *verifyMode != "auto" && *verifyMode != "expected" && *verifyMode != "seqno-prefix" {
+		fatal("Invalid -verify-mode: %q (expected: auto, expected, seqno-prefix)", *verifyMode)
+	}
 
 	if *seed == 0 {
 		*seed = time.Now().UnixNano()
@@ -127,6 +139,7 @@ func main() {
 		"db":                    testDir,
 		"threads":               *stressThreads,
 		"keys":                  *stressKeys,
+		"value-size":            *stressValueSize,
 		"sync":                  *stressSync,
 		"disable-wal":           *stressDisableWAL,
 		"kill-mode":             *killMode,
@@ -419,6 +432,7 @@ func runStressAndCrash(ctx context.Context, testDir, expectedStateFile string, c
 		"-duration", "10m", // Long duration, we'll kill it
 		"-threads", fmt.Sprintf("%d", *stressThreads),
 		"-keys", fmt.Sprintf("%d", *stressKeys),
+		"-value-size", fmt.Sprintf("%d", *stressValueSize),
 		"-seed", fmt.Sprintf("%d", cycleSeed), // Pass derived seed for reproducibility
 		"-reopen", "0", // Disable reopens during stress phase
 		"-flush", "2s", // Frequent flushes
@@ -517,19 +531,49 @@ func runVerification(ctx context.Context, testDir, expectedStateFile string, sta
 	// Derive verification seed (same pattern as stress for reproducibility)
 	verifySeed := *seed + int64(stats.cycles) + 1000000 // Offset to differentiate from stress
 
-	// Run stress test in verify-only mode
+	// Run stress test in the selected verification mode.
 	stressArgs := []string{
 		"-db", testDir,
 		"-duration", "5s", // Short duration for verification
 		"-threads", "1", // Single thread for verification
 		"-keys", fmt.Sprintf("%d", *stressKeys),
+		"-value-size", fmt.Sprintf("%d", *stressValueSize),
 		"-seed", fmt.Sprintf("%d", verifySeed), // Pass derived seed for reproducibility
 		"-verify-every", "1", // Verify everything
 		"-reopen", "0",
-		"-expected-state", expectedStateFile, // Load persisted expected state
-		"-verify-only",
-		"-allow-db-ahead", // Allow DB to be ahead of expected state (race condition)
 		"-v",
+	}
+
+	mode := *verifyMode
+	if mode == "auto" {
+		// Seqno-prefix verification requires traces and WAL.
+		if *traceDir != "" && !*stressDisableWAL {
+			mode = "seqno-prefix"
+		} else {
+			mode = "expected"
+		}
+	}
+
+	switch mode {
+	case "expected":
+		stressArgs = append(stressArgs,
+			"-expected-state", expectedStateFile, // Load persisted expected state
+			"-verify-only",
+			"-allow-db-ahead", // Allow DB to be ahead of expected state (race condition)
+		)
+	case "seqno-prefix":
+		if *stressDisableWAL {
+			return fmt.Errorf("verify-mode=seqno-prefix requires WAL enabled (do not use with -disable-wal)")
+		}
+		if *traceDir == "" {
+			return fmt.Errorf("verify-mode=seqno-prefix requires -trace-dir")
+		}
+		stressArgs = append(stressArgs,
+			"-seqno-prefix-verify",
+			"-trace-dir", *traceDir,
+		)
+	default:
+		return fmt.Errorf("internal: unexpected verify mode %q", mode)
 	}
 
 	if *stressSync {
